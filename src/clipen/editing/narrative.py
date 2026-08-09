@@ -23,7 +23,12 @@ from pathlib import Path
 from clipen.analysis.asr import TranscriptSegment, transcribe
 from clipen.analysis.audio_energy import segment_rms_db
 from clipen.analysis.shots import detect_shots
-from clipen.analysis.silence import SilenceSpan, detect_silence
+from clipen.analysis.silence import (
+    DEFAULT_MIN_SILENCE_DURATION,
+    DEFAULT_NOISE_THRESHOLD_DB,
+    SilenceSpan,
+    detect_silence,
+)
 from clipen.analysis.visual import describe_clip_visually
 from clipen.editing.models import EditDecision
 from clipen.llm.base import LLMClient, LLMMessage
@@ -218,6 +223,8 @@ def build_narrative_edit_decisions(
     instructions: str = "",
     target_duration_seconds: float | None = None,
     transition_style: str | None = None,
+    noise_threshold_db: float = DEFAULT_NOISE_THRESHOLD_DB,
+    min_silence_duration: float = DEFAULT_MIN_SILENCE_DURATION,
 ) -> list[EditDecision]:
     groups: dict[str, list[Path]] = {}
     group_order: list[str] = []
@@ -236,7 +243,11 @@ def build_narrative_edit_decisions(
     visual_summaries: dict[Path, str] = {}
 
     for path in winners:
-        silence_spans = detect_silence(path)
+        silence_spans = detect_silence(
+            path,
+            noise_threshold_db=noise_threshold_db,
+            min_silence_duration=min_silence_duration,
+        )
         trimmed_spans[path] = trim_silence(durations[path], silence_spans)
         transcripts[path] = transcribe(path)
         if vision_client is not None:
