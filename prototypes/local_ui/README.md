@@ -140,7 +140,7 @@ API 使用精確 Host／Origin、CSRF、HttpOnly／SameSite cookie、短效 boot
 
 2026-08-28 的本機驗證：
 
-- 83 項 Python／HTTP／stdio 合成測試與 Skills 測試通過，包含 EOF、HUP／TERM／INT、
+- 85 項 Python／HTTP／stdio 合成測試與 Skills 測試通過，包含 EOF、HUP／TERM／INT、
   父程序強制結束、控制終端掛斷、DB／鎖釋放、連結重用與權限檢查。
 - 10 項前端狀態回歸測試通過，涵蓋送出條件、未知回執／同筆核對、阻止連點、
   保留新草稿、304、停用／重連、授權失效、鍵盤焦點／回覆通知、分批顯示與背景節流。
@@ -181,8 +181,11 @@ python3 -m tools.release_audit --base origin/main
 JavaScript 語法與狀態測試（Node 20+；本機 20.19.1），執行 UI 不需要 Node。
 
 CI 設定涵蓋 macOS／Python 3.10、Linux／Python 3.12 與 Node 22，使用固定
-action commit、唯讀權限及 10 分鐘逾時，不呼叫模型。已在本機驗證測試與設定；
-遠端 CI 尚待執行。發布掃描除目前樹外，可依明確基準查待推歷史；若開發文件
+action commit、唯讀權限及 10 分鐘逾時，不呼叫模型。macOS CI 明確選用 runner
+已安裝的 OpenSSL 3；原生 LibreSSL 不可代替所需的 Ed25519 功能。生命週期測試
+在同一時間上限內等待 HTTP 停止與資料庫鎖釋放，不假定兩者同時完成；永久鎖定
+及其他資料庫錯誤仍須失敗。遠端結果以最新 PR checks 為準。
+發布掃描除目前樹外，可依明確基準查待推歷史；若開發文件
 已在舊 commits，刪除目前檔案仍不能算通過。掃描不自動整理歷史，也不保證偵測
 所有私人內容；推送前仍須檢查實際暫存內容與全部待推 commits。
 

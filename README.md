@@ -151,10 +151,10 @@ node --test tests/test_ui.mjs
 ```
 
 以上驗證／測試命令不處理私人影片、不呼叫 AI，也不產生 AI 服務費用。
-目前 83 項 Python 測試與 10 項前端狀態測試通過，包含合成 HTTP／MCP、
+目前 85 項 Python 測試與 10 項前端狀態測試通過，包含合成 HTTP／MCP、
 系統內容不外送、程序生命週期、重送及效能工作量界線；不能代替真實 AI 或
 Resolve 驗收。前端測試需 Node 20+（本機 20.19.1；CI 使用 22），日常 UI 不需要 Node。
-已加入 macOS／Linux CI 設定；遠端 CI 結果需在提交／PR 後另行確認。
+已加入 macOS／Linux CI 設定；遠端結果以最新 PR checks 為準。
 完整操作與保護限制見 [Skills 保護說明](docs/SKILL_PROTECTION.md)。
 
 ## 系統 Skills
