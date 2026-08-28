@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import {randomUUID} from 'node:crypto';
 
-export function harness(initial) {
+export function harness(initial, page = 'diagnostics') {
   const nodes = new Map(), calls = [], timers = new Map(), listeners = new Map();
   let timerId = 0, renders = 0, responder;
   class Element {
@@ -41,7 +41,7 @@ export function harness(initial) {
     }
   }
   const root = new Element('root');
-  const html = fs.readFileSync(new URL('../prototypes/local_ui/static/index.html', import.meta.url), 'utf8');
+  const html = fs.readFileSync(new URL('../prototypes/local_ui/static/' + (page === 'workspace' ? 'index' : 'diagnostics') + '.html', import.meta.url), 'utf8');
   for (const match of html.matchAll(/<(\w+)[^>]*\bid="([^"]+)"[^>]*>/g)) {
     const node = new Element(match[1]); node.id = match[2]; node.hidden = /\bhidden\b/.test(match[0]); nodes.set(node.id, node); root.append(node);
   }
@@ -65,7 +65,7 @@ export function harness(initial) {
     clearTimeout: (id) => timers.delete(id),
     fetch: async (path, options) => { calls.push({path, options}); return responder(path, options); },
   });
-  for (const name of ['ui-state.js', 'app.js']) vm.runInContext(fs.readFileSync(new URL(`../prototypes/local_ui/static/${name}`, import.meta.url), 'utf8'), context);
+  for (const name of (page === 'workspace' ? ['workspace-state.js', 'workspace.js'] : ['ui-state.js', 'app.js'])) vm.runInContext(fs.readFileSync(new URL(`../prototypes/local_ui/static/${name}`, import.meta.url), 'utf8'), context);
   return {nodes, calls, timers, listeners, document, context, response,
     evaluate: (code) => vm.runInContext(code, context),
     respond: (fn) => { responder = fn; },

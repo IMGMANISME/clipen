@@ -1,4 +1,4 @@
-"""Loopback-only, authenticated prototype UI; no HTTP agent or file APIs."""
+"""Loopback-only UI and inert draft storage; no HTTP agent or file APIs."""
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -200,6 +200,10 @@ class Handler(BaseHTTPRequestHandler):
                 raise Rejected('service_stopped', 503)
             if not mutation:
                 static = {'/': ('index.html', 'text/html'), '/app.js': ('app.js', 'text/javascript'),
+                          '/diagnostics': ('diagnostics.html', 'text/html'),
+                          '/workspace.js': ('workspace.js', 'text/javascript'),
+                          '/workspace-state.js': ('workspace-state.js', 'text/javascript'),
+                          '/workspace.css': ('workspace.css', 'text/css'),
                           '/ui-state.js': ('ui-state.js', 'text/javascript'),
                           '/app.css': ('app.css', 'text/css')}
                 if self.path in static:
@@ -207,9 +211,11 @@ class Handler(BaseHTTPRequestHandler):
                     self.respond(200, (STATIC / name).read_bytes(), mime + '; charset=utf-8')
                 elif self.path == '/health':
                     self.respond(200, {'service': 'clipen-prototype'})
-                elif self.path == '/api/state':
+                elif self.path in ('/api/state', '/api/preparation'):
                     self.authenticate()
-                    etag, raw = self.server.runtime.encoded_state(self.server.csrf)
+                    encode = (self.server.runtime.encoded_preparation if self.path == '/api/preparation'
+                              else self.server.runtime.encoded_state)
+                    etag, raw = encode(self.server.csrf)
                     if self.headers.get_all('If-None-Match') == [etag]:
                         self.respond(304, b'', etag=etag)
                     else:

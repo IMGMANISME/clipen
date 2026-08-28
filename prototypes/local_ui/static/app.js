@@ -231,7 +231,7 @@ async function poll() {
 }
 async function start() {
   const token = window.location.hash.slice(1);
-  history.replaceState(null, '', '/');
+  history.replaceState(null, '', '/diagnostics');
   try {
     if (token) {
       try { await api('/api/session', {token}); }

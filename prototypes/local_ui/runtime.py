@@ -23,6 +23,8 @@ class Runtime:
         self.queue_revision = 0
         self._state_key = None
         self._encoded_state = None
+        self._preparation_key = None
+        self._encoded_preparation = None
         self.binding = None
         self.client = None
         self.polling = False
@@ -55,6 +57,9 @@ class Runtime:
         with self.lock:
             if self.stop.is_set():
                 raise Rejected('service_stopped', 503)
+            if path == '/api/preparation':
+                # Local-only: does not enqueue work, grant file access or wake an AI.
+                return self.store.save_preparation(body)
             if path == '/api/jobs':
                 result = self.store.create(body, self.binding)
             else:
@@ -76,6 +81,20 @@ class Runtime:
                 self._encoded_state = ('"' + hashlib.sha256(raw).hexdigest() + '"', raw)
                 self._state_key = key
             return self._encoded_state
+
+    def encoded_preparation(self, csrf):
+        """Compact browser-only state; never return the draft through MCP."""
+        with self.lock:
+            key = (self.store.revision, csrf)
+            if key != self._preparation_key:
+                state = {'draft': self.store.preparation(), 'csrf': csrf,
+                         'capabilities': {'draft_storage': True, 'directory_picker': False,
+                                          'media': False, 'plan_generation': False,
+                                          'editing': False, 'resolve': False}}
+                raw = json.dumps(state, ensure_ascii=False).encode('utf-8')
+                self._encoded_preparation = ('"' + hashlib.sha256(raw).hexdigest() + '"', raw)
+                self._preparation_key = key
+            return self._encoded_preparation
 
     def begin_session_check(self, candidate):
         with self.lock:

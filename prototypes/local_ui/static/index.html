@@ -3,77 +3,43 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="color-scheme" content="light">
-  <title>Clipen · 本機工作台</title>
-  <link rel="stylesheet" href="/app.css">
-  <script src="/ui-state.js" defer></script>
-  <script src="/app.js" defer></script>
+  <meta name="color-scheme" content="light dark">
+  <title>Clipen · 準備作品</title>
+  <link rel="stylesheet" href="/workspace.css">
+  <script src="/workspace-state.js" defer></script>
+  <script src="/workspace.js" defer></script>
 </head>
 <body>
-  <section id="closed-screen" class="closed-screen" role="status" hidden>
-    <div class="panel"><p class="eyebrow">CLIPEN · LOCAL SESSION</p><h1 id="closed-title" tabindex="-1">本機介面已停用</h1>
-      <p id="closed-reason">AI terminal 已結束，或本機服務連線中斷。</p>
-      <p>已儲存的工作與回覆仍保留在本機。請回到專案目錄重新開啟 AI，使用 terminal 顯示的新連結。</p>
-      <p class="muted">未完成的工作需在重開後核對，不會自動重送。若只是暫時斷線，可以重新檢查本次服務。</p>
-      <div id="draft-rescue" hidden><label for="closed-draft">尚未送出的文字（請先複製保存）</label><textarea id="closed-draft" readonly rows="4"></textarea></div>
-      <button type="button" id="reconnect" class="secondary">重新檢查連線</button>
-    </div>
-  </section>
-  <div id="workspace">
-  <a class="skip-link" href="#main">跳到工作台</a>
-  <aside class="sidebar">
-    <a class="brand" href="#main"><span class="mark" aria-hidden="true">c/</span>clipen<span class="alpha">P0</span></a>
-    <p class="side-label">YOUR EDITING WORKSPACE</p>
-    <nav aria-label="工作台導覽">
-      <a class="nav-item current" href="#main"><span aria-hidden="true">◫</span>連線工作台</a>
-      <a class="nav-item" href="#plan"><span aria-hidden="true">≡</span>剪輯計畫</a>
-      <a class="nav-item" href="#activity"><span aria-hidden="true">↺</span>工作紀錄</a>
-    </nav>
-    <div class="side-bottom"><span class="local-dot"></span> LOCAL WORKSPACE<p>素材留在你的掌握之中。<br>每次送出，都由你確認。</p></div>
-  </aside>
-  <div class="shell">
-    <header class="topbar"><span>工作空間 <span class="slash">/</span> 連線原型</span><span class="badge">EARLY ACCESS · 實驗中</span></header>
-    <main id="main" tabindex="-1">
-      <div class="heading"><div><p class="eyebrow">LET'S MAKE THE FIRST CONNECTION</p><h1>先讓你的 AI 與工作台接上。</h1><p class="intro">這是文字連線原型。先驗證需求與回覆，不讀取素材，也還不會剪片。</p></div><span class="step-index">01 <span>/ 05</span></span></div>
-      <ol class="workflow" aria-label="產品流程與實作狀態"><li class="active"><b>01</b>連接 AI <small>本次原型</small></li><li><b>02</b>加入素材 <small>尚未實作</small></li><li><b>03</b>確認計畫 <small>尚未實作</small></li><li><b>04</b>剪輯預覽 <small>尚未實作</small></li><li><b>05</b>匯出作品 <small>尚未實作</small></li></ol>
-      <div id="error" class="notice error" role="alert" hidden></div>
-      <p id="announcement" class="sr-only" role="status" aria-live="polite"></p>
-      <button id="retry-request" class="secondary" hidden>核對上一筆請求（不建立新工作）</button>
-      <p class="readiness-note">目前尚未支援由 UI 自動喚醒 AI；只有 AI 工具正在等待工作時才能送出。開頁或連線成功，不代表已開始處理。</p>
-      <div class="grid">
-        <section class="panel composer" aria-labelledby="test-title">
-          <div class="panel-title"><span class="eyebrow">CONNECTION CHECK</span><span class="badge subtle">文字測試</span></div>
-          <h2 id="test-title">讓 AI 回覆第一個需求</h2>
-          <p class="muted">把一小段剪輯想法交給你啟動的 AI，確認回覆會回到這裡。</p>
-          <form id="task-form">
-            <label for="prompt">你的測試需求</label>
-            <textarea id="prompt" rows="5" maxlength="2000" aria-describedby="prompt-note count send-hint" placeholder="例如：我想把一段教學剪得更精簡，請用三點說明你會怎麼安排節奏。" required></textarea>
-            <div class="field-note"><span id="prompt-note">只送出這段文字，不讀取素材。未送出草稿請自行保存。</span><span id="count">0 / 1000 字</span></div>
-            <label class="consent"><input type="checkbox" id="consent" required><span>我同意將這段文字送給目前連接的 AI；若使用雲端 AI，可能產生服務費用。</span></label>
-            <div class="compose-footer"><span id="send-hint" class="muted">正在確認本機連線…</span><button type="submit" id="send" disabled>送給 AI <span aria-hidden="true">↗</span></button></div>
-          </form>
-        </section>
-        <aside class="panel connection" aria-labelledby="connection-title">
-          <p class="eyebrow">LIVE CONNECTION</p><h2 id="connection-title">連線狀態</h2>
-          <div class="status-line"><span id="connection-dot" class="status-dot"></span><strong id="connection-label" role="status">確認中</strong></div>
-          <dl><div><dt>AI 用戶端</dt><dd id="client">—</dd></div><div><dt>工作模式</dt><dd>文字往返原型</dd></div><div><dt>工作保存</dt><dd>本機，不自動重送</dd></div></dl>
-          <details class="technical-note"><summary>連線驗證範圍</summary><p>只確認 MCP 通道與取件狀態，尚未驗證供應商 session 身分或完整自動流程。工作紀錄使用本機 SQLite。</p></details>
-          <p class="small-note" id="connection-note">MCP 握手不代表模型已開始工作。</p>
-          <div class="privacy-note">不含隱藏模型呼叫<br><span>回覆由連接此通道的 AI 提交；不自動另開模型。</span></div>
-        </aside>
-      </div>
-      <section class="section" aria-labelledby="jobs-title"><div class="section-heading"><h2 id="jobs-title" tabindex="-1">工作與回覆 <span id="job-count" class="number">0</span></h2><span class="muted">已送出工作可保留；中斷先核對</span></div><div id="jobs"><div class="empty-state"><span aria-hidden="true">↗</span><h3>第一個回覆，從這裡開始。</h3><p>AI 等待接件時送出文字，這裡會顯示處理狀態與回覆。</p></div></div><button type="button" id="more-jobs" class="secondary" hidden>顯示更多工作</button></section>
-      <section id="plan" class="section" aria-labelledby="plan-title"><div class="section-heading"><h2 id="plan-title">剪輯計畫</h2><span class="badge subtle">尚未實作</span></div>
-        <div class="panel plan-placeholder"><h3>先有素材與需求，再決定怎麼剪。</h3>
-          <p>AI 將依內部剪輯規則、你的需求與毛片分析，結合你提供的範例作品，產生這次作品的剪輯計畫。</p>
-          <p>你可以修改段落、選材、節奏、字幕、插圖與效果安排；確認計畫並按下開始後，才會剪輯。</p>
-          <p class="muted">目前尚未接入素材分析、計畫生成與編輯器。上方文字回覆只是通道測試，不是可執行的剪輯計畫。系統規則不在此介面公開。</p>
+  <a class="skip-link" href="#main">跳到作品準備</a>
+  <header class="topbar"><a class="brand" href="/" aria-label="Clipen 首頁">clipen</a><span id="local-status" role="status">正在開啟本機工作台…</span></header>
+  <main id="main" tabindex="-1">
+    <section id="closed-screen" class="panel" hidden aria-labelledby="closed-title">
+      <h1 id="closed-title" tabindex="-1">工作台連線已中斷</h1>
+      <p id="closed-reason">請重新檢查連線；若 AI terminal 已關閉，請回到專案重新開啟 AI，使用 terminal 顯示的新連結。</p>
+      <p>已儲存的準備草稿仍留在本機，重開後會自動載入。尚未儲存的內容可在下方複製。</p>
+      <button type="button" id="reconnect">重新檢查連線</button>
+    </section>
+    <div id="workspace">
+      <p class="eyebrow">準備這次作品</p>
+      <h1>你想做一支什麼影片？</h1>
+      <p class="intro">先留下素材位置與剪輯想法，下次開啟工作台可以接著準備。</p>
+      <ol class="workflow" aria-label="產品流程"><li aria-current="step">1 準備素材</li><li>2 分析素材</li><li>3 確認計畫</li><li>4 剪輯與預覽</li><li>5 匯出</li></ol>
+      <div class="availability"><strong>目前可準備與保存草稿。</strong> 素材分析、剪輯計畫與匯出尚未開放；儲存不會開始剪輯。</div>
+      <form id="preparation-form" novalidate>
+        <div class="materials">
+          <section class="panel" aria-labelledby="source-title"><h2 id="source-title">毛片目錄</h2><p>你這次拍攝的影片放在哪裡？</p><label for="source-directory">目錄完整路徑</label><input type="text" id="source-directory" placeholder="例如：/Volumes/素材/咖啡教學/毛片" autocomplete="off" spellcheck="false" aria-describedby="path-note" disabled></section>
+          <section class="panel" aria-labelledby="reference-title"><h2 id="reference-title">參考作品 <span class="optional">選填</span></h2><p>留下你喜歡的節奏或呈現方式。</p><label for="reference-directory">參考目錄完整路徑</label><input type="text" id="reference-directory" placeholder="沒有參考作品也可以先準備" autocomplete="off" spellcheck="false" aria-describedby="path-note" disabled></section>
         </div>
-      </section>
-      <section id="activity" class="section"><div class="section-heading"><h2>工作紀錄</h2><span class="muted">最近 100 筆 · 不保存推理過程</span></div><div id="events" class="event-list"><p class="muted">還沒有工作事件。</p></div></section>
-      <footer>CLIPEN <span>由你的 AI 執行，讓你保留創作的決定權。</span><span>本機 UI ≠ 雲端 AI 離線執行</span></footer>
-    </main>
-  </div>
-  </div>
+        <p id="path-note" class="muted">這一版先貼上路徑，不會開啟目錄、檢查檔案或上傳素材。未填完也能儲存。</p>
+        <section class="panel brief"><label for="brief">想剪成什麼樣子？</label><textarea id="brief" rows="5" placeholder="例如：剪成一分鐘的手沖咖啡教學，保留三個操作重點，加上中文字幕。" aria-describedby="brief-note" disabled></textarea><p id="brief-note" class="muted">先描述目的、想保留的內容或偏好的節奏。這份需求草稿還不是 AI 產生的剪輯計畫。</p></section>
+        <p id="error" class="notice error" role="alert" hidden></p>
+        <div id="conflict" class="notice" hidden><h2>另一個分頁更新了草稿</h2><p>你的輸入還在。請比較已保存的版本，再決定保留哪一份。</p><label for="latest-draft">目前本機已保存的內容</label><textarea id="latest-draft" readonly rows="6"></textarea><div class="actions"><button type="button" id="load-latest" class="secondary">載入已保存版本</button><button type="button" id="save-mine" class="secondary">以我的內容更新</button></div></div>
+        <div class="save-bar"><div><p id="save-status" role="status">正在讀取已保存的草稿…</p><p id="save-hint" class="muted">只儲存在這台電腦，不會送給 AI。</p></div><button type="submit" id="save-draft" disabled>儲存準備草稿</button><button type="button" id="check-save" hidden>確認儲存結果</button></div>
+      </form>
+    </div>
+    <section id="draft-rescue" class="panel" hidden><label for="rescue-text">尚未確認儲存的內容（可複製保存）</label><textarea id="rescue-text" readonly rows="8"></textarea></section>
+    <footer><span>素材位置與需求只保存在本機</span><a href="/diagnostics">連線診斷與文字測試</a></footer>
+    <noscript><p class="notice error">工作台需要 JavaScript 才能儲存草稿，請在瀏覽器啟用後重新整理。</p></noscript>
+  </main>
 </body>
 </html>

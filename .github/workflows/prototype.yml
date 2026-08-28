@@ -57,6 +57,8 @@ jobs:
         run: |
           node --check prototypes/local_ui/static/app.js
           node --check prototypes/local_ui/static/ui-state.js
-          node --test tests/test_ui.mjs
+          node --check prototypes/local_ui/static/workspace.js
+          node --check prototypes/local_ui/static/workspace-state.js
+          node --test tests/test_ui.mjs tests/test_preparation_ui.mjs
       - name: Check whitespace
         run: git show --format= --check HEAD

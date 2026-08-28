@@ -1,4 +1,4 @@
-"""Durable text-only work queue. No media, model API, or shell execution."""
+"""Durable preparation drafts and text queue. No media or model execution."""
 from __future__ import annotations
 
 from contextlib import contextmanager
@@ -76,9 +76,10 @@ class Store:
             self.db.execute('PRAGMA journal_mode=DELETE')
             self.db.execute('PRAGMA synchronous=FULL')
             version = self.db.execute('PRAGMA user_version').fetchone()[0]
-            if version not in (0, 1):
+            if version not in (0, 1, 2):
                 raise Rejected('unsupported_state_version', 503)
             self.db.executescript('''
+                BEGIN IMMEDIATE;
                 CREATE TABLE IF NOT EXISTS jobs (
                     id TEXT PRIMARY KEY, prompt TEXT NOT NULL, status TEXT NOT NULL,
                     version INTEGER NOT NULL, attempt TEXT, binding TEXT, result TEXT,
@@ -88,7 +89,13 @@ class Store:
                 CREATE TABLE IF NOT EXISTS events (
                     seq INTEGER PRIMARY KEY AUTOINCREMENT, job_id TEXT NOT NULL,
                     kind TEXT NOT NULL, created REAL NOT NULL);
-                PRAGMA user_version=1;
+                CREATE TABLE IF NOT EXISTS preparation (
+                    id INTEGER PRIMARY KEY CHECK (id=1),
+                    version INTEGER NOT NULL, source_directory TEXT NOT NULL,
+                    reference_directory TEXT NOT NULL, brief TEXT NOT NULL,
+                    updated REAL NOT NULL);
+                PRAGMA user_version=2;
+                COMMIT;
             ''')
             self.mutex = threading.RLock()
             with self.transaction():
@@ -145,6 +152,37 @@ class Store:
             self.event(job, 'queued')
             return {'job_id': job, 'job_version': 1, 'status': 'queued'}
         return self.command(body, 'create', operation)
+
+    def preparation(self):
+        with self.mutex:
+            row = self.db.execute(
+                'SELECT version,source_directory,reference_directory,brief,updated FROM preparation WHERE id=1'
+            ).fetchone()
+            return dict(row) if row else {
+                'version': 0, 'source_directory': '', 'reference_directory': '',
+                'brief': '', 'updated': None,
+            }
+
+    def save_preparation(self, body):
+        from .preparation import validate
+        values = validate(body)
+
+        def operation():
+            current = self.preparation()
+            if current['version'] != body['expected_version']:
+                raise Rejected('draft_version_conflict')
+            version = current['version'] + 1
+            self.db.execute('''INSERT INTO preparation VALUES(1,?,?,?,?,?)
+                ON CONFLICT(id) DO UPDATE SET version=excluded.version,
+                source_directory=excluded.source_directory,
+                reference_directory=excluded.reference_directory,
+                brief=excluded.brief,updated=excluded.updated''',
+                (version, values['source_directory'], values['reference_directory'],
+                 values['brief'], time.time()))
+            # The receipt contains no paths or brief. A retry cannot overwrite a newer draft.
+            return {'status': 'draft_saved', 'draft_version': version}
+
+        return self.command(body, 'save_preparation', operation)
 
     def change(self, job, action, body, binding):
         def operation():
