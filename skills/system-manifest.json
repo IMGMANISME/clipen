@@ -1,0 +1,30 @@
+{
+  "format": 1,
+  "skills": {
+    "clipen-clean-cut": {
+      "role": "editing",
+      "sha256": "5f034a315824fdf60765cdfecca1647d4067fa0c80b7835b6248a677f23c5eda",
+      "size": 2554
+    },
+    "clipen-core": {
+      "role": "core",
+      "sha256": "f34056a5ee3f0387edaecfe4356b5ee9e7ebf926190277b3854c3e65470b7f5a",
+      "size": 8669
+    },
+    "clipen-highlight": {
+      "role": "editing",
+      "sha256": "94d8893f2ea662c654ec291a0b98a373052d52b5135026eb027fe266ea290113",
+      "size": 2861
+    },
+    "clipen-story-vlog": {
+      "role": "editing",
+      "sha256": "8c88b6c3d14a945e504183380e7c8d9e0980874445573dda90969bd9ec59a443",
+      "size": 2835
+    },
+    "clipen-talking-head": {
+      "role": "editing",
+      "sha256": "7cbad9f602ebdea94b182eaf44d05cda5be08dc007e19a3cc04d8fcc9bb36ff3",
+      "size": 2773
+    }
+  }
+}
