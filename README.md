@@ -1,21 +1,14 @@
 # Clipen
 
-狀態：重新規劃中。舊實作已移除，目前沒有可執行的 Clipen App 或 CLI。
+開發中的桌面 AI 剪輯工具。本提交先建立公開產品架構與已簽署系統 Skills，
+尚未提供剪輯功能。後續本機 UI 與文字通道會以獨立提交加入。
 
-Clipen 希望把原始影片變成 AI 初剪，再交給 DaVinci Resolve 完成細修。
-重新設計以 **架構、效能、UX** 為三個重點，不沿用舊版本的技術選型、
-模組切分、資料契約或里程碑作為既定前提。
+- [產品架構](ARCHITECTURE.md)
+- [系統 Skills 保護與限制](docs/SKILL_PROTECTION.md)
 
-## 目前保留的文件
+```sh
+python3 -m tools.skill_guard verify
+python3 -m unittest discover -s tests -p 'test_skill_guard.py' -v
+```
 
-- [產品需求與重新規劃原則](docs/PRODUCT_GOAL.md)：目前唯一的產品需求基線。
-- [重置紀錄](docs/RESET_CHECKPOINT.md)：移除範圍與不保留額外備份的決定。
-
-下一步先定義一條最小使用流程及可量測的效能目標，再選擇架構與技術。
-目前不建立新的框架、依賴、資料 schema 或應用骨架。
-
-## 本機保留資料
-
-Git 歷史、個人設定、既有虛擬環境與 `tests/fixtures/` 的 3 支影片均保留。
-影片僅是舊測試資料，不代表新版本的測試或品質證據。
-既有 `.venv` 不代表專案仍可安裝或執行；舊 CLI 入口與依賴宣告已移除。
+開發文件、個人設定、憑證與素材不隨本產品發布。
