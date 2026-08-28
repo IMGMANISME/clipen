@@ -15,11 +15,11 @@ import tempfile
 import threading
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from prototypes.local_ui.__main__ import ROOT
 from prototypes.local_ui.lifecycle import announce_in_terminal, input_lines
-from prototypes.local_ui.store import Store
+from prototypes.local_ui.store import Rejected, Store
 
 
 MESSAGES = b''.join(json.dumps(message).encode() + b'\n' for message in [
@@ -123,8 +123,37 @@ class ProcessTests(unittest.TestCase):
         while self.health() and time.monotonic() < deadline:
             time.sleep(0.05)
         self.assertFalse(self.health(), 'HTTP server survived its owner')
-        store = Store(self.root)
-        store.close()  # Writer lock released; not merely refusing health requests.
+        # HTTP refuses requests as soon as shutdown starts; the owner still
+        # closes HTTP threads and SQLite before releasing the writer lock.
+        # Require both within the same deadline, not in the same instant.
+        while True:
+            try:
+                store = Store(self.root)
+            except Rejected as error:
+                if error.code != 'workspace_already_running' or time.monotonic() >= deadline:
+                    raise
+                time.sleep(0.05)
+            else:
+                store.close()
+                break
+
+    def test_shutdown_waits_for_writer_release_after_http_stops(self):
+        released = Mock()
+        with patch.object(self, 'health', return_value=False), \
+             patch(__name__ + '.Store', side_effect=[Rejected('workspace_already_running', 503), released]) as acquire, \
+             patch('time.sleep'):
+            self.assert_stopped()
+        self.assertEqual(acquire.call_count, 2)
+        released.close.assert_called_once_with()
+
+    def test_shutdown_release_deadline_and_other_errors_are_not_ignored(self):
+        for code, clock in [('workspace_already_running', [10.0, 16.0]), ('unsupported_schema', [10.0])]:
+            with self.subTest(code=code), patch.object(self, 'health', return_value=False), \
+                 patch(__name__ + '.Store', side_effect=Rejected(code)), \
+                 patch('time.monotonic', side_effect=clock), patch('time.sleep') as sleep:
+                with self.assertRaisesRegex(Rejected, code):
+                    self.assert_stopped()
+                sleep.assert_not_called()
 
     def test_eof_stops_ui_and_releases_workspace(self):
         process = self.start()

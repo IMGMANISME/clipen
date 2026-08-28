@@ -35,6 +35,10 @@ no-follow／dir-fd 檔案操作。不需安裝 Python 套件；在本機 macOS �
 尚未驗證 Linux，Windows 目前不支援。不會因平台或 OpenSSL 不支援而跳過檢查。
 這是此保護工具的實作選擇，不代表整個 App 已選定 Python 架構。
 
+macOS 內建的 `openssl` 可能是 LibreSSL，未必支援此處需要的 Ed25519 操作。
+請確認 PATH 中選用的是已安裝且支援該功能的 OpenSSL；驗證失敗不能略過。
+CI 在 macOS runner 明確選用已安裝的 OpenSSL 3，不修改使用者的全域環境。
+
 在專案根目錄執行：
 
 ```sh

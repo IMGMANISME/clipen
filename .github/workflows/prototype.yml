@@ -36,6 +36,17 @@ jobs:
         with:
           node-version: '22'
           package-manager-cache: false
+      - name: Select supported OpenSSL on macOS
+        if: runner.os == 'macOS'
+        run: |
+          openssl_bin="$(brew --prefix openssl@3)/bin"
+          test -x "$openssl_bin/openssl"
+          echo "$openssl_bin" >> "$GITHUB_PATH"
+      - name: Show runtime prerequisites
+        run: |
+          python --version
+          node --version
+          openssl version
       - name: Verify signed product Skills
         run: python -m tools.skill_guard verify
       - name: Check proposed public tree
