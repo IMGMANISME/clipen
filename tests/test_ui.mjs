@@ -18,6 +18,28 @@ test('send requires waiting worker, meaningful text, and current consent', async
   await fill(h, '中'.repeat(1001)); assert.equal(h.nodes.get('send').disabled, true);
 });
 
+test('route proof alone never enables submission or claims native session verification', async () => {
+  const snapshot = state(false);
+  snapshot.connection.session_check = {state: 'route_verified', route_verified: true, native_identity_verified: false, automatic_submission: false};
+  const h = await setup(snapshot);
+  await fill(h);
+  assert.equal(h.nodes.get('send').disabled, true);
+  assert.match(h.nodes.get('connection-note').textContent, /仍需確認原 AI 對話/);
+  assert.equal(h.calls.filter((call) => call.options.method === 'POST').length, 0);
+});
+
+test('binding progress and failure are visible without clearing the unsent draft', async () => {
+  const snapshot = state(false);
+  snapshot.connection.session_check = {state: 'checking'};
+  const h = await setup(snapshot); await fill(h);
+  assert.match(h.nodes.get('connection-note').textContent, /不會送出你的文字/);
+  const next = structuredClone(snapshot); next.connection.session_check = {state:'unavailable', reason:'provider_probe_expired'};
+  h.respond(async () => h.response(200, next)); await h.evaluate('refresh()');
+  assert.match(h.nodes.get('connection-note').textContent, /核對未完成/);
+  assert.equal(h.nodes.get('prompt').value, '測試文字');
+  assert.equal(h.nodes.get('send').disabled, true);
+});
+
 test('unknown receipt reuses identical request and clears acknowledged draft exactly once', async () => {
   const h = await setup(); await fill(h);
   let attempts = 0;

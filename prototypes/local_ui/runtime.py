@@ -8,6 +8,7 @@ import time
 
 from tools.skill_guard import SkillStore
 from .store import Rejected, Store
+from .session_binding import SessionBinding
 
 
 class Runtime:
@@ -27,6 +28,7 @@ class Runtime:
         self.polling = False
         self.last_poll = None
         self.stop = threading.Event()
+        self.session = SessionBinding()
 
     def connect(self, client):
         with self.lock:
@@ -37,11 +39,13 @@ class Runtime:
 
     def snapshot(self):
         with self.lock:
+            session = self.session.snapshot()
             return {**self.store.snapshot(), 'connection': {
                 'binding_id': self.binding, 'client': self.client,
                 'transport_connected': self.binding is not None,
                 'waiting_for_work': self.polling, 'last_poll': self.last_poll,
-                'provider_session_verified': False,
+                'provider_session_verified': session['native_identity_verified'],
+                'session_check': session,
             }, 'system_policy': {'verified': True}, 'plan': None, 'prototype': True,
                 'capabilities': {'text_roundtrip': True, 'media': False, 'editing': False,
                                  'resolve': False, 'automatic_reconnect': False,
@@ -64,12 +68,38 @@ class Runtime:
 
     def encoded_state(self, csrf):
         with self.lock:
-            key = (self.store.revision, self.binding, self.polling, self.last_poll, csrf)
+            session = self.session.snapshot()
+            key = (self.store.revision, self.binding, self.polling, self.last_poll, csrf,
+                   session['state'], session['reason'])
             if key != self._state_key:
                 raw = json.dumps({**self.snapshot(), 'csrf': csrf}, ensure_ascii=False).encode('utf-8')
                 self._encoded_state = ('"' + hashlib.sha256(raw).hexdigest() + '"', raw)
                 self._state_key = key
             return self._encoded_state
+
+    def begin_session_check(self, candidate):
+        with self.lock:
+            if self.stop.is_set():
+                raise Rejected('service_stopped', 503)
+            if not self.binding:
+                raise Rejected('agent_not_connected', 503)
+            return self.session.begin(candidate)
+
+    def answer_session_probe(self, challenge):
+        with self.lock:
+            if self.stop.is_set():
+                raise Rejected('service_stopped', 503)
+            return self.session.answer(challenge)
+
+    def finish_session_check(self, challenge, proof):
+        with self.lock:
+            if self.stop.is_set():
+                raise Rejected('service_stopped', 503)
+            self.session.finish(challenge, proof)
+
+    def fail_session_check(self, challenge, reason):
+        with self.lock:
+            self.session.fail_if_current(challenge, reason)
 
     def next_work(self, cancel, wait_seconds=20):
         with self.lock:
@@ -113,6 +143,7 @@ class Runtime:
     def disconnect(self):
         self.stop.set()
         with self.lock:
+            self.session.close()
             if self.binding:
                 self.store.disconnect(self.binding)
             self.binding = None

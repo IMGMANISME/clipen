@@ -79,7 +79,8 @@ class ProjectStartupTests(unittest.TestCase):
                                                 capture_output=True, text=True, timeout=10)
                         self.assertEqual(result.returncode, 0, result.stderr)
                         replies = [json.loads(line) for line in result.stdout.splitlines()]
-                        self.assertEqual(len(replies[1]['result']['tools']), 3)
+                        self.assertEqual({tool['name'] for tool in replies[1]['result']['tools']}, {
+                            'clipen_next_work', 'clipen_complete_work', 'clipen_connection_status', 'clipen_session_probe'})
                         self.assertTrue((clone / '.clipen/prototype/state.sqlite').is_file())
             finally:
                 for root, _, _ in os.walk(clone):

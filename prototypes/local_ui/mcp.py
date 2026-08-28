@@ -16,6 +16,9 @@ INSTRUCTIONS = ('Clipen is a text-only connection prototype, not a video editor.
                 'An idle result is not work; do not poll indefinitely. Initialization does not start a model turn. '
                 'A discovery-only connection cannot accept work; never bypass the workspace owner.')
 TOOLS = [
+    {'name': 'clipen_session_probe', 'description': 'Internal connection verification only. Do not call from a model turn or invent a challenge. Does not authorize work or start a model.',
+     'inputSchema': {'type': 'object', 'properties': {'challenge': {'type': 'string', 'pattern': '^[A-Za-z0-9_-]{43}$'}},
+                     'required': ['challenge'], 'additionalProperties': False}},
     {'name': 'clipen_next_work', 'description': 'Wait up to 20 seconds for a user-authorized text task. Never invent work. Only one active task.',
      'inputSchema': {'type': 'object', 'properties': {}, 'additionalProperties': False}},
     {'name': 'clipen_complete_work', 'description': 'Return your text answer for the exact job and attempt delivered by clipen_next_work. No shell or file operations.',
@@ -154,6 +157,8 @@ class MCP:
                         thread.start()
                 elif name == 'clipen_complete_work' and set(args) == {'job_id', 'attempt_id', 'result'}:
                     self.tool_result(rid, self.runtime.complete(args))
+                elif name == 'clipen_session_probe' and set(args) == {'challenge'}:
+                    self.tool_result(rid, self.runtime.answer_session_probe(args['challenge']))
                 elif name == 'clipen_connection_status' and not args:
                     self.tool_result(rid, self.runtime.snapshot()['connection'])
                 else:

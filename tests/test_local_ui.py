@@ -437,13 +437,13 @@ class ProtocolTests(Temporary):
         self.assertNotIn(self.mcp.ui.entry, stderr.getvalue())
         self.assertNotIn(self.mcp.ui.bootstrap, stderr.getvalue())
 
-    def test_handshake_not_readiness_and_only_three_tools(self):
+    def test_handshake_not_readiness_and_only_product_tools(self):
         self.initialize()
         state = self.runtime.snapshot()
         self.assertTrue(state['connection']['transport_connected'])
         self.assertFalse(state['connection']['waiting_for_work'])
         self.send('tools/list', rid=2)
-        self.assertEqual(len(self.last()['result']['tools']), 3)
+        self.assertEqual(len(self.last()['result']['tools']), 4)
         self.assertNotIn('shell', [t['name'] for t in self.last()['result']['tools']])
 
     def test_two_tool_roundtrips_on_one_synthetic_connection(self):
@@ -530,7 +530,7 @@ class SubprocessTests(Temporary):
             'protocolVersion': '2025-06-18', 'clientInfo': {'name': 'inventory', 'version': '1'}}})
         secondary.handle({'jsonrpc': '2.0', 'method': 'notifications/initialized'})
         secondary.handle({'jsonrpc': '2.0', 'id': 2, 'method': 'tools/list'})
-        self.assertEqual(len(json.loads(output.getvalue().splitlines()[-1])['result']['tools']), 3)
+        self.assertEqual(len(json.loads(output.getvalue().splitlines()[-1])['result']['tools']), 4)
         self.assertIsNone(secondary.runtime)
         self.assertIsNone(secondary.ui)
         for name in ('clipen_next_work', 'clipen_complete_work'):
@@ -568,7 +568,7 @@ class SubprocessTests(Temporary):
         self.assertEqual(output.returncode, 0, output.stderr)
         responses = [json.loads(line) for line in output.stdout.splitlines()]
         self.assertEqual([m['id'] for m in responses], [1, 2])
-        self.assertEqual(len(responses[1]['result']['tools']), 3)
+        self.assertEqual(len(responses[1]['result']['tools']), 4)
         store = Store(self.root)
         store.close()  # EOF released the writer lock.
 

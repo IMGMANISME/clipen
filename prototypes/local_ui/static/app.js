@@ -205,7 +205,7 @@ function render() {
   $('connection-label').textContent = rules.connectionLabel(connection);
   $('connection-dot').classList.toggle('live', rules.ready(connection));
   $('client').textContent = connection.client ? `${connection.client.name} ${connection.client.version}` : '—';
-  $('connection-note').textContent = connection.waiting_for_work ? '取件工具已在等待；送出後仍需 AI 提交實際回覆。' : '若 terminal 顯示權限要求，請在該處核對。沒有等待接件時，本頁不會另開模型。';
+  $('connection-note').textContent = rules.connectionNote(connection);
   renderJobs();
   const stamp = snapshot.events.map((event) => event.seq).join(',');
   if (stamp !== renderedEvents) {
