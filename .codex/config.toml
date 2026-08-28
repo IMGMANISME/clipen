@@ -1,0 +1,9 @@
+# Product startup integration, shipped with Clipen (not a development Skill).
+# Requires a Codex version that loads trusted project .codex/config.toml.
+# Launch Codex from the repo root; MCP cwd is relative to that directory.
+[mcp_servers.clipen]
+command = "python3"
+args = ["integrations/stdio_server.py"]
+cwd = "."
+startup_timeout_sec = 30
+tool_timeout_sec = 30
