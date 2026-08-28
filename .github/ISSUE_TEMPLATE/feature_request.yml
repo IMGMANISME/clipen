@@ -1,0 +1,18 @@
+name: 功能建議
+description: 說明想改善的剪輯流程
+title: "[Feature] "
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: 想解決的問題
+      description: 描述使用情境與目前卡住的步驟，請勿附上私人素材。
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: 你期待的結果
+      description: 如何判斷這個功能幫上忙？
+    validations:
+      required: true
