@@ -47,6 +47,7 @@ jobs:
           python --version
           node --version
           openssl version
+          ffprobe -version || echo "FFprobe optional: inventory records an actionable issue when absent"
       - name: Verify signed product Skills
         run: python -m tools.skill_guard verify
       - name: Check proposed public tree

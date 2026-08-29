@@ -36,6 +36,22 @@ textarea[readonly] { font-size:14px; }
 .save-bar { display:flex; align-items:center; justify-content:space-between; gap:18px; border-top:1px solid var(--line); margin-top:26px; padding-top:20px; flex-wrap:wrap; }
 .save-bar p { margin:0; }
 .save-bar button { flex-shrink:0; }
+.path-control { display:flex; align-items:stretch; gap:10px; }
+.path-control input { min-width:0; }
+.path-control button { padding-inline:14px; white-space:nowrap; }
+.import-panel { margin-top:24px; }
+.section-heading { display:flex; align-items:center; justify-content:space-between; gap:24px; }
+.section-heading p { margin-bottom:0; }
+.section-heading button { flex-shrink:0; }
+h3 { font-size:17px; margin:0 0 8px; }
+dl { display:grid; grid-template-columns:max-content minmax(0,1fr); gap:6px 14px; }
+dt { font-weight:600; }
+dd { margin:0; overflow-wrap:anywhere; }
+.summary { font-size:18px; font-weight:600; margin-top:22px; }
+.file-list { list-style:none; padding:0; margin:12px 0 0; border-top:1px solid var(--line); }
+.file-list li { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:12px; padding:10px 0; border-bottom:1px solid var(--line); }
+.file-list .file-path { overflow-wrap:anywhere; }
+.file-list .file-meta { color:var(--muted); white-space:nowrap; font-size:14px; }
 .notice { padding:18px; border:1px solid var(--line); border-radius:8px; margin-top:20px; background:var(--soft); }
 .error { color:var(--error); }
 .actions { display:flex; flex-wrap:wrap; gap:12px; margin-top:16px; }
@@ -44,4 +60,4 @@ footer { display:flex; flex-wrap:wrap; gap:14px; justify-content:space-between; 
 .skip-link { position:absolute; left:12px; top:12px; transform:translateY(-160%); padding:10px; background:var(--panel); }
 .skip-link:focus { transform:translateY(0); }
 main:focus { outline:none; }
-@media(max-width:760px) { main { padding:28px 20px 0; } .topbar { padding:14px 20px; } h1 { font-size:28px; } .panel { padding:20px; } }
+@media(max-width:760px) { main { padding:28px 20px 0; } .topbar { padding:14px 20px; } h1 { font-size:28px; } .panel { padding:20px; } .path-control,.section-heading { align-items:stretch; flex-direction:column; } }

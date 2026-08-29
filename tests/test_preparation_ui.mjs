@@ -4,7 +4,10 @@ import {harness} from './ui_harness.mjs';
 
 function state(version = 0, brief = '', source = '') {
   return {draft:{version, source_directory:source, reference_directory:'', brief,
-    updated:version ? 1000 : null}, csrf:'draft-csrf', capabilities:{draft_storage:true, media:false}};
+    updated:version ? 1000 : null},
+    material_import:{import_id:null,draft_version:null,status:'idle',roots:{source:'',reference:''},entries:[],processed:0,duration:0,issue:null},
+    directory_picker:{id:null,role:null,status:'idle',path:null}, csrf:'draft-csrf',
+    capabilities:{draft_storage:true,directory_picker:true,media_inventory:true,media:false}};
 }
 async function setup(initial = state()) {
   const h = harness(initial, 'workspace'); await h.flush(); return h;
@@ -183,4 +186,82 @@ test('idle refresh does not write or queue work, and visibility backs off pollin
   h.document.hidden = false; h.listeners.get('document:visibilitychange')(); await h.flush();
   assert.deepEqual([...h.timers.values()].map(t => t.delay),[2000]);
   assert.equal(h.calls.filter(c => c.options.method === 'POST').length,0);
+});
+
+test('material read requires a saved path and a separate visible confirmation', async () => {
+  const initial = state(2,'已保存需求','/Volumes/Fixture');
+  const h = await setup(initial);
+  assert.equal(h.nodes.get('review-materials').disabled,false);
+  await h.event('review-materials','click');
+  assert.equal(h.nodes.get('read-confirmation').hidden,false);
+  assert.equal(h.nodes.get('confirm-source').textContent,'/Volumes/Fixture');
+  assert.equal(h.calls.filter(call => call.path === '/api/material-import').length,0);
+  h.respond(async (path, options) => {
+    if (path === '/api/material-import' && options.method === 'POST') return h.response(202,{status:'material_import_started',import_id:'import-fixture'});
+    const next = structuredClone(initial);
+    next.material_import = {import_id:'import-fixture',draft_version:2,status:'running',roots:{source:'/Volumes/Fixture',reference:''},entries:[],processed:0,duration:0,issue:null};
+    return h.response(200,next);
+  });
+  await h.event('confirm-read','click'); await h.flush();
+  const request = JSON.parse(h.calls.find(call => call.path === '/api/material-import').options.body);
+  assert.equal(request.expected_draft_version,2);
+  assert.equal(request.consent,true);
+  assert.equal('source_directory' in request,false);
+  assert.equal(h.nodes.get('material-progress').hidden,false);
+});
+
+test('native picker result changes the draft but does not save or scan automatically', async () => {
+  const initial = state(1,'需求','/old');
+  const h = await setup(initial);
+  h.respond(async (path, options) => {
+    if (path === '/api/directory-picker' && options.method === 'POST') return h.response(202,{status:'picking',pick_id:'pick-1'});
+    const next = structuredClone(initial);
+    next.directory_picker = {id:'pick-1',role:'source',status:'chosen',path:'/Volumes/New footage'};
+    return h.response(200,next);
+  });
+  await h.event('pick-source','click'); await h.flush();
+  assert.equal(h.nodes.get('source-directory').value,'/Volumes/New footage');
+  assert.match(h.nodes.get('save-status').textContent,/尚未儲存/);
+  assert.equal(h.calls.filter(call => call.path === '/api/preparation' && call.options.method === 'POST').length,0);
+  assert.equal(h.calls.filter(call => call.path === '/api/material-import').length,0);
+});
+
+test('directory selection from another tab never changes this tab input', async () => {
+  const initial = state(1,'需求','/mine');
+  const h = await setup(initial);
+  const remote = structuredClone(initial);
+  remote.directory_picker = {id:'pick-other',role:'source',status:'chosen',path:'/Volumes/Other tab'};
+  h.respond(async () => h.response(200,remote));
+  await h.evaluate('refresh()');
+  assert.equal(h.nodes.get('source-directory').value,'/mine');
+  assert.equal(h.nodes.get('save-draft').disabled,true);
+});
+
+test('completed inventory distinguishes usable files and actionable issues', async () => {
+  const initial = state(3,'需求','/fixture');
+  initial.material_import = {import_id:'import-1',draft_version:3,status:'completed',roots:{source:'/fixture',reference:''},
+    processed:3,duration:65,issue:null,entries:[
+      {role:'source',path:'a.mp4',kind:'media',duration:65},
+      {role:'source',path:'still.png',kind:'image',duration:0},
+      {role:'source',path:'old.wmv',kind:'issue',issue:'unsupported_format'}]};
+  const h = await setup(initial);
+  assert.match(h.nodes.get('material-summary').textContent,/2 個可用素材/);
+  assert.match(h.nodes.get('material-result-note').textContent,/1 分 5 秒/);
+  assert.equal(h.nodes.get('material-files').children.length,3);
+  assert.match(h.nodes.get('material-files').children[2].textContent,/尚未支援/);
+});
+
+test('active inventory can be cancelled without changing the saved draft', async () => {
+  const initial = state(5,'需求','/fixture');
+  initial.material_import = {import_id:'import-5',draft_version:5,status:'running',roots:{source:'/fixture',reference:''},entries:[],processed:0,duration:0,issue:null};
+  const h = await setup(initial);
+  h.respond(async (path, options) => {
+    if (path === '/api/material-import/cancel') return h.response(202,{status:'cancelling',import_id:'import-5'});
+    const next = structuredClone(initial); next.material_import.status = 'cancelling'; return h.response(200,next);
+  });
+  await h.event('cancel-import','click'); await h.flush();
+  const call = h.calls.find(item => item.path === '/api/material-import/cancel');
+  assert.equal(JSON.parse(call.options.body).import_id,'import-5');
+  assert.equal(h.nodes.get('brief').value,'需求');
+  assert.match(h.nodes.get('material-progress-title').textContent,/停止/);
 });

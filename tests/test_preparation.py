@@ -117,7 +117,7 @@ class PreparationTests(unittest.TestCase):
         self.store.db.execute('PRAGMA user_version=1')
         self.store.close()
         self.store = Store(self.root)
-        self.assertEqual(self.store.db.execute('PRAGMA user_version').fetchone()[0], 2)
+        self.assertEqual(self.store.db.execute('PRAGMA user_version').fetchone()[0], 3)
         self.assertEqual(self.store.create(body, 'old'), receipt)
         self.assertEqual(self.store.snapshot()['jobs'][0]['result'], 'Synthetic response')
         self.assertEqual(self.store.preparation()['version'], 0)

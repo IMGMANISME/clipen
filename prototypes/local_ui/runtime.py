@@ -9,6 +9,7 @@ import time
 from tools.skill_guard import SkillStore
 from .store import Rejected, Store
 from .session_binding import SessionBinding
+from .media_import import DirectoryPicker, ScanCancelled, scan_materials
 
 
 class Runtime:
@@ -31,6 +32,11 @@ class Runtime:
         self.last_poll = None
         self.stop = threading.Event()
         self.session = SessionBinding()
+        self.directory_picker = DirectoryPicker()
+        self._import_cancel = threading.Event()
+        self._import_thread = None
+        self._import_worker_id = None
+        self._closing = False
 
     def connect(self, client):
         with self.lock:
@@ -60,6 +66,28 @@ class Runtime:
             if path == '/api/preparation':
                 # Local-only: does not enqueue work, grant file access or wake an AI.
                 return self.store.save_preparation(body)
+            if path == '/api/directory-picker':
+                if set(body) != {'role'}:
+                    raise Rejected('invalid_directory_picker_fields', 422)
+                return self.directory_picker.start(body['role'])
+            if path == '/api/material-import':
+                receipt = self.store.start_material_import(body)
+                state = self.store.material_import()
+                # A retried HTTP command returns its durable receipt. Never turn
+                # that replay into a second filesystem scan.
+                active = self._import_thread and self._import_thread.is_alive()
+                if (state['import_id'] == receipt['import_id'] and state['status'] == 'running'
+                        and not (active and self._import_worker_id == receipt['import_id'])):
+                    self._import_cancel = threading.Event()
+                    self._import_worker_id = receipt['import_id']
+                    self._import_thread = threading.Thread(
+                        target=self._scan_materials, args=(receipt['import_id'],), daemon=False)
+                    self._import_thread.start()
+                return receipt
+            if path == '/api/material-import/cancel':
+                receipt = self.store.cancel_material_import(body)
+                self._import_cancel.set()
+                return receipt
             if path == '/api/jobs':
                 result = self.store.create(body, self.binding)
             else:
@@ -85,16 +113,48 @@ class Runtime:
     def encoded_preparation(self, csrf):
         """Compact browser-only state; never return the draft through MCP."""
         with self.lock:
-            key = (self.store.revision, csrf)
+            picker = self.directory_picker.snapshot()
+            key = (self.store.revision, csrf, picker['id'], picker['status'], picker['path'])
             if key != self._preparation_key:
-                state = {'draft': self.store.preparation(), 'csrf': csrf,
-                         'capabilities': {'draft_storage': True, 'directory_picker': False,
-                                          'media': False, 'plan_generation': False,
+                state = {'draft': self.store.preparation(), 'material_import': self.store.material_import(),
+                         'directory_picker': picker, 'csrf': csrf,
+                         'capabilities': {'draft_storage': True,
+                                          'directory_picker': self.directory_picker.available,
+                                          'media_inventory': True, 'media': False, 'plan_generation': False,
                                           'editing': False, 'resolve': False}}
                 raw = json.dumps(state, ensure_ascii=False).encode('utf-8')
                 self._encoded_preparation = ('"' + hashlib.sha256(raw).hexdigest() + '"', raw)
                 self._preparation_key = key
             return self._encoded_preparation
+
+    def _scan_materials(self, import_id):
+        state = self.store.material_import()
+        if state['import_id'] != import_id:
+            return
+        roots, last_saved = state['roots'], 0
+
+        def progress(entries):
+            nonlocal last_saved
+            if len(entries) - last_saved >= 5:
+                self.store.update_material_import(import_id, list(entries))
+                last_saved = len(entries)
+
+        try:
+            entries = scan_materials(roots['source'], roots['reference'], self._import_cancel, progress)
+            status = ('interrupted' if self._closing else 'cancelled') if self._import_cancel.is_set() else 'completed'
+            self.store.update_material_import(import_id, entries, status,
+                                              'service_interrupted' if status == 'interrupted' else None)
+        except ScanCancelled:
+            current = self.store.material_import()
+            self.store.update_material_import(import_id, current['entries'],
+                                              'interrupted' if self._closing else 'cancelled',
+                                              'service_interrupted' if self._closing else None)
+        except Rejected as error:
+            current = self.store.material_import()
+            self.store.update_material_import(import_id, current['entries'], 'failed', error.code)
+        except Exception:
+            current = self.store.material_import()
+            self.store.update_material_import(import_id, current['entries'], 'failed', 'material_scan_failed')
 
     def begin_session_check(self, candidate):
         with self.lock:
@@ -170,7 +230,12 @@ class Runtime:
             self.changed.notify_all()
 
     def close(self):
+        self._closing = True
         self.disconnect()
+        self._import_cancel.set()
+        self.directory_picker.close()
+        if self._import_thread and self._import_thread.ident is not None:
+            self._import_thread.join(timeout=20)
         self.store.close()
         self._encoded_state = None
         self._state_key = None

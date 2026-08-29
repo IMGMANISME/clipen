@@ -76,7 +76,7 @@ class Store:
             self.db.execute('PRAGMA journal_mode=DELETE')
             self.db.execute('PRAGMA synchronous=FULL')
             version = self.db.execute('PRAGMA user_version').fetchone()[0]
-            if version not in (0, 1, 2):
+            if version not in (0, 1, 2, 3):
                 raise Rejected('unsupported_state_version', 503)
             self.db.executescript('''
                 BEGIN IMMEDIATE;
@@ -94,7 +94,14 @@ class Store:
                     version INTEGER NOT NULL, source_directory TEXT NOT NULL,
                     reference_directory TEXT NOT NULL, brief TEXT NOT NULL,
                     updated REAL NOT NULL);
-                PRAGMA user_version=2;
+                CREATE TABLE IF NOT EXISTS material_import (
+                    id INTEGER PRIMARY KEY CHECK (id=1), import_id TEXT NOT NULL,
+                    draft_version INTEGER NOT NULL, status TEXT NOT NULL,
+                    roots TEXT NOT NULL, entries TEXT NOT NULL, processed INTEGER NOT NULL,
+                    duration REAL NOT NULL, issue TEXT, started REAL NOT NULL, updated REAL NOT NULL);
+                UPDATE material_import SET status='interrupted',issue='service_interrupted',updated=strftime('%s','now')
+                    WHERE status IN ('running','cancelling');
+                PRAGMA user_version=3;
                 COMMIT;
             ''')
             self.mutex = threading.RLock()
@@ -183,6 +190,78 @@ class Store:
             return {'status': 'draft_saved', 'draft_version': version}
 
         return self.command(body, 'save_preparation', operation)
+
+    def material_import(self):
+        with self.mutex:
+            row = self.db.execute('SELECT * FROM material_import WHERE id=1').fetchone()
+            if not row:
+                return {'import_id': None, 'draft_version': None, 'status': 'idle',
+                        'roots': {'source': '', 'reference': ''}, 'entries': [],
+                        'processed': 0, 'duration': 0, 'issue': None,
+                        'started': None, 'updated': None}
+            result = dict(row)
+            result['roots'] = json.loads(result['roots'])
+            result['entries'] = json.loads(result['entries'])
+            return result
+
+    def start_material_import(self, body):
+        if set(body) != {'request_id', 'expected_draft_version', 'consent'}:
+            raise Rejected('invalid_material_import_fields', 422)
+        if type(body['expected_draft_version']) is not int or body['expected_draft_version'] < 1:
+            raise Rejected('expected_draft_version_required', 422)
+        if body['consent'] is not True:
+            raise Rejected('material_read_consent_required', 403)
+
+        def operation():
+            current = self.preparation()
+            if current['version'] != body['expected_draft_version']:
+                raise Rejected('draft_version_conflict')
+            from .media_import import validate_roots
+            validate_roots(current['source_directory'], current['reference_directory'])
+            existing = self.db.execute('SELECT status FROM material_import WHERE id=1').fetchone()
+            if existing and existing['status'] in ('running', 'cancelling'):
+                raise Rejected('material_import_already_running')
+            import_id = 'import_' + secrets.token_hex(12)
+            now = time.time()
+            roots = json.dumps({'source': current['source_directory'],
+                                'reference': current['reference_directory']}, ensure_ascii=False)
+            self.db.execute('''INSERT INTO material_import VALUES(1,?,?,?,?,'[]',0,0,NULL,?,?)
+                ON CONFLICT(id) DO UPDATE SET import_id=excluded.import_id,
+                draft_version=excluded.draft_version,status=excluded.status,roots=excluded.roots,
+                entries=excluded.entries,processed=0,duration=0,issue=NULL,
+                started=excluded.started,updated=excluded.updated''',
+                (import_id, current['version'], 'running', roots, now, now))
+            return {'status': 'material_import_started', 'import_id': import_id}
+        return self.command(body, 'start_material_import', operation)
+
+    def update_material_import(self, import_id, entries, status='running', issue=None):
+        with self.transaction():
+            row = self.db.execute('SELECT import_id,status FROM material_import WHERE id=1').fetchone()
+            if not row or row['import_id'] != import_id or row['status'] not in ('running', 'cancelling'):
+                return False
+            if row['status'] == 'cancelling' and status == 'running':
+                return False
+            duration = round(sum(item.get('duration', 0) for item in entries if item.get('kind') == 'media'), 3)
+            self.db.execute('''UPDATE material_import SET status=?,entries=?,processed=?,duration=?,issue=?,updated=?
+                               WHERE id=1 AND import_id=?''',
+                            (status, json.dumps(entries, ensure_ascii=False), len(entries), duration,
+                             issue, time.time(), import_id))
+            return True
+
+    def cancel_material_import(self, body):
+        if set(body) != {'request_id', 'import_id'}:
+            raise Rejected('invalid_material_cancel_fields', 422)
+
+        def operation():
+            import_id = text_field(body['import_id'], 128)
+            row = self.db.execute('SELECT import_id,status FROM material_import WHERE id=1').fetchone()
+            if not row or row['import_id'] != import_id:
+                raise Rejected('material_import_not_found', 404)
+            if row['status'] not in ('running', 'cancelling'):
+                return {'status': row['status'], 'import_id': import_id}
+            self.db.execute("UPDATE material_import SET status='cancelling',updated=? WHERE id=1", (time.time(),))
+            return {'status': 'cancelling', 'import_id': import_id}
+        return self.command(body, ['material_import', 'cancel'], operation)
 
     def change(self, job, action, body, binding):
         def operation():

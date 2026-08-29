@@ -5,6 +5,9 @@ const fieldNames = Object.keys(draftRules.fields);
 let baseline = null, latest = null, pending = null, csrf = '', etag = '';
 let loaded = false, closed = false, saving = false, conflict = false;
 let pollTimer = null, refreshInFlight = null;
+let material = null, picker = null, capabilities = {}, handledPick = null;
+let importStarting = false, pendingImport = null, cancelStarting = false;
+let requestedPick = null;
 const errors = {
   authentication_required: '開頁權限已失效。請使用目前 AI terminal 顯示的完整連結。',
   bootstrap_expired_or_used: '開頁連結已失效。請使用目前 AI terminal 顯示的新連結。',
@@ -13,6 +16,12 @@ const errors = {
   invalid_draft_source_directory: '毛片路徑過長或包含換行等無效字元，請檢查。',
   invalid_draft_reference_directory: '參考路徑過長或包含換行等無效字元，請檢查。',
   invalid_draft_brief: '剪輯需求過長或包含無效字元，請縮短後再儲存。',
+  material_directory_must_be_absolute: '毛片目錄必須是完整的絕對路徑。',
+  invalid_material_directory: '目錄路徑包含無效字元，請重新選擇。',
+  material_directory_unavailable: '目錄不存在、無法讀取，或是符號連結。請重新選擇。',
+  material_read_consent_required: '請從確認畫面開始讀取素材。',
+  material_import_already_running: '已有一個素材檢查正在進行。',
+  directory_picker_unavailable: '這個環境無法開啟本機目錄選擇器，仍可貼上完整路徑。',
 };
 function values() {
   return Object.fromEntries(fieldNames.map((name) => [name, $(draftRules.fields[name]).value]));
@@ -38,6 +47,18 @@ function controls() {
   $('conflict').hidden = !conflict || closed || !!pending;
   $('save-mine').disabled = closed || saving || !!pending || !latest || !!invalid;
   $('load-latest').disabled = closed || saving || !!pending || !latest;
+  const picking = picker?.status === 'picking';
+  $('pick-source').disabled = !loaded || closed || saving || !!pending || picking || !capabilities.directory_picker;
+  $('pick-reference').disabled = $('pick-source').disabled;
+  $('pick-source').textContent = picking && picker.role === 'source' ? '選擇中…' : '選擇目錄';
+  $('pick-reference').textContent = picking && picker.role === 'reference' ? '選擇中…' : '選擇目錄';
+  const activeImport = ['running','cancelling'].includes(material?.status);
+  $('review-materials').disabled = !loaded || closed || saving || !!pending || conflict || dirty() ||
+    !!invalid || !values().source_directory || activeImport || importStarting;
+  $('review-materials').textContent = material && material.status !== 'idle' ? '重新檢查素材' : '檢查素材';
+  $('confirm-read').disabled = closed || importStarting || activeImport;
+  $('cancel-read').disabled = importStarting;
+  $('cancel-import').disabled = closed || cancelStarting || material?.status === 'cancelling';
   $('draft-rescue').hidden = !(closed && (dirty() || pending || conflict));
   if (!$('draft-rescue').hidden) $('rescue-text').value = draftRules.display(values());
   if (conflict && latest) $('latest-draft').value = draftRules.display(latest);
@@ -50,6 +71,51 @@ function controls() {
   if (saving) status = '正在儲存到本機…';
   if ($('save-status').textContent !== status) $('save-status').textContent = status;
   $('save-hint').textContent = invalid ? errors['invalid_draft_' + invalid] : '只儲存在這台電腦，不會讀取素材或送給 AI。';
+  renderMaterial();
+}
+
+const issueText = Object.freeze({unsupported_format:'尚未支援此格式', symlink_skipped:'已略過符號連結',
+  unreadable:'無法讀取', directory_unreadable:'無法讀取子目錄', directory_depth_limit:'超過子目錄深度限制',
+  metadata_unreadable:'無法讀取媒體資訊', metadata_too_large:'媒體資訊異常', probe_timed_out:'讀取媒體資訊逾時',
+  probe_unavailable:'這台電腦找不到 FFprobe', not_regular_file:'不是一般檔案',
+  material_file_limit:'超過 500 個媒體項目，請縮小目錄範圍',
+  material_node_limit:'目錄內容過多，請縮小目錄範圍',
+  material_directory_unavailable:'已保存的目錄目前無法讀取，請重新連接磁碟或選擇目錄',
+  material_scan_failed:'本機素材檢查發生錯誤', service_interrupted:'服務中斷，未自動重跑'});
+function durationText(seconds) {
+  const rounded = Math.round(seconds || 0), minutes = Math.floor(rounded / 60);
+  return minutes ? `${minutes} 分 ${rounded % 60} 秒` : `${rounded} 秒`;
+}
+function renderMaterial() {
+  if (!material) return;
+  const active = ['running','cancelling'].includes(material.status);
+  $('material-progress').hidden = !active;
+  $('material-results').hidden = material.status === 'idle' || active;
+  if (active) {
+    $('read-confirmation').hidden = true;
+    $('material-progress-title').textContent = material.status === 'cancelling' ? '正在停止素材檢查…' : '正在檢查素材…';
+    $('material-progress-detail').textContent = material.processed ? `已記錄 ${material.processed} 個素材或問題。` : '正在巡覽已確認的本機目錄。';
+  }
+  if ($('material-results').hidden) return;
+  const entries = material.entries || [], usable = entries.filter(item => item.kind === 'media' || item.kind === 'image');
+  const issues = entries.filter(item => item.kind === 'issue');
+  let summary = material.status === 'cancelled' ? '素材檢查已取消' : material.status === 'interrupted' ? '上次素材檢查未完成' : material.status === 'failed' ? '素材檢查未完成' : `找到 ${usable.length} 個可用素材`;
+  $('material-summary').textContent = summary;
+  const changed = baseline && (material.roots.source !== baseline.source_directory || material.roots.reference !== baseline.reference_directory);
+  let note = usable.length ? `影片與音訊合計 ${durationText(material.duration)}；另有 ${issues.length} 個需要處理的項目。` : '目前沒有可用的支援素材。';
+  if (changed) note += ' 目前草稿的目錄已改變，請重新檢查。';
+  if (material.issue) note += ' ' + (issueText[material.issue] || '請檢查目錄後重試。');
+  $('material-result-note').textContent = note;
+  $('material-files').replaceChildren(...entries.slice(0, 80).map((item) => {
+    const row = document.createElement('li'), path = document.createElement('span'), meta = document.createElement('span');
+    path.className = 'file-path'; path.textContent = `${item.role === 'reference' ? '參考' : '毛片'} · ${item.path}`;
+    meta.className = 'file-meta';
+    meta.textContent = item.kind === 'issue' ? (issueText[item.issue] || '需要處理') : item.kind === 'image' ? '圖片' : durationText(item.duration);
+    row.append(path, meta); return row;
+  }));
+  if (entries.length > 80) {
+    const more = document.createElement('li'); more.textContent = `另有 ${entries.length - 80} 個項目保存在本機清單中。`; $('material-files').append(more);
+  }
 }
 function closeInterface(message) {
   closed = true; csrf = ''; etag = '';
@@ -90,6 +156,25 @@ async function api(path, body) {
 function receive(next) {
   if (!next) return;
   csrf = next.csrf;
+  capabilities = next.capabilities || {};
+  material = next.material_import || material;
+  picker = next.directory_picker || picker;
+  if (picker?.status === 'chosen' && picker.id === requestedPick && picker.id !== handledPick) {
+    handledPick = picker.id;
+    const field = picker.role === 'source' ? 'source-directory' : 'reference-directory';
+    $(field).value = picker.path;
+    showError();
+    requestedPick = null;
+  } else if (picker?.status === 'cancelled' && picker.id === requestedPick) {
+    handledPick = picker.id; requestedPick = null;
+  } else if (picker?.status === 'failed' && picker.id === requestedPick) {
+    handledPick = picker.id; requestedPick = null;
+    showError('目錄選擇器未能完成。你仍可貼上完整路徑。');
+  }
+  if (pendingImport && material?.draft_version === pendingImport.expected_draft_version && material.status !== 'idle') {
+    pendingImport = null;
+    $('read-confirmation').hidden = true;
+  }
   const draft = next.draft;
   // An older GET can finish after a save. It must not roll back a newer receipt.
   if (draft.version < Math.max(baseline?.version || 0, latest?.version || 0)) return;
@@ -136,6 +221,35 @@ async function save(retry = false) {
   }
   controls();
 }
+async function chooseDirectory(role) {
+  if (closed || picker?.status === 'picking') return;
+  showError();
+  try { const result = await api('/api/directory-picker', {role}); requestedPick = result.pick_id; await refresh(); }
+  catch (error) { showError(error.message); }
+  controls();
+}
+async function beginImport() {
+  if (closed || importStarting || !baseline?.version) return;
+  pendingImport ||= {request_id:crypto.randomUUID(), expected_draft_version:baseline.version, consent:true};
+  importStarting = true; showError(); controls();
+  try {
+    await api('/api/material-import', pendingImport);
+    pendingImport = null; $('read-confirmation').hidden = true;
+  } catch (error) {
+    if (error.definitive) pendingImport = null;
+    showError(error.definitive ? error.message : '讀取指令的結果尚未確認。正在核對本機狀態，不會自動建立另一個檢查。');
+  }
+  importStarting = false;
+  try { await refresh(); } catch (error) { closeInterface(error.status ? error.message : undefined); }
+  controls();
+}
+async function cancelImport() {
+  if (!material?.import_id || cancelStarting) return;
+  cancelStarting = true; controls();
+  try { await api('/api/material-import/cancel', {request_id:crypto.randomUUID(), import_id:material.import_id}); await refresh(); }
+  catch (error) { showError(error.message); }
+  cancelStarting = false; controls();
+}
 function schedulePoll() {
   clearTimeout(pollTimer);
   if (!closed) pollTimer = setTimeout(poll, draftRules.pollDelay(document.hidden));
@@ -172,6 +286,17 @@ $('save-mine').addEventListener('click', () => {
   // The user explicitly chooses their content after seeing the latest version.
   baseline = latest; conflict = false; controls(); void save();
 });
+$('pick-source').addEventListener('click', () => void chooseDirectory('source'));
+$('pick-reference').addEventListener('click', () => void chooseDirectory('reference'));
+$('review-materials').addEventListener('click', () => {
+  if ($('review-materials').disabled) return;
+  $('confirm-source').textContent = baseline.source_directory;
+  $('confirm-reference').textContent = baseline.reference_directory || '未提供';
+  $('read-confirmation').hidden = false; $('confirm-read').focus();
+});
+$('cancel-read').addEventListener('click', () => { $('read-confirmation').hidden = true; $('review-materials').focus(); });
+$('confirm-read').addEventListener('click', () => void beginImport());
+$('cancel-import').addEventListener('click', () => void cancelImport());
 $('reconnect').addEventListener('click', async () => {
   $('reconnect').disabled = true; etag = '';
   try {
