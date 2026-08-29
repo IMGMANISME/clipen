@@ -4,53 +4,29 @@
 
 **讓 AI 幫你剪，讓你決定怎麼剪。**
 
-從參考風格出發，在自己的工作台完成作品。
+從參考風格與自己的素材出發，先確認剪輯計畫，再完成作品。
 
-[開始使用](#開始使用) · [使用說明](prototypes/local_ui/README.md) · [回饋與建議](https://github.com/IMGMANISME/clipen/issues)
+[產品架構](ARCHITECTURE.md) · [回報問題](https://github.com/IMGMANISME/clipen/issues)
 
 </div>
 
 ---
 
-Clipen 正在打造一個由你掌握創作方向的 AI 剪輯工具：提供範例作品與素材，
-調整 AI 提出的剪輯計畫，再選擇直接出片，或交給 DaVinci Resolve 繼續編輯。
+Clipen 是正在開發中的本機 AI 剪輯工作台。使用者將能提供毛片、參考作品與需求，
+修改 AI 提出的剪輯計畫，再選擇直接出片或交付 DaVinci Resolve 可編輯工程。
 
-> **目前為早期原型。** 可啟動本機工作台；素材分析、剪輯計畫、自動剪輯與影片匯出尚未提供。
-
-## 規劃中的剪輯體驗
-
-| 從你的風格開始 | 先確認計畫，再開始剪 | 作品仍由你掌握 |
+| 理解你的素材 | 先看計畫再開工 | 保留作品控制權 |
 | --- | --- | --- |
-| 提供參考作品、毛片與需求，讓 AI 理解你想要的節奏。 | 修改 AI 提出的剪輯安排，確認後再交給它執行。 | 選擇直接出片，或在 Resolve 繼續調整影片、文字、插圖與支援的效果。 |
+| 分析畫面、聲音、逐字稿與參考風格。 | 調整片段、字幕、節奏、插圖與效果安排。 | 匯出成片，或在 Resolve 繼續編輯各個元素。 |
 
-## 開始使用
+> Clipen 尚未發布可供一般使用者安裝的版本。請勿將私人素材交給未標示為正式
+> release 的版本。
 
-先下載本專案，並準備好已安裝、登入的 Codex，以及[必要執行環境](prototypes/local_ui/README.md#使用前準備)。
-在 terminal 進入專案目錄後啟動：
+Clipen 的目標入口是 `clipen codex`。它會啟動本機工作台，只有在使用者從 UI
+確認特定步驟後才呼叫 AI；不需要開啟 AI 對話或手動架設本機服務。
 
-```sh
-cd clipen
-codex
-```
+系統設計、資料權限、中斷恢復、`clean`／`reset` 與 Resolve 交付規則請見
+[產品架構基準](ARCHITECTURE.md)。
 
-完成必要的專案授權後，本機工作台會在連線成功時開啟。
-若未開頁，可使用 terminal 提供的本機連結；請勿分享完整連結。
-
-只關閉分頁，可用同一連結重開；關閉 AI terminal，工作台服務也會停止。
-
-<details>
-<summary>查看目前的工作台</summary>
-
-![Clipen 本機工作台的早期原型畫面](.github/assets/local-ui-preview.jpg)
-
-目前畫面是連線與文字通道原型，並非剪輯功能展示。
-
-</details>
-
-操作疑問、其他 AI 入口與重開方式，請看[使用說明](prototypes/local_ui/README.md)。
-使用雲端 AI 時，獲准送出的資料仍會交給所選服務處理；本機介面不代表 AI 離線執行。
-
----
-
-有想改善的剪輯情境？歡迎留下[問題或建議](https://github.com/IMGMANISME/clipen/issues)。
-請勿附上私人素材、帳號憑證或完整工作台連結。
+有想改善的剪輯情境，歡迎留下[問題或建議](https://github.com/IMGMANISME/clipen/issues)。
+請勿附上私人素材、帳號憑證、逐字稿或本機完整路徑。

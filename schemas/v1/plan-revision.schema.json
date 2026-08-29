@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://clipen.local/schemas/v1/plan-revision.schema.json",
+  "title": "Clipen Plan Revision",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "plan_id",
+    "project_id",
+    "revision",
+    "status",
+    "content_hash",
+    "material_snapshot_id",
+    "analysis_snapshot_id",
+    "system_skill_release",
+    "sections"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "plan_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "project_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "status": {
+      "enum": [
+        "draft",
+        "ready_for_review",
+        "confirmed",
+        "executing",
+        "reviewed",
+        "accepted",
+        "superseded"
+      ]
+    },
+    "content_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "material_snapshot_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "analysis_snapshot_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "system_skill_release": {
+      "$ref": "#/$defs/identifier"
+    },
+    "sections": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/section"
+      }
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "timecode": {
+      "type": "number",
+      "minimum": 0
+    },
+    "sourceRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_id", "in_seconds", "out_seconds"],
+      "properties": {
+        "artifact_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "in_seconds": {
+          "$ref": "#/$defs/timecode"
+        },
+        "out_seconds": {
+          "$ref": "#/$defs/timecode"
+        }
+      }
+    },
+    "section": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "section_id",
+        "title",
+        "purpose",
+        "source_ranges",
+        "edit_notes",
+        "unknowns"
+      ],
+      "properties": {
+        "section_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "purpose": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "source_ranges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sourceRange"
+          }
+        },
+        "edit_notes": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "unknowns": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        }
+      }
+    }
+  }
+}
