@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://clipen.local/schemas/v1/provider-input-manifest.schema.json",
+  "title": "Provider input manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["attempt_id", "purpose", "allowed_artifact_ids", "output_schema_id"],
+  "properties": {
+    "attempt_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "purpose": {
+      "type": "string",
+      "enum": ["material_analysis", "reference_analysis", "plan_generation", "edit_revision"]
+    },
+    "allowed_artifact_ids": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1, "maxLength": 128 },
+      "uniqueItems": true,
+      "maxItems": 4096
+    },
+    "brief_revision": { "type": "integer", "minimum": 1 },
+    "plan_revision": { "type": "integer", "minimum": 1 },
+    "output_schema_id": { "type": "string", "minLength": 1, "maxLength": 128 }
+  }
+}
