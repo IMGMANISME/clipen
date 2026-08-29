@@ -1,33 +1,35 @@
-# Local environments and dependencies
+# Managed dependencies and local runtimes
 .venv/
 venv/
 node_modules/
+.clipen/
 
-# Temporary development plans and agent skills stay local.
-# The system core Skill uses this public product guide; keep that exception.
-/docs/*
-!/docs/SKILL_PROTECTION.md
+# Personal agent configuration and development instructions
+.agents/
+.claude/
+.codex/
+.mcp.json
+AGENTS.md
+CLAUDE.md
+/docs/
 /skills/dev/
 /skills/development/
-/.agents/skills/
-/.claude/skills/
-/.codex/skills/
 
-# Build output and caches
+# Build and tool caches
 __pycache__/
 *.pyc
 *.egg-info/
 build/
 dist/
+!/apps/web/dist/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 .cache/
+coverage/
+.coverage
 
-# Local configuration, credentials, and AI sessions
-# .codex/config.toml and .mcp.json are credential-free PRODUCT startup configs.
-# Do not ignore them with personal AI state or development Skills.
-.clipen/
+# Local configuration and credentials
 .env
 .env.*
 !.env.example
@@ -36,12 +38,8 @@ dist/
 *.key
 *.p12
 *.pfx
-.claude/settings.local.json
-.codex/auth.json
-.codex/sessions/
-.codex/log/
 
-# Source media and rendered media stay local
+# Source media, generated media, and local project output
 *.mp4
 *.mov
 *.m4v
