@@ -11,6 +11,8 @@ requires-python = ">=3.10"
 license = { text = "All rights reserved" }
 dependencies = [
     "jsonschema==4.26.0",
+    "starlette==1.6.0",
+    "uvicorn==0.52.4",
 ]
 
 [tool.setuptools.packages.find]
