@@ -580,6 +580,8 @@ class CodexExecAdapter:
             except ProcessLookupError:
                 process.wait(timeout=2)
                 return
+            except PermissionError:
+                process.terminate()
         else:
             process.terminate()
         try:
@@ -590,6 +592,8 @@ class CodexExecAdapter:
                     os.killpg(process.pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
+                except PermissionError:
+                    process.kill()
             else:
                 process.kill()
             process.wait(timeout=2)
