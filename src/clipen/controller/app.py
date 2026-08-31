@@ -6,18 +6,22 @@ from dataclasses import dataclass
 from enum import Enum
 import hashlib
 from http.cookies import SimpleCookie
+import json
 from pathlib import Path
 import secrets
 import time
 from typing import Callable
 
 from starlette.applications import Starlette
+from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+from clipen.projects import DirectoryRole, ProjectError, ProjectWorkspace
 
 
 _SESSION_COOKIE = "clipen_session"
@@ -26,6 +30,7 @@ _CSRF_HEADER = "x-clipen-csrf"
 _SESSION_LIFETIME_SECONDS = 12 * 60 * 60
 _BOOTSTRAP_LIFETIME_SECONDS = 5 * 60
 _MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+_MAX_JSON_BODY_BYTES = 64 * 1024
 
 
 class ProviderState(str, Enum):
@@ -161,14 +166,22 @@ class LocalRequestGuard:
 
         method = str(scope.get("method", "GET")).upper()
         path = str(scope.get("path", ""))
+        credentials = None
+        if path.startswith("/api/") and path not in {
+            "/api/health",
+            "/api/session/bootstrap",
+        }:
+            credentials = self.authority.authenticate(
+                _cookie_value(headers, _SESSION_COOKIE)
+            )
+            if credentials is None:
+                await self._reject(scope, receive, send, 401, "session_required")
+                return
         if method in _MUTATING_METHODS:
             if supplied_origin != self.origin or headers.get("sec-fetch-site") != "same-origin":
                 await self._reject(scope, receive, send, 403, "cross_site_request")
                 return
             if path != "/api/session/bootstrap":
-                credentials = self.authority.authenticate(
-                    _cookie_value(headers, _SESSION_COOKIE)
-                )
                 csrf = headers.get(_CSRF_HEADER)
                 if credentials is None or csrf is None or not secrets.compare_digest(
                     csrf, credentials.csrf_token
@@ -224,6 +237,7 @@ def create_app(
     config: ControllerConfig,
     provider: ProviderStatus,
     authority: LocalSessionAuthority,
+    workspace: ProjectWorkspace | None = None,
 ) -> ASGIApp:
     static_root = config.static_root.resolve(strict=True)
 
@@ -280,12 +294,197 @@ def create_app(
             }
         )
 
+    async def read_json(request: Request) -> dict[str, object]:
+        content_type = request.headers.get("content-type", "").split(";", 1)[0].strip()
+        if content_type != "application/json":
+            raise ProjectError(
+                "content_type_invalid",
+                "Clipen 只接受 JSON 操作資料。",
+                status_code=415,
+            )
+        body = bytearray()
+        async for chunk in request.stream():
+            body.extend(chunk)
+            if len(body) > _MAX_JSON_BODY_BYTES:
+                raise ProjectError(
+                    "body_too_large", "這次操作的資料過大。", status_code=413
+                )
+        try:
+            payload = json.loads(body.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise ProjectError(
+                "json_invalid", "無法讀取這次操作的資料。", status_code=400
+            ) from error
+        if not isinstance(payload, dict):
+            raise ProjectError(
+                "json_invalid", "操作資料必須是 JSON object。", status_code=400
+            )
+        return payload
+
+    def require_workspace() -> ProjectWorkspace:
+        if workspace is None:
+            raise ProjectError(
+                "workspace_unavailable",
+                "Clipen 作品工作台尚未準備完成。",
+                status_code=503,
+            )
+        return workspace
+
+    def require_fields(
+        payload: dict[str, object], required: set[str], optional: set[str] | None = None
+    ) -> None:
+        allowed = required | (optional or set())
+        if not required.issubset(payload) or not set(payload).issubset(allowed):
+            raise ProjectError(
+                "command_invalid", "這次操作缺少必要資料。", status_code=422
+            )
+
+    def parse_role(value: object) -> DirectoryRole:
+        try:
+            return DirectoryRole(value)
+        except (TypeError, ValueError) as error:
+            raise ProjectError(
+                "role_invalid", "資料夾用途無效。", status_code=422
+            ) from error
+
+    async def project_error_response(error: ProjectError) -> JSONResponse:
+        return JSONResponse(
+            {"error": {"code": error.code, "message": error.message}},
+            status_code=error.status_code,
+        )
+
+    async def list_projects(_: Request) -> Response:
+        try:
+            projects = await run_in_threadpool(require_workspace().list_projects)
+            return JSONResponse(
+                {"projects": [project.to_public() for project in projects]}
+            )
+        except ProjectError as error:
+            return await project_error_response(error)
+
+    async def get_project(request: Request) -> Response:
+        try:
+            project = await run_in_threadpool(
+                require_workspace().get_project, request.path_params["project_id"]
+            )
+            return JSONResponse({"project": project.to_public()})
+        except ProjectError as error:
+            return await project_error_response(error)
+
+    async def create_project(request: Request) -> Response:
+        try:
+            payload = await read_json(request)
+            require_fields(payload, {"request_id", "name"})
+            project = await run_in_threadpool(
+                require_workspace().create_project,
+                payload["request_id"],
+                payload["name"],
+            )
+            return JSONResponse({"project": project.to_public()}, status_code=201)
+        except ProjectError as error:
+            return await project_error_response(error)
+
+    async def update_details(request: Request) -> Response:
+        try:
+            payload = await read_json(request)
+            require_fields(
+                payload, {"request_id", "expected_revision", "name", "brief"}
+            )
+            project = await run_in_threadpool(
+                require_workspace().update_details,
+                request.path_params["project_id"],
+                payload["request_id"],
+                payload["expected_revision"],
+                payload["name"],
+                payload["brief"],
+            )
+            return JSONResponse({"project": project.to_public()})
+        except ProjectError as error:
+            return await project_error_response(error)
+
+    async def select_directory(request: Request) -> Response:
+        try:
+            payload = await read_json(request)
+            require_fields(payload, {"request_id", "role"})
+            selection = await run_in_threadpool(
+                require_workspace().select_directory,
+                payload["request_id"],
+                parse_role(payload["role"]),
+            )
+            if selection is None:
+                return Response(status_code=204)
+            return JSONResponse({"selection": selection})
+        except ProjectError as error:
+            return await project_error_response(error)
+
+    async def set_directory(request: Request) -> Response:
+        try:
+            payload = await read_json(request)
+            require_fields(
+                payload,
+                {
+                    "request_id",
+                    "expected_revision",
+                    "role",
+                    "selection_token",
+                },
+            )
+            project = await run_in_threadpool(
+                require_workspace().set_directory,
+                request.path_params["project_id"],
+                payload["request_id"],
+                payload["expected_revision"],
+                parse_role(payload["role"]),
+                payload["selection_token"],
+            )
+            return JSONResponse({"project": project.to_public()})
+        except ProjectError as error:
+            return await project_error_response(error)
+
+    async def remove_directory(request: Request) -> Response:
+        try:
+            payload = await read_json(request)
+            require_fields(payload, {"request_id", "expected_revision", "role"})
+            project = await run_in_threadpool(
+                require_workspace().remove_directory,
+                request.path_params["project_id"],
+                payload["request_id"],
+                payload["expected_revision"],
+                parse_role(payload["role"]),
+            )
+            return JSONResponse({"project": project.to_public()})
+        except ProjectError as error:
+            return await project_error_response(error)
+
     app = Starlette(
         debug=False,
         routes=[
             Route("/api/health", health, methods=["GET"]),
             Route("/api/session/bootstrap", bootstrap, methods=["POST"]),
             Route("/api/status", status, methods=["GET"]),
+            Route("/api/projects", list_projects, methods=["GET"]),
+            Route("/api/projects/{project_id}", get_project, methods=["GET"]),
+            Route("/api/commands/create-project", create_project, methods=["POST"]),
+            Route(
+                "/api/system/commands/select-directory",
+                select_directory,
+                methods=["POST"],
+            ),
+            Route(
+                "/api/projects/{project_id}/commands/update-details",
+                update_details,
+                methods=["POST"],
+            ),
+            Route(
+                "/api/projects/{project_id}/commands/set-directory",
+                set_directory,
+                methods=["POST"],
+            ),
+            Route(
+                "/api/projects/{project_id}/commands/remove-directory",
+                remove_directory,
+                methods=["POST"],
+            ),
             Mount("/", app=StaticFiles(directory=static_root, html=True), name="web"),
         ],
     )
