@@ -105,7 +105,10 @@ async def _serve(
                 await asyncio.sleep(0.02)
             if server.started:
                 print("Clipen 已啟動", flush=True)
-                print(f"AI：{provider.message}", flush=True)
+                if provider.state is ProviderState.READY:
+                    print(f"AI：{provider.name} 可用", flush=True)
+                else:
+                    print(f"AI：{provider.name} 需要處理", flush=True)
                 print(f"UI：{PUBLIC_URL}", flush=True)
                 print("狀態：等待 UI 操作", flush=True)
                 print("按 Ctrl+C 關閉 Clipen", flush=True)
