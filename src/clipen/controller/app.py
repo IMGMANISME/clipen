@@ -22,6 +22,7 @@ from starlette.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from clipen.projects import DirectoryRole, ProjectError, ProjectWorkspace
+from clipen.system_skills import SystemSkillSummary
 
 
 _SESSION_COOKIE = "clipen_session"
@@ -57,6 +58,7 @@ class ProviderStatus:
 @dataclass(frozen=True)
 class ControllerConfig:
     static_root: Path
+    system_skills: tuple[SystemSkillSummary, ...] = ()
     origin: str = "http://localhost:4200"
     allowed_hosts: tuple[str, ...] = ("localhost:4200", "127.0.0.1:4200")
 
@@ -68,6 +70,9 @@ class ControllerConfig:
             raise ValueError("Clipen origin must use localhost over HTTP")
         if not self.allowed_hosts:
             raise ValueError("at least one local Host value is required")
+        identifiers = [summary.skill_id for summary in self.system_skills]
+        if len(identifiers) != len(set(identifiers)):
+            raise ValueError("system Skill catalog contains duplicate identifiers")
 
 
 @dataclass(frozen=True)
@@ -456,12 +461,18 @@ def create_app(
         except ProjectError as error:
             return await project_error_response(error)
 
+    async def system_skills(_: Request) -> Response:
+        return JSONResponse(
+            {"skills": [summary.as_public_dict() for summary in config.system_skills]}
+        )
+
     app = Starlette(
         debug=False,
         routes=[
             Route("/api/health", health, methods=["GET"]),
             Route("/api/session/bootstrap", bootstrap, methods=["POST"]),
             Route("/api/status", status, methods=["GET"]),
+            Route("/api/system-skills", system_skills, methods=["GET"]),
             Route("/api/projects", list_projects, methods=["GET"]),
             Route("/api/projects/{project_id}", get_project, methods=["GET"]),
             Route("/api/commands/create-project", create_project, methods=["POST"]),

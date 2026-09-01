@@ -9,6 +9,7 @@ from typing import Sequence
 
 from clipen.controller import LocalSessionAuthority
 from clipen.controller.server import ServerPaths, probe_codex, run_server
+from clipen.system_skills import verify_system_skill_release
 
 
 def _repo_root() -> Path:
@@ -37,6 +38,10 @@ def main(arguments: Sequence[str] | None = None) -> int:
         data_root = _data_root()
         attempt_root = data_root / "provider-attempts"
         attempt_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        print("正在驗證系統剪輯規則…", flush=True)
+        system_skills = verify_system_skill_release(
+            repo_root / "resources" / "system-skills"
+        )
         print("正在檢查 Codex…", flush=True)
         provider = probe_codex(attempt_root)
         return run_server(
@@ -47,6 +52,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
             ),
             provider,
             LocalSessionAuthority(),
+            system_skills,
         )
     except KeyboardInterrupt:
         print("\nClipen 已停止", flush=True)
