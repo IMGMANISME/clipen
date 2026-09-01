@@ -50,6 +50,7 @@ class MacOSDirectoryPicker(NativeDirectoryPicker):
         script = (
             "use scripting additions\n"
             "try\n"
+            "  tell current application to activate\n"
             f'  set selectedFolder to choose folder with prompt "{self._PROMPTS[role]}"\n'
             "  return POSIX path of selectedFolder\n"
             "on error number -128\n"

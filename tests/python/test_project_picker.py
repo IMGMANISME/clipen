@@ -191,6 +191,32 @@ class ProjectPickerTests(unittest.TestCase):
             changed.directories[0].availability, DirectoryAvailability.CHANGED
         )
 
+    def test_reconnecting_the_same_directory_restores_availability(self) -> None:
+        workspace, project = self.create_workspace(FakePicker(self.source))
+        selection = workspace.select_directory(
+            "request-pick-reconnect", DirectoryRole.SOURCE
+        )
+        assert selection is not None
+        project = workspace.set_directory(
+            project.project_id,
+            "request-save-reconnect",
+            project.revision,
+            DirectoryRole.SOURCE,
+            selection["selection_token"],
+        )
+
+        detached = self.root / "detached-source"
+        self.source.rename(detached)
+        self.assertEqual(
+            workspace.get_project(project.project_id).directories[0].availability,
+            DirectoryAvailability.OFFLINE,
+        )
+        detached.rename(self.source)
+        self.assertEqual(
+            workspace.get_project(project.project_id).directories[0].availability,
+            DirectoryAvailability.AVAILABLE,
+        )
+
     def test_set_directory_replays_after_selection_authority_is_gone(self) -> None:
         workspace, project = self.create_workspace(FakePicker(self.source))
         selection = workspace.select_directory("request-pick-replay", DirectoryRole.SOURCE)
@@ -222,6 +248,7 @@ class MacOSDirectoryPickerTests(unittest.TestCase):
         self.assertEqual(selected, Path("/Volumes/Camera/Raw"))
         command = run.call_args.args[0]
         self.assertEqual(command[0:2], ("/usr/bin/osascript", "-e"))
+        self.assertIn("tell current application to activate", command[2])
         self.assertIn("選擇毛片資料夾", command[2])
 
     def test_cancel_and_failures_have_distinct_results(self) -> None:

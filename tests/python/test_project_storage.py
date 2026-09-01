@@ -1,9 +1,11 @@
 from pathlib import Path
 import sqlite3
 import tempfile
+import threading
 import unittest
 
 from clipen.projects import ProjectError, ProjectRepository
+from clipen.projects.storage import command_digest
 
 
 class ProjectStorageTests(unittest.TestCase):
@@ -70,6 +72,83 @@ class ProjectStorageTests(unittest.TestCase):
                 "",
             )
         self.assertEqual(context.exception.code, "revision_conflict")
+
+    def test_concurrent_updates_serialize_and_only_one_revision_wins(self) -> None:
+        created = self.repository.create_project("request-create-concurrent", "並行測試")
+        barrier = threading.Barrier(3)
+        outcomes: list[tuple[str, object]] = []
+        outcome_lock = threading.Lock()
+
+        def update(request_id: str, name: str) -> None:
+            barrier.wait()
+            try:
+                result = self.repository.update_details(
+                    created.project_id,
+                    request_id,
+                    created.revision,
+                    name,
+                    "",
+                )
+                outcome = ("saved", result)
+            except ProjectError as error:
+                outcome = (error.code, error)
+            with outcome_lock:
+                outcomes.append(outcome)
+
+        first = threading.Thread(
+            target=update, args=("request-update-concurrent-a", "並行版本 A")
+        )
+        second = threading.Thread(
+            target=update, args=("request-update-concurrent-b", "並行版本 B")
+        )
+        first.start()
+        second.start()
+        barrier.wait()
+        first.join(timeout=5)
+        second.join(timeout=5)
+
+        self.assertFalse(first.is_alive())
+        self.assertFalse(second.is_alive())
+        self.assertCountEqual([status for status, _ in outcomes], ["saved", "revision_conflict"])
+        final = self.repository.get_project(created.project_id)
+        self.assertEqual(final.revision, 2)
+        self.assertIn(final.name, {"並行版本 A", "並行版本 B"})
+
+    def test_failed_mutation_rolls_back_data_and_receipt(self) -> None:
+        created = self.repository.create_project("request-create-rollback", "回滾前")
+        request_id = "request-update-rollback"
+        request_hash = command_digest(
+            {"expected_revision": created.revision, "name": "不應保存"}
+        )
+
+        def fail_after_write(connection, now) -> None:
+            connection.execute(
+                "UPDATE project SET name = ?, updated_at = ? WHERE project_id = ?",
+                ("不應保存", now, created.project_id),
+            )
+            raise sqlite3.IntegrityError("synthetic failure after write")
+
+        with self.assertRaises(ProjectError) as context:
+            self.repository._mutate(
+                created.project_id,
+                request_id,
+                "synthetic_failure",
+                request_hash,
+                created.revision,
+                fail_after_write,
+            )
+        self.assertEqual(context.exception.code, "storage_failed")
+
+        reloaded = ProjectRepository(self.projects)
+        self.assertEqual(reloaded.get_project(created.project_id), created)
+        self.assertIsNone(
+            reloaded.replay_receipt(
+                created.project_id,
+                request_id,
+                "synthetic_failure",
+                request_hash,
+            )
+        )
 
     def test_projects_are_sorted_by_last_update(self) -> None:
         first = self.repository.create_project("request-create-0004", "第一個")
