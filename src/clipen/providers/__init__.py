@@ -17,7 +17,13 @@ from .codex import (
     ProviderUnavailable,
     ProviderUsageLimitError,
 )
-from .recovery import ProviderAttemptState, ProviderUsage
+from .recovery import (
+    ProviderArtifactDecision,
+    ProviderArtifactDisposition,
+    ProviderArtifactRole,
+    ProviderAttemptState,
+    ProviderUsage,
+)
 
 __all__ = [
     "CancellationToken",
@@ -28,6 +34,9 @@ __all__ = [
     "CodexProbeResult",
     "CodexReconciliation",
     "ProviderAttemptState",
+    "ProviderArtifactDecision",
+    "ProviderArtifactDisposition",
+    "ProviderArtifactRole",
     "ProviderAuthenticationError",
     "ProviderCancelled",
     "ProviderNetworkError",

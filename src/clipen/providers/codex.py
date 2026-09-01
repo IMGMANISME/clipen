@@ -18,6 +18,7 @@ import subprocess
 import tempfile
 import time
 from typing import Mapping, Protocol
+import uuid
 
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError, ValidationError
@@ -27,6 +28,9 @@ from .recovery import (
     AttemptReceiptStore,
     ProviderAttemptReceipt,
     ProviderAttemptState,
+    ProviderArtifactDecision,
+    ProviderArtifactDisposition,
+    ProviderArtifactRole,
     ProviderUsage,
     sha256_bytes,
     sha256_file,
@@ -48,6 +52,11 @@ if /bin/cat "$2" >/dev/null 2>&1; then exit 20; fi
 if /bin/cat "$3" >/dev/null 2>&1; then exit 30; fi
 /bin/echo clipen-confinement-ok
 """.strip()
+_SECRET_PATTERNS = (
+    re.compile(rb"(?i)(authorization\s*:\s*bearer\s+)[^\s\"']+"),
+    re.compile(rb"(?i)(api[_-]?key\s*[=:]\s*)[^\s\"']+"),
+    re.compile(rb"\bsk-[A-Za-z0-9_-]{16,}\b"),
+)
 _ENVIRONMENT_ALLOWLIST = frozenset(
     {
         "ALL_PROXY",
@@ -510,6 +519,11 @@ class CodexExecAdapter:
                 diagnostics_path,
                 record_started,
             )
+            self._sanitize_persisted_artifacts(
+                events_path, diagnostics_path, attempt.prompt
+            )
+            stdout = self._read_artifact(events_path, _MAX_CAPTURE_BYTES)
+            stderr = self._read_artifact(diagnostics_path, _MAX_CAPTURE_BYTES)
             if returncode != 0:
                 self._raise_for_exit(returncode, stderr)
             result = self._validated_result(attempt, output_path, stdout)
@@ -528,6 +542,9 @@ class CodexExecAdapter:
             store.write(receipt)
             return replace(result, elapsed_seconds=time.monotonic() - started)
         except Exception as error:
+            self._sanitize_persisted_artifacts(
+                events_path, diagnostics_path, attempt.prompt
+            )
             state, error_code = self._failure_receipt(error)
             receipt = replace(
                 receipt,
@@ -663,6 +680,84 @@ class CodexExecAdapter:
                 None,
                 "terminal_state_unverified",
             )
+
+    def artifact_inventory(
+        self, attempt: CodexAttempt
+    ) -> tuple[ProviderArtifactDecision, ...]:
+        workspace = _isolated_workspace(attempt.workspace)
+        store = AttemptReceiptStore(workspace, attempt.attempt_id)
+        try:
+            state = store.read().state
+        except AttemptReceiptError:
+            state = ProviderAttemptState.UNKNOWN
+
+        terminal_failure = state in {
+            ProviderAttemptState.FAILED,
+            ProviderAttemptState.CANCELLED,
+            ProviderAttemptState.TIMED_OUT,
+            ProviderAttemptState.INTERRUPTED,
+        }
+        pending = state in {
+            ProviderAttemptState.PREPARED,
+            ProviderAttemptState.RUNNING,
+            ProviderAttemptState.UNKNOWN,
+        }
+        if state is ProviderAttemptState.SUCCEEDED:
+            schema_disposition = ProviderArtifactDisposition.RETAIN_RESULT
+            output_disposition = ProviderArtifactDisposition.RETAIN_RESULT
+            events_disposition = ProviderArtifactDisposition.RETAIN_RESULT
+            diagnostics_disposition = ProviderArtifactDisposition.CLEANABLE
+        elif pending:
+            schema_disposition = ProviderArtifactDisposition.RETAIN_RECOVERY
+            output_disposition = ProviderArtifactDisposition.RETAIN_RECOVERY
+            events_disposition = ProviderArtifactDisposition.RETAIN_RECOVERY
+            diagnostics_disposition = ProviderArtifactDisposition.RETAIN_RECOVERY
+        elif terminal_failure:
+            schema_disposition = ProviderArtifactDisposition.CLEANABLE
+            output_disposition = ProviderArtifactDisposition.CLEANABLE
+            events_disposition = ProviderArtifactDisposition.RETAIN_DIAGNOSTIC
+            diagnostics_disposition = ProviderArtifactDisposition.RETAIN_DIAGNOSTIC
+        else:
+            raise AssertionError("unhandled provider attempt state")
+
+        decisions = (
+            ProviderArtifactDecision(
+                ProviderArtifactRole.RECEIPT,
+                store.path.name,
+                ProviderArtifactDisposition.RETAIN_RECOVERY,
+                "authoritative terminal or recovery receipt",
+            ),
+            ProviderArtifactDecision(
+                ProviderArtifactRole.OUTPUT_SCHEMA,
+                attempt.output_schema.name,
+                schema_disposition,
+                "schema required for validation and lineage",
+            ),
+            ProviderArtifactDecision(
+                ProviderArtifactRole.OUTPUT,
+                f"provider-output-{attempt.attempt_id}.json",
+                output_disposition,
+                "candidate result or incomplete output",
+            ),
+            ProviderArtifactDecision(
+                ProviderArtifactRole.EVENTS,
+                f"provider-events-{attempt.attempt_id}.jsonl",
+                events_disposition,
+                "terminal evidence and usage",
+            ),
+            ProviderArtifactDecision(
+                ProviderArtifactRole.DIAGNOSTICS,
+                f"provider-diagnostics-{attempt.attempt_id}.log",
+                diagnostics_disposition,
+                "redacted diagnostics",
+            ),
+        )
+        return tuple(
+            decision
+            for decision in decisions
+            if (workspace / decision.filename).is_file()
+            and not (workspace / decision.filename).is_symlink()
+        )
 
     def _validated_result(
         self, attempt: CodexAttempt, output_path: Path, stdout: bytes
@@ -846,6 +941,41 @@ class CodexExecAdapter:
             return sha256_file(path, limit)
         except (AttemptReceiptError, OSError):
             return None
+
+    @staticmethod
+    def _sanitize_persisted_artifacts(
+        events_path: Path, diagnostics_path: Path, prompt: str
+    ) -> None:
+        prompt_bytes = prompt.encode("utf-8")
+        for path in (events_path, diagnostics_path):
+            if path.is_symlink() or not path.is_file():
+                continue
+            try:
+                value = path.read_bytes()
+            except OSError:
+                continue
+            sanitized = value.replace(prompt_bytes, b"[REDACTED_PROMPT]")
+            for pattern in _SECRET_PATTERNS:
+                if pattern.groups:
+                    sanitized = pattern.sub(rb"\1[REDACTED_SECRET]", sanitized)
+                else:
+                    sanitized = pattern.sub(b"[REDACTED_SECRET]", sanitized)
+            if sanitized == value:
+                continue
+            temporary = path.with_name(f".{path.name}.redacted-{uuid.uuid4().hex}")
+            descriptor = os.open(
+                temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
+            )
+            try:
+                with os.fdopen(descriptor, "wb") as stream:
+                    stream.write(sanitized)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.replace(temporary, path)
+                os.chmod(path, 0o600)
+            finally:
+                if temporary.exists() and not temporary.is_symlink():
+                    temporary.unlink()
 
     @staticmethod
     def _verify_recorded_hash(
