@@ -187,8 +187,8 @@ class InventoryCoordinator:
                 self._finish_cancel(job)
             else:
                 self._fail(job, error.code)
-        except ProjectError:
-            self._settle_conflict(job)
+        except ProjectError as error:
+            self._settle_conflict(job, error.code)
         except Exception:
             self._fail(job, "inventory_internal_error")
         finally:
@@ -287,10 +287,12 @@ class InventoryCoordinator:
         except ProjectError:
             return
 
-    def _settle_conflict(self, job: _Job) -> None:
+    def _settle_conflict(self, job: _Job, error_code: str) -> None:
         try:
             current = self.repository.get_run(job.project_id, job.run_id)
             if current.state is InventoryState.CANCELLING:
                 self._finish_cancel(job)
+            elif current.state is InventoryState.RUNNING:
+                self._fail(job, error_code)
         except ProjectError:
             return

@@ -12,6 +12,7 @@ import webbrowser
 
 import uvicorn
 
+from clipen.media import InventoryCoordinator, InventoryRepository
 from clipen.providers import CodexExecAdapter, ProviderUnavailable
 from clipen.projects import ProjectWorkspace
 from clipen.system_skills import VerifiedSystemSkillRelease
@@ -91,17 +92,25 @@ async def _serve(
     browser_open: Callable[[str], bool],
 ) -> None:
     listener = _bind_socket()
+    inventories = None
     try:
         workspace = (
             ProjectWorkspace(paths.projects_root)
             if paths.projects_root is not None
             else None
         )
+        if workspace is not None:
+            repository = InventoryRepository(workspace.repository)
+            inventories = InventoryCoordinator(repository)
+            inventories.recover_incomplete(
+                project.project_id for project in workspace.repository.list_projects()
+            )
         app = create_app(
             ControllerConfig(paths.static_root, system_skills.summaries),
             provider,
             authority,
             workspace,
+            inventories,
         )
         config = uvicorn.Config(
             app,
@@ -148,6 +157,8 @@ async def _serve(
             if hasattr(signal, "SIGHUP") and previous_hup is not None:
                 signal.signal(signal.SIGHUP, previous_hup)
     finally:
+        if inventories is not None:
+            inventories.close()
         listener.close()
 
 

@@ -17,10 +17,16 @@ from clipen.projects.storage import ProjectRepository, command_digest, utc_now
 
 from .models import (
     AssetCandidate,
+    AssetKind,
     InventoryCounts,
+    InventoryItem,
+    InventoryPage,
     InventoryRoot,
     InventoryRun,
     InventoryState,
+    ItemStatus,
+    MediaStream,
+    ProbeStatus,
     make_run_id,
     validate_run_id,
 )
@@ -228,6 +234,95 @@ class InventoryRepository:
             ).fetchone()
             return None if row is None else self._read_run(connection, row["run_id"])
 
+    def list_items(
+        self,
+        project_id: str,
+        run_id: object,
+        *,
+        offset: int = 0,
+        limit: int = 100,
+    ) -> InventoryPage:
+        validate_project_id(project_id)
+        normalized_run = validate_run_id(run_id)
+        if (
+            isinstance(offset, bool)
+            or not isinstance(offset, int)
+            or offset < 0
+            or isinstance(limit, bool)
+            or not isinstance(limit, int)
+            or not 1 <= limit <= 200
+        ):
+            raise ProjectError(
+                "pagination_invalid", "素材清單頁碼無效。", status_code=422
+            )
+        with self.projects.connect(project_id) as connection:
+            run = self._read_run(connection, normalized_run)
+            if run.project_id != project_id:
+                raise ProjectError(
+                    "inventory_not_found", "找不到這次素材檢查。", status_code=404
+                )
+            total = connection.execute(
+                "SELECT COUNT(*) FROM inventory_items WHERE run_id = ?",
+                (normalized_run,),
+            ).fetchone()[0]
+            rows = connection.execute(
+                "SELECT i.asset_id, a.role, a.relative_path, i.display_name, i.kind, "
+                "i.status, i.issue_code, v.version_id, v.size_bytes, v.probe_status, "
+                "v.probe_json FROM inventory_items i "
+                "JOIN assets a ON a.asset_id = i.asset_id "
+                "LEFT JOIN asset_versions v ON v.version_id = i.version_id "
+                "WHERE i.run_id = ? "
+                "ORDER BY CASE i.status WHEN 'needs_attention' THEN 0 "
+                "WHEN 'usable' THEN 1 ELSE 2 END, i.display_name COLLATE NOCASE, i.asset_id "
+                "LIMIT ? OFFSET ?",
+                (normalized_run, limit, offset),
+            ).fetchall()
+            version_ids = [row["version_id"] for row in rows if row["version_id"]]
+            streams_by_version: dict[str, list[MediaStream]] = {}
+            if version_ids:
+                placeholders = ",".join("?" for _ in version_ids)
+                stream_rows = connection.execute(
+                    "SELECT version_id, stream_index, kind, codec, details_json "
+                    f"FROM media_streams WHERE version_id IN ({placeholders}) "
+                    "ORDER BY version_id, stream_index",
+                    version_ids,
+                ).fetchall()
+                for stream_row in stream_rows:
+                    streams_by_version.setdefault(stream_row["version_id"], []).append(
+                        MediaStream(
+                            stream_row["stream_index"],
+                            stream_row["kind"],
+                            stream_row["codec"],
+                            json.loads(stream_row["details_json"]),
+                        )
+                    )
+            try:
+                items = tuple(
+                    InventoryItem(
+                        row["asset_id"],
+                        DirectoryRole(row["role"]),
+                        row["relative_path"],
+                        row["display_name"],
+                        AssetKind(row["kind"]),
+                        ItemStatus(row["status"]),
+                        row["issue_code"],
+                        row["size_bytes"],
+                        None
+                        if row["probe_status"] is None
+                        else ProbeStatus(row["probe_status"]),
+                        None
+                        if row["probe_json"] is None
+                        else json.loads(row["probe_json"]),
+                        tuple(streams_by_version.get(row["version_id"], ())),
+                    )
+                    for row in rows
+                )
+                return InventoryPage(items, total, offset, limit)
+            except (json.JSONDecodeError, TypeError, ValueError) as error:
+                raise ProjectError(
+                    "storage_corrupt", "Clipen 無法讀取素材清單。", status_code=500
+                ) from error
+
     def request_cancel(self, project_id: str, run_id: object) -> InventoryRun:
         """Idempotently request cancellation without reviving terminal work."""
         validate_project_id(project_id)
@@ -328,6 +423,15 @@ class InventoryRepository:
                     raise ProjectError(
                         "inventory_state_conflict",
                         "這次素材檢查目前不能完成。",
+                        status_code=409,
+                    )
+                project = connection.execute(
+                    "SELECT revision FROM project WHERE project_id = ?", (project_id,)
+                ).fetchone()
+                if project is None or project["revision"] != current.project_revision:
+                    raise ProjectError(
+                        "inventory_input_changed",
+                        "素材位置已更新，請重新檢查素材。",
                         status_code=409,
                     )
                 counts = connection.execute(

@@ -250,6 +250,89 @@ class AssetCandidate:
         return "av_" + hashlib.sha256(value.encode("utf-8")).hexdigest()[:32]
 
 
+@dataclass(frozen=True)
+class InventoryItem:
+    asset_id: str
+    role: DirectoryRole
+    relative_path: str
+    display_name: str
+    kind: AssetKind
+    status: ItemStatus
+    issue_code: str | None
+    size_bytes: int | None
+    probe_status: ProbeStatus | None
+    probe: Mapping[str, object] | None = None
+    streams: tuple[MediaStream, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not re.fullmatch(r"ast_[0-9a-f]{32}", self.asset_id):
+            raise ValueError("inventory item identity is invalid")
+        validate_relative_path(self.relative_path)
+        if self.display_name != PurePosixPath(self.relative_path).name:
+            raise ValueError("inventory item display name is invalid")
+        if self.issue_code is not None and not _CODE.fullmatch(self.issue_code):
+            raise ValueError("inventory item issue code is invalid")
+        if self.size_bytes is not None and self.size_bytes < 0:
+            raise ValueError("inventory item size is invalid")
+        if self.status is ItemStatus.USABLE and self.probe_status is not ProbeStatus.READY:
+            raise ValueError("usable inventory item must have a ready probe")
+        if self.status is not ItemStatus.USABLE and self.issue_code is None:
+            raise ValueError("non-usable inventory item requires an issue")
+        if self.probe is not None:
+            encoded = json.dumps(self.probe, ensure_ascii=False, separators=(",", ":"))
+            if len(encoded.encode("utf-8")) > 256_000:
+                raise ValueError("inventory item probe metadata is too large")
+        if self.streams and self.probe_status is not ProbeStatus.READY:
+            raise ValueError("inventory item streams require a ready probe")
+
+    def to_public(self) -> dict[str, object]:
+        return {
+            "asset_id": self.asset_id,
+            "role": self.role.value,
+            "relative_path": self.relative_path,
+            "display_name": self.display_name,
+            "kind": self.kind.value,
+            "status": self.status.value,
+            "issue_code": self.issue_code,
+            "size_bytes": self.size_bytes,
+            "probe_status": None if self.probe_status is None else self.probe_status.value,
+            "probe": self.probe,
+            "streams": [
+                {
+                    "stream_index": stream.stream_index,
+                    "kind": stream.kind,
+                    "codec": stream.codec,
+                    "details": stream.details,
+                }
+                for stream in self.streams
+            ],
+        }
+
+
+@dataclass(frozen=True)
+class InventoryPage:
+    items: tuple[InventoryItem, ...]
+    total: int
+    offset: int
+    limit: int
+
+    def __post_init__(self) -> None:
+        if self.total < 0 or self.offset < 0 or not 1 <= self.limit <= 200:
+            raise ValueError("inventory page bounds are invalid")
+        if len(self.items) > self.limit:
+            raise ValueError("inventory page contents are invalid")
+
+    def to_public(self) -> dict[str, object]:
+        next_offset = self.offset + len(self.items)
+        return {
+            "items": [item.to_public() for item in self.items],
+            "total": self.total,
+            "offset": self.offset,
+            "limit": self.limit,
+            "next_offset": next_offset if next_offset < self.total else None,
+        }
+
+
 def validate_run_id(value: object) -> str:
     if not isinstance(value, str) or _RUN_ID.fullmatch(value) is None:
         raise ProjectError("inventory_not_found", "找不到這次素材檢查。", status_code=404)

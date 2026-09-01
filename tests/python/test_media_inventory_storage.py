@@ -220,6 +220,41 @@ class MediaInventoryStorageTests(unittest.TestCase):
                 connection.execute("SELECT COUNT(*) FROM media_streams").fetchone()[0], 2
             )
 
+        page = self.inventories.list_items(
+            self.project.project_id, published.run_id, limit=1
+        )
+        self.assertEqual(page.total, 2)
+        self.assertEqual(page.offset, 0)
+        self.assertEqual(page.to_public()["next_offset"], 1)
+        first = page.items[0].to_public()
+        self.assertEqual(first["status"], "usable")
+        self.assertEqual(first["relative_path"], "camera/A001.mov")
+        self.assertNotIn("fingerprint", first)
+        self.assertNotIn("mtime_ns", first)
+        self.assertNotIn(str(self.source), repr(first))
+
+        second_page = self.inventories.list_items(
+            self.project.project_id, published.run_id, offset=1, limit=1
+        )
+        self.assertEqual(second_page.items[0].status, ItemStatus.IGNORED)
+        self.assertIsNone(second_page.to_public()["next_offset"])
+        empty_page = self.inventories.list_items(
+            self.project.project_id, published.run_id, offset=500, limit=10
+        )
+        self.assertEqual(empty_page.items, ())
+        self.assertIsNone(empty_page.to_public()["next_offset"])
+
+        for offset, limit in ((-1, 10), (0, 0), (0, 201)):
+            with self.subTest(offset=offset, limit=limit):
+                with self.assertRaises(ProjectError) as invalid:
+                    self.inventories.list_items(
+                        self.project.project_id,
+                        published.run_id,
+                        offset=offset,
+                        limit=limit,
+                    )
+                self.assertEqual(invalid.exception.code, "pagination_invalid")
+
     def test_failed_run_does_not_replace_the_last_successful_inventory(self) -> None:
         first = self.start("request-inventory-first")
         self.inventories.stage_item(
