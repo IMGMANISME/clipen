@@ -6,9 +6,12 @@ import unittest
 
 from clipen.media import (
     AssetKind,
+    DiscoveredAsset,
     InventoryCoordinator,
     InventoryRepository,
+    InventoryRoot,
     InventoryState,
+    ItemStatus,
     MediaProbeError,
     MediaProbeResult,
     MediaStream,
@@ -165,6 +168,33 @@ class MediaInventoryServiceTests(unittest.TestCase):
         self.assertEqual(finished.state, InventoryState.FAILED)
         self.assertEqual(finished.error_code, "probe_unavailable")
         self.assertIsNone(self.repository.current_run(self.project.project_id))
+
+    def test_unreadable_entries_are_visible_issues_without_calling_probe(self) -> None:
+        identity = self.source.stat()
+        root = InventoryRoot(
+            DirectoryRole.SOURCE,
+            str(self.source.resolve()),
+            identity.st_dev,
+            identity.st_ino,
+            "2026-09-01T00:00:00+00:00",
+        )
+        unreadable = DiscoveredAsset(
+            DirectoryRole.SOURCE,
+            "offline-camera",
+            AssetKind.UNKNOWN,
+            None,
+            None,
+            "entry_unreadable",
+        )
+        probe = FakeProbe()
+
+        candidate = InventoryCoordinator._inspect(
+            probe, root, unreadable, threading.Event()
+        )
+
+        self.assertEqual(candidate.status, ItemStatus.NEEDS_ATTENTION)
+        self.assertEqual(candidate.issue_code, "entry_unreadable")
+        self.assertEqual(probe.calls, 0)
 
     def test_close_interrupts_work_and_recovery_never_replays_it(self) -> None:
         probe = BlockingProbe()

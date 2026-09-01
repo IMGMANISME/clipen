@@ -65,6 +65,7 @@ const inventoryErrorCopy: Record<string, string> = {
 }
 
 const itemIssueCopy: Record<string, string> = {
+  entry_unreadable: '無法讀取這個項目',
   probe_unsupported: '不支援的媒體格式',
   probe_unreadable: '無法讀取媒體資訊',
   probe_timeout: '讀取媒體資訊逾時',
