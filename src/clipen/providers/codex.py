@@ -7,7 +7,7 @@ attempt workspace.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import json
 import os
 from pathlib import Path
@@ -18,9 +18,24 @@ import subprocess
 import tempfile
 import time
 from typing import Mapping, Protocol
+import uuid
 
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError, ValidationError
+
+from .recovery import (
+    AttemptReceiptError,
+    AttemptReceiptStore,
+    ProviderAttemptReceipt,
+    ProviderAttemptState,
+    ProviderArtifactDecision,
+    ProviderArtifactDisposition,
+    ProviderArtifactRole,
+    ProviderUsage,
+    sha256_bytes,
+    sha256_file,
+    utc_now,
+)
 
 
 _MAX_PROMPT_BYTES = 1_000_000
@@ -37,6 +52,11 @@ if /bin/cat "$2" >/dev/null 2>&1; then exit 20; fi
 if /bin/cat "$3" >/dev/null 2>&1; then exit 30; fi
 /bin/echo clipen-confinement-ok
 """.strip()
+_SECRET_PATTERNS = (
+    re.compile(rb"(?i)(authorization\s*:\s*bearer\s+)[^\s\"']+"),
+    re.compile(rb"(?i)(api[_-]?key\s*[=:]\s*)[^\s\"']+"),
+    re.compile(rb"\bsk-[A-Za-z0-9_-]{16,}\b"),
+)
 _ENVIRONMENT_ALLOWLIST = frozenset(
     {
         "ALL_PROXY",
@@ -262,7 +282,16 @@ class CodexAttemptResult:
     attempt_id: str
     payload: dict[str, object]
     event_types: tuple[str, ...]
-    elapsed_seconds: float
+    elapsed_seconds: float | None
+    usage: ProviderUsage | None = None
+
+
+@dataclass(frozen=True)
+class CodexReconciliation:
+    attempt_id: str
+    state: ProviderAttemptState
+    result: CodexAttemptResult | None
+    reason: str
 
 
 class CodexExecAdapter:
@@ -447,14 +476,292 @@ class CodexExecAdapter:
             raise ProviderCancelled(f"Codex attempt {attempt.attempt_id} was cancelled")
         workspace = _isolated_workspace(attempt.workspace)
         output_path = workspace / f"provider-output-{attempt.attempt_id}.json"
+        events_path = workspace / f"provider-events-{attempt.attempt_id}.jsonl"
+        diagnostics_path = workspace / f"provider-diagnostics-{attempt.attempt_id}.log"
+        store = AttemptReceiptStore(workspace, attempt.attempt_id)
+        if store.path.exists() or store.path.is_symlink():
+            raise ProviderProtocolError(
+                "Codex attempt already has a receipt; reconcile it instead of rerunning"
+            )
+        for artifact in (output_path, events_path, diagnostics_path):
+            if artifact.exists() or artifact.is_symlink():
+                raise ProviderProtocolError("Codex attempt artifact already exists")
+        prompt_hash = sha256_bytes(attempt.prompt.encode("utf-8"))
+        schema_hash = sha256_file(attempt.output_schema, _MAX_SCHEMA_BYTES)
+        receipt = ProviderAttemptReceipt(
+            attempt_id=attempt.attempt_id,
+            state=ProviderAttemptState.PREPARED,
+            prompt_sha256=prompt_hash,
+            schema_sha256=schema_hash,
+        )
+        store.write(receipt)
+
+        def record_started(pid: int) -> None:
+            nonlocal receipt
+            receipt = replace(
+                receipt,
+                state=ProviderAttemptState.RUNNING,
+                started_at=utc_now(),
+                pid=pid,
+            )
+            store.write(receipt)
+
         command = self.command(attempt, output_path)
         started = time.monotonic()
-        stdout, stderr, returncode = self._run_bounded(
-            command, attempt, workspace, cancel_token
+        returncode: int | None = None
+        try:
+            stdout, stderr, returncode = self._run_bounded(
+                command,
+                attempt,
+                workspace,
+                cancel_token,
+                events_path,
+                diagnostics_path,
+                record_started,
+            )
+            self._sanitize_persisted_artifacts(
+                events_path, diagnostics_path, attempt.prompt
+            )
+            stdout = self._read_artifact(events_path, _MAX_CAPTURE_BYTES)
+            stderr = self._read_artifact(diagnostics_path, _MAX_CAPTURE_BYTES)
+            if returncode != 0:
+                self._raise_for_exit(returncode, stderr)
+            result = self._validated_result(attempt, output_path, stdout)
+            receipt = replace(
+                receipt,
+                state=ProviderAttemptState.SUCCEEDED,
+                finished_at=utc_now(),
+                return_code=returncode,
+                output_sha256=sha256_file(output_path, _MAX_RESULT_BYTES),
+                events_sha256=sha256_file(events_path, _MAX_CAPTURE_BYTES),
+                diagnostics_sha256=sha256_file(
+                    diagnostics_path, _MAX_CAPTURE_BYTES
+                ),
+                usage=result.usage,
+            )
+            store.write(receipt)
+            return replace(result, elapsed_seconds=time.monotonic() - started)
+        except Exception as error:
+            self._sanitize_persisted_artifacts(
+                events_path, diagnostics_path, attempt.prompt
+            )
+            state, error_code = self._failure_receipt(error)
+            receipt = replace(
+                receipt,
+                state=state,
+                finished_at=utc_now(),
+                return_code=returncode,
+                output_sha256=self._optional_artifact_hash(
+                    output_path, _MAX_RESULT_BYTES
+                ),
+                events_sha256=self._optional_artifact_hash(
+                    events_path, _MAX_CAPTURE_BYTES
+                ),
+                diagnostics_sha256=self._optional_artifact_hash(
+                    diagnostics_path, _MAX_CAPTURE_BYTES
+                ),
+                usage=self._optional_usage(events_path),
+                error_code=error_code,
+            )
+            try:
+                store.write(receipt)
+            except AttemptReceiptError as receipt_error:
+                raise ProviderProtocolError(
+                    "Codex attempt failed and its terminal receipt could not be saved"
+                ) from receipt_error
+            raise
+
+    def reconcile(self, attempt: CodexAttempt) -> CodexReconciliation:
+        workspace = _isolated_workspace(attempt.workspace)
+        store = AttemptReceiptStore(workspace, attempt.attempt_id)
+        try:
+            receipt = store.read()
+        except AttemptReceiptError:
+            return CodexReconciliation(
+                attempt.attempt_id,
+                ProviderAttemptState.UNKNOWN,
+                None,
+                "receipt_unavailable",
+            )
+        try:
+            if (
+                receipt.attempt_id != attempt.attempt_id
+                or receipt.prompt_sha256
+                != sha256_bytes(attempt.prompt.encode("utf-8"))
+                or receipt.schema_sha256
+                != sha256_file(attempt.output_schema, _MAX_SCHEMA_BYTES)
+            ):
+                raise AttemptReceiptError("attempt identity does not match its receipt")
+            output_path = workspace / f"provider-output-{attempt.attempt_id}.json"
+            events_path = workspace / f"provider-events-{attempt.attempt_id}.jsonl"
+            if receipt.state in {
+                ProviderAttemptState.SUCCEEDED,
+                ProviderAttemptState.RUNNING,
+            }:
+                stdout = self._read_artifact(events_path, _MAX_CAPTURE_BYTES)
+                result = self._validated_result(attempt, output_path, stdout)
+                output_hash = sha256_file(output_path, _MAX_RESULT_BYTES)
+                events_hash = sha256_file(events_path, _MAX_CAPTURE_BYTES)
+                if receipt.state is ProviderAttemptState.SUCCEEDED:
+                    if (
+                        receipt.output_sha256 != output_hash
+                        or receipt.events_sha256 != events_hash
+                    ):
+                        raise AttemptReceiptError("terminal provider artifacts changed")
+                    self._verify_recorded_hash(
+                        workspace
+                        / f"provider-diagnostics-{attempt.attempt_id}.log",
+                        receipt.diagnostics_sha256,
+                        _MAX_CAPTURE_BYTES,
+                    )
+                else:
+                    diagnostics_path = workspace / (
+                        f"provider-diagnostics-{attempt.attempt_id}.log"
+                    )
+                    receipt = replace(
+                        receipt,
+                        state=ProviderAttemptState.SUCCEEDED,
+                        finished_at=utc_now(),
+                        return_code=0,
+                        output_sha256=output_hash,
+                        events_sha256=events_hash,
+                        diagnostics_sha256=self._optional_artifact_hash(
+                            diagnostics_path, _MAX_CAPTURE_BYTES
+                        ),
+                        usage=result.usage,
+                        error_code=None,
+                    )
+                    store.write(receipt)
+                return CodexReconciliation(
+                    attempt.attempt_id,
+                    ProviderAttemptState.SUCCEEDED,
+                    result,
+                    "terminal_artifacts_verified",
+                )
+            if receipt.state is ProviderAttemptState.PREPARED:
+                interrupted = replace(
+                    receipt,
+                    state=ProviderAttemptState.INTERRUPTED,
+                    finished_at=utc_now(),
+                    error_code="launch_interrupted",
+                )
+                store.write(interrupted)
+                return CodexReconciliation(
+                    attempt.attempt_id,
+                    ProviderAttemptState.INTERRUPTED,
+                    None,
+                    "launch_interrupted",
+                )
+            self._verify_recorded_hash(
+                workspace / f"provider-output-{attempt.attempt_id}.json",
+                receipt.output_sha256,
+                _MAX_RESULT_BYTES,
+            )
+            self._verify_recorded_hash(
+                workspace / f"provider-events-{attempt.attempt_id}.jsonl",
+                receipt.events_sha256,
+                _MAX_CAPTURE_BYTES,
+            )
+            self._verify_recorded_hash(
+                workspace / f"provider-diagnostics-{attempt.attempt_id}.log",
+                receipt.diagnostics_sha256,
+                _MAX_CAPTURE_BYTES,
+            )
+            return CodexReconciliation(
+                attempt.attempt_id,
+                receipt.state,
+                None,
+                receipt.error_code or "terminal_receipt_verified",
+            )
+        except (AttemptReceiptError, OSError, ValueError, ProviderProtocolError):
+            return CodexReconciliation(
+                attempt.attempt_id,
+                ProviderAttemptState.UNKNOWN,
+                None,
+                "terminal_state_unverified",
+            )
+
+    def artifact_inventory(
+        self, attempt: CodexAttempt
+    ) -> tuple[ProviderArtifactDecision, ...]:
+        workspace = _isolated_workspace(attempt.workspace)
+        store = AttemptReceiptStore(workspace, attempt.attempt_id)
+        try:
+            state = store.read().state
+        except AttemptReceiptError:
+            state = ProviderAttemptState.UNKNOWN
+
+        terminal_failure = state in {
+            ProviderAttemptState.FAILED,
+            ProviderAttemptState.CANCELLED,
+            ProviderAttemptState.TIMED_OUT,
+            ProviderAttemptState.INTERRUPTED,
+        }
+        pending = state in {
+            ProviderAttemptState.PREPARED,
+            ProviderAttemptState.RUNNING,
+            ProviderAttemptState.UNKNOWN,
+        }
+        if state is ProviderAttemptState.SUCCEEDED:
+            schema_disposition = ProviderArtifactDisposition.RETAIN_RESULT
+            output_disposition = ProviderArtifactDisposition.RETAIN_RESULT
+            events_disposition = ProviderArtifactDisposition.RETAIN_RESULT
+            diagnostics_disposition = ProviderArtifactDisposition.CLEANABLE
+        elif pending:
+            schema_disposition = ProviderArtifactDisposition.RETAIN_RECOVERY
+            output_disposition = ProviderArtifactDisposition.RETAIN_RECOVERY
+            events_disposition = ProviderArtifactDisposition.RETAIN_RECOVERY
+            diagnostics_disposition = ProviderArtifactDisposition.RETAIN_RECOVERY
+        elif terminal_failure:
+            schema_disposition = ProviderArtifactDisposition.CLEANABLE
+            output_disposition = ProviderArtifactDisposition.CLEANABLE
+            events_disposition = ProviderArtifactDisposition.RETAIN_DIAGNOSTIC
+            diagnostics_disposition = ProviderArtifactDisposition.RETAIN_DIAGNOSTIC
+        else:
+            raise AssertionError("unhandled provider attempt state")
+
+        decisions = (
+            ProviderArtifactDecision(
+                ProviderArtifactRole.RECEIPT,
+                store.path.name,
+                ProviderArtifactDisposition.RETAIN_RECOVERY,
+                "authoritative terminal or recovery receipt",
+            ),
+            ProviderArtifactDecision(
+                ProviderArtifactRole.OUTPUT_SCHEMA,
+                attempt.output_schema.name,
+                schema_disposition,
+                "schema required for validation and lineage",
+            ),
+            ProviderArtifactDecision(
+                ProviderArtifactRole.OUTPUT,
+                f"provider-output-{attempt.attempt_id}.json",
+                output_disposition,
+                "candidate result or incomplete output",
+            ),
+            ProviderArtifactDecision(
+                ProviderArtifactRole.EVENTS,
+                f"provider-events-{attempt.attempt_id}.jsonl",
+                events_disposition,
+                "terminal evidence and usage",
+            ),
+            ProviderArtifactDecision(
+                ProviderArtifactRole.DIAGNOSTICS,
+                f"provider-diagnostics-{attempt.attempt_id}.log",
+                diagnostics_disposition,
+                "redacted diagnostics",
+            ),
+        )
+        return tuple(
+            decision
+            for decision in decisions
+            if (workspace / decision.filename).is_file()
+            and not (workspace / decision.filename).is_symlink()
         )
 
-        if returncode != 0:
-            self._raise_for_exit(returncode, stderr)
+    def _validated_result(
+        self, attempt: CodexAttempt, output_path: Path, stdout: bytes
+    ) -> CodexAttemptResult:
         if not output_path.is_file() or output_path.is_symlink():
             raise ProviderProtocolError("Codex did not create the expected result file")
         if output_path.stat().st_size > _MAX_RESULT_BYTES:
@@ -463,24 +770,28 @@ class CodexExecAdapter:
             payload = json.loads(output_path.read_text(encoding="utf-8"))
         except (OSError, UnicodeError, json.JSONDecodeError) as error:
             raise ProviderProtocolError("Codex result was not valid UTF-8 JSON") from error
-
         if not isinstance(payload, dict):
             raise ProviderProtocolError("Codex result must be a JSON object")
-
-        schema = _load_output_schema(_workspace_file(attempt.output_schema, workspace, "output_schema"))
+        schema = _load_output_schema(
+            _workspace_file(
+                attempt.output_schema,
+                _isolated_workspace(attempt.workspace),
+                "output_schema",
+            )
+        )
         try:
             Draft202012Validator(schema).validate(payload)
         except ValidationError as error:
             raise ProviderProtocolError("Codex result did not match the output schema") from error
-
-        event_types = self._event_types(stdout)
+        event_types, usage = self._events_and_usage(stdout)
         if "turn.completed" not in event_types:
             raise ProviderProtocolError("Codex event stream did not report a completed turn")
         return CodexAttemptResult(
             attempt_id=attempt.attempt_id,
             payload=payload,
             event_types=event_types,
-            elapsed_seconds=time.monotonic() - started,
+            elapsed_seconds=None,
+            usage=usage,
         )
 
     @staticmethod
@@ -505,56 +816,75 @@ class CodexExecAdapter:
         attempt: CodexAttempt,
         workspace: Path,
         cancel_token: CancellationToken | None,
+        events_path: Path,
+        diagnostics_path: Path,
+        record_started,
     ) -> tuple[bytes, bytes, int]:
         deadline = time.monotonic() + attempt.timeout_seconds
-        with (
-            tempfile.TemporaryFile() as prompt_stream,
-            tempfile.TemporaryFile() as stdout_stream,
-            tempfile.TemporaryFile() as stderr_stream,
-        ):
+        with tempfile.TemporaryFile() as prompt_stream:
             prompt_stream.write(attempt.prompt.encode("utf-8"))
             prompt_stream.seek(0)
+            stdout_descriptor = os.open(
+                events_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
+            )
             try:
-                process = subprocess.Popen(
-                    command,
-                    cwd=workspace,
-                    env=self._environment,
-                    stdin=prompt_stream,
-                    stdout=stdout_stream,
-                    stderr=stderr_stream,
-                    start_new_session=os.name == "posix",
+                stderr_descriptor = os.open(
+                    diagnostics_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
                 )
-            except OSError as error:
-                raise ProviderUnavailable("Codex CLI could not be launched") from error
-
-            while process.poll() is None:
-                if cancel_token is not None and cancel_token.is_set():
-                    self._terminate(process)
-                    raise ProviderCancelled(f"Codex attempt {attempt.attempt_id} was cancelled")
-                if time.monotonic() >= deadline:
-                    self._terminate(process)
-                    raise ProviderTimedOut(
-                        f"Codex attempt {attempt.attempt_id} exceeded its timeout"
+            except Exception:
+                os.close(stdout_descriptor)
+                raise
+            with (
+                os.fdopen(stdout_descriptor, "wb") as stdout_stream,
+                os.fdopen(stderr_descriptor, "wb") as stderr_stream,
+            ):
+                try:
+                    process = subprocess.Popen(
+                        command,
+                        cwd=workspace,
+                        env=self._environment,
+                        stdin=prompt_stream,
+                        stdout=stdout_stream,
+                        stderr=stderr_stream,
+                        start_new_session=os.name == "posix",
                     )
-                if (
-                    os.fstat(stdout_stream.fileno()).st_size > _MAX_CAPTURE_BYTES
-                    or os.fstat(stderr_stream.fileno()).st_size > _MAX_CAPTURE_BYTES
-                ):
-                    self._terminate(process)
-                    raise ProviderProtocolError("Codex diagnostic output exceeded the capture limit")
-                time.sleep(_POLL_INTERVAL_SECONDS)
+                except OSError as error:
+                    raise ProviderUnavailable("Codex CLI could not be launched") from error
+                record_started(process.pid)
 
-            stdout_stream.seek(0)
-            stderr_stream.seek(0)
-            stdout = stdout_stream.read(_MAX_CAPTURE_BYTES + 1)
-            stderr = stderr_stream.read(_MAX_CAPTURE_BYTES + 1)
-            if len(stdout) > _MAX_CAPTURE_BYTES or len(stderr) > _MAX_CAPTURE_BYTES:
-                raise ProviderProtocolError("Codex diagnostic output exceeded the capture limit")
+                while process.poll() is None:
+                    if cancel_token is not None and cancel_token.is_set():
+                        self._terminate(process)
+                        raise ProviderCancelled(
+                            f"Codex attempt {attempt.attempt_id} was cancelled"
+                        )
+                    if time.monotonic() >= deadline:
+                        self._terminate(process)
+                        raise ProviderTimedOut(
+                            f"Codex attempt {attempt.attempt_id} exceeded its timeout"
+                        )
+                    if (
+                        os.fstat(stdout_stream.fileno()).st_size > _MAX_CAPTURE_BYTES
+                        or os.fstat(stderr_stream.fileno()).st_size > _MAX_CAPTURE_BYTES
+                    ):
+                        self._terminate(process)
+                        raise ProviderProtocolError(
+                            "Codex diagnostic output exceeded the capture limit"
+                        )
+                    time.sleep(_POLL_INTERVAL_SECONDS)
+
+                stdout_stream.flush()
+                stderr_stream.flush()
+            stdout = self._read_artifact(events_path, _MAX_CAPTURE_BYTES)
+            stderr = self._read_artifact(diagnostics_path, _MAX_CAPTURE_BYTES)
             return stdout, stderr, process.returncode
 
     @staticmethod
-    def _event_types(stdout: bytes) -> tuple[str, ...]:
+    def _events_and_usage(
+        stdout: bytes,
+    ) -> tuple[tuple[str, ...], ProviderUsage | None]:
         event_types: list[str] = []
+        usage: ProviderUsage | None = None
         lines = _decode_capture(stdout, "JSONL stream").splitlines()
         for line in lines:
             if not line.strip():
@@ -568,7 +898,113 @@ class CodexExecAdapter:
             event_type = event.get("type")
             if isinstance(event_type, str) and event_type:
                 event_types.append(event_type)
-        return tuple(event_types)
+            candidate_usage = event.get("usage")
+            if event_type in {"turn.completed", "turn.failed"} and isinstance(
+                candidate_usage, dict
+            ):
+                try:
+                    usage = ProviderUsage(
+                        input_tokens=candidate_usage["input_tokens"],
+                        cached_input_tokens=candidate_usage.get(
+                            "cached_input_tokens", 0
+                        ),
+                        output_tokens=candidate_usage["output_tokens"],
+                    )
+                except (KeyError, TypeError, ValueError) as error:
+                    raise ProviderProtocolError(
+                        "Codex usage data was malformed"
+                    ) from error
+        return tuple(event_types), usage
+
+    @classmethod
+    def _optional_usage(cls, path: Path) -> ProviderUsage | None:
+        try:
+            _, usage = cls._events_and_usage(
+                cls._read_artifact(path, _MAX_CAPTURE_BYTES)
+            )
+            return usage
+        except (OSError, ProviderProtocolError):
+            return None
+
+    @staticmethod
+    def _read_artifact(path: Path, limit: int) -> bytes:
+        if path.is_symlink() or not path.is_file() or path.stat().st_size > limit:
+            raise ProviderProtocolError("Codex attempt artifact is missing or oversized")
+        value = path.read_bytes()
+        if len(value) > limit:
+            raise ProviderProtocolError("Codex attempt artifact exceeded its size limit")
+        return value
+
+    @staticmethod
+    def _optional_artifact_hash(path: Path, limit: int) -> str | None:
+        try:
+            return sha256_file(path, limit)
+        except (AttemptReceiptError, OSError):
+            return None
+
+    @staticmethod
+    def _sanitize_persisted_artifacts(
+        events_path: Path, diagnostics_path: Path, prompt: str
+    ) -> None:
+        prompt_bytes = prompt.encode("utf-8")
+        for path in (events_path, diagnostics_path):
+            if path.is_symlink() or not path.is_file():
+                continue
+            try:
+                value = path.read_bytes()
+            except OSError:
+                continue
+            sanitized = value.replace(prompt_bytes, b"[REDACTED_PROMPT]")
+            for pattern in _SECRET_PATTERNS:
+                if pattern.groups:
+                    sanitized = pattern.sub(rb"\1[REDACTED_SECRET]", sanitized)
+                else:
+                    sanitized = pattern.sub(b"[REDACTED_SECRET]", sanitized)
+            if sanitized == value:
+                continue
+            temporary = path.with_name(f".{path.name}.redacted-{uuid.uuid4().hex}")
+            descriptor = os.open(
+                temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
+            )
+            try:
+                with os.fdopen(descriptor, "wb") as stream:
+                    stream.write(sanitized)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.replace(temporary, path)
+                os.chmod(path, 0o600)
+            finally:
+                if temporary.exists() and not temporary.is_symlink():
+                    temporary.unlink()
+
+    @staticmethod
+    def _verify_recorded_hash(
+        path: Path, expected: str | None, limit: int
+    ) -> None:
+        if expected is None:
+            return
+        if sha256_file(path, limit) != expected:
+            raise AttemptReceiptError("provider artifact changed after receipt")
+
+    @staticmethod
+    def _failure_receipt(
+        error: Exception,
+    ) -> tuple[ProviderAttemptState, str]:
+        if isinstance(error, ProviderCancelled):
+            return ProviderAttemptState.CANCELLED, "cancelled"
+        if isinstance(error, ProviderTimedOut):
+            return ProviderAttemptState.TIMED_OUT, "timed_out"
+        if isinstance(error, ProviderAuthenticationError):
+            return ProviderAttemptState.FAILED, "authentication"
+        if isinstance(error, ProviderUsageLimitError):
+            return ProviderAttemptState.FAILED, "usage_limit"
+        if isinstance(error, ProviderNetworkError):
+            return ProviderAttemptState.FAILED, "network"
+        if isinstance(error, ProviderPermissionError):
+            return ProviderAttemptState.FAILED, "permission"
+        if isinstance(error, ProviderUnavailable):
+            return ProviderAttemptState.FAILED, "unavailable"
+        return ProviderAttemptState.FAILED, "protocol"
 
     @staticmethod
     def _terminate(process: subprocess.Popen[bytes]) -> None:

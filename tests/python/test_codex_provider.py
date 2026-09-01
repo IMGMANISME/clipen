@@ -18,6 +18,16 @@ from clipen.providers import (
     ProviderTimedOut,
     ProviderUsageLimitError,
 )
+from clipen.providers.recovery import (
+    AttemptReceiptStore,
+    ProviderAttemptReceipt,
+    ProviderAttemptState,
+    ProviderArtifactDisposition,
+    ProviderArtifactRole,
+    ProviderUsage,
+    sha256_bytes,
+    sha256_file,
+)
 
 
 SUCCESSFUL_FAKE = r"""
@@ -37,7 +47,9 @@ pathlib.Path("observation.json").write_text(
     json.dumps({"arguments": arguments, "prompt": prompt}), encoding="utf-8"
 )
 print(json.dumps({"type": "thread.started"}))
-print(json.dumps({"type": "turn.completed"}))
+print(json.dumps({"type": "turn.completed", "usage": {
+    "input_tokens": 120, "cached_input_tokens": 80, "output_tokens": 24
+}}))
 """
 
 PROBE_FAKE = r"""
@@ -109,6 +121,7 @@ class CodexProviderTests(unittest.TestCase):
         arguments = observation["arguments"]
         self.assertEqual(result.payload, {"plan": "candidate"})
         self.assertEqual(result.event_types, ("thread.started", "turn.completed"))
+        self.assertEqual(result.usage, ProviderUsage(120, 80, 24))
         self.assertEqual(observation["prompt"], "Return the approved candidate plan.")
         self.assertNotIn(observation["prompt"], arguments)
         self.assertIn("--ephemeral", arguments)
@@ -131,6 +144,28 @@ class CodexProviderTests(unittest.TestCase):
         self.assertIn('shell_environment_policy.inherit="none"', arguments)
         self.assertEqual(arguments[-1], "-")
         self.assertEqual(adapter.version(), "codex-cli fake-1")
+
+        reconciled = CodexExecAdapter(
+            self.root, self.fake_codex(PROBE_FAKE), environment={"PATH": "/usr/bin"}
+        ).reconcile(self.attempt())
+        self.assertEqual(reconciled.state, ProviderAttemptState.SUCCEEDED)
+        self.assertIsNotNone(reconciled.result)
+        self.assertEqual(reconciled.result.payload, result.payload)
+        self.assertEqual(reconciled.result.event_types, result.event_types)
+        self.assertEqual(reconciled.result.usage, result.usage)
+        receipt_text = AttemptReceiptStore(
+            self.workspace, "attempt-1"
+        ).path.read_text(encoding="utf-8")
+        self.assertNotIn("Return the approved candidate plan", receipt_text)
+        inventory = {item.role: item.disposition for item in adapter.artifact_inventory(self.attempt())}
+        self.assertEqual(
+            inventory[ProviderArtifactRole.OUTPUT],
+            ProviderArtifactDisposition.RETAIN_RESULT,
+        )
+        self.assertEqual(
+            inventory[ProviderArtifactRole.DIAGNOSTICS],
+            ProviderArtifactDisposition.CLEANABLE,
+        )
 
     def test_probe_checks_auth_and_required_cli_capabilities_without_an_attempt(self) -> None:
         adapter = CodexExecAdapter(
@@ -211,6 +246,33 @@ class CodexProviderTests(unittest.TestCase):
             CodexExecAdapter(self.root, fake, environment={"PATH": "/usr/bin"}).execute(
                 self.attempt(timeout_seconds=0.05)
             )
+        self.assertEqual(
+            AttemptReceiptStore(self.workspace, "attempt-1").read().state,
+            ProviderAttemptState.TIMED_OUT,
+        )
+
+    def test_timeout_terminates_the_entire_process_group(self) -> None:
+        child_marker = self.root / "timeout-child-survived"
+        fake = self.fake_codex(
+            f"""
+            import subprocess
+            import sys
+            import time
+            subprocess.Popen([
+                sys.executable,
+                "-c",
+                "import pathlib,time; time.sleep(0.4); "
+                "pathlib.Path({str(child_marker)!r}).write_text('survived')",
+            ])
+            time.sleep(30)
+            """
+        )
+        with self.assertRaises(ProviderTimedOut):
+            CodexExecAdapter(
+                self.root, fake, environment={"PATH": "/usr/bin"}
+            ).execute(self.attempt(timeout_seconds=0.05))
+        time.sleep(0.6)
+        self.assertFalse(child_marker.exists())
 
     def test_cancel_token_terminates_the_attempt(self) -> None:
         fake = self.fake_codex(
@@ -231,6 +293,118 @@ class CodexProviderTests(unittest.TestCase):
         finally:
             timer.cancel()
         self.assertLess(time.monotonic() - started, 3)
+        self.assertEqual(
+            AttemptReceiptStore(self.workspace, "attempt-1").read().state,
+            ProviderAttemptState.CANCELLED,
+        )
+
+    def test_cancel_terminates_the_entire_process_group(self) -> None:
+        child_marker = self.root / "cancel-child-survived"
+        fake = self.fake_codex(
+            f"""
+            import subprocess
+            import sys
+            import time
+            subprocess.Popen([
+                sys.executable,
+                "-c",
+                "import pathlib,time; time.sleep(0.5); "
+                "pathlib.Path({str(child_marker)!r}).write_text('survived')",
+            ])
+            time.sleep(30)
+            """
+        )
+        cancelled = threading.Event()
+        timer = threading.Timer(0.1, cancelled.set)
+        timer.start()
+        try:
+            with self.assertRaises(ProviderCancelled):
+                CodexExecAdapter(
+                    self.root, fake, environment={"PATH": "/usr/bin"}
+                ).execute(self.attempt(), cancelled)
+        finally:
+            timer.cancel()
+        time.sleep(0.7)
+        self.assertFalse(child_marker.exists())
+
+    def test_reconcile_recovers_completed_artifacts_after_running_receipt(self) -> None:
+        output = self.workspace / "provider-output-attempt-1.json"
+        events = self.workspace / "provider-events-attempt-1.jsonl"
+        diagnostics = self.workspace / "provider-diagnostics-attempt-1.log"
+        output.write_text(json.dumps({"plan": "recovered"}), encoding="utf-8")
+        events.write_text(
+            json.dumps(
+                {
+                    "type": "turn.completed",
+                    "usage": {
+                        "input_tokens": 9,
+                        "cached_input_tokens": 4,
+                        "output_tokens": 3,
+                    },
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        diagnostics.write_text("", encoding="utf-8")
+        store = AttemptReceiptStore(self.workspace, "attempt-1")
+        store.write(
+            ProviderAttemptReceipt(
+                attempt_id="attempt-1",
+                state=ProviderAttemptState.RUNNING,
+                prompt_sha256=sha256_bytes(
+                    b"Return the approved candidate plan."
+                ),
+                schema_sha256=sha256_file(self.schema, 1_000_000),
+                started_at="2026-09-01T00:00:00+00:00",
+                pid=123,
+            )
+        )
+
+        adapter = CodexExecAdapter(
+            self.root, self.fake_codex(PROBE_FAKE), environment={"PATH": "/usr/bin"}
+        )
+        reconciled = adapter.reconcile(self.attempt())
+
+        self.assertEqual(reconciled.state, ProviderAttemptState.SUCCEEDED)
+        self.assertEqual(reconciled.result.payload, {"plan": "recovered"})
+        self.assertEqual(reconciled.result.usage, ProviderUsage(9, 4, 3))
+        self.assertEqual(store.read().state, ProviderAttemptState.SUCCEEDED)
+
+    def test_reconcile_fails_closed_for_tampered_terminal_output(self) -> None:
+        adapter = CodexExecAdapter(
+            self.root, self.fake_codex(SUCCESSFUL_FAKE), environment={"PATH": "/usr/bin"}
+        )
+        adapter.execute(self.attempt())
+        (self.workspace / "provider-output-attempt-1.json").write_text(
+            json.dumps({"plan": "tampered"}), encoding="utf-8"
+        )
+
+        reconciled = adapter.reconcile(self.attempt())
+
+        self.assertEqual(reconciled.state, ProviderAttemptState.UNKNOWN)
+        self.assertIsNone(reconciled.result)
+
+    def test_reconcile_marks_prepared_attempt_as_interrupted(self) -> None:
+        store = AttemptReceiptStore(self.workspace, "attempt-1")
+        store.write(
+            ProviderAttemptReceipt(
+                attempt_id="attempt-1",
+                state=ProviderAttemptState.PREPARED,
+                prompt_sha256=sha256_bytes(
+                    b"Return the approved candidate plan."
+                ),
+                schema_sha256=sha256_file(self.schema, 1_000_000),
+            )
+        )
+        adapter = CodexExecAdapter(
+            self.root, self.fake_codex(PROBE_FAKE), environment={"PATH": "/usr/bin"}
+        )
+
+        reconciled = adapter.reconcile(self.attempt())
+
+        self.assertEqual(reconciled.state, ProviderAttemptState.INTERRUPTED)
+        self.assertEqual(store.read().state, ProviderAttemptState.INTERRUPTED)
 
     def test_rejects_diagnostic_output_over_the_capture_limit(self) -> None:
         fake = self.fake_codex(
@@ -270,11 +444,10 @@ class CodexProviderTests(unittest.TestCase):
             print('{"type":"thread.started"}')
             """
         )
-        self.workspace.joinpath("provider-output-attempt-1.json").unlink(missing_ok=True)
         with self.assertRaises(ProviderProtocolError):
             CodexExecAdapter(
                 self.root, missing_terminal_event, environment={"PATH": "/usr/bin"}
-            ).execute(self.attempt())
+            ).execute(self.attempt(attempt_id="attempt-missing-event"))
 
     def test_validates_result_against_the_local_output_schema(self) -> None:
         missing_required_property = self.fake_codex(
@@ -308,7 +481,6 @@ class CodexProviderTests(unittest.TestCase):
         )
         for index, (diagnostic, expected) in enumerate(cases):
             with self.subTest(diagnostic=diagnostic):
-                self.workspace.joinpath("provider-output-attempt-1.json").unlink(missing_ok=True)
                 fake = self.fake_codex(
                     f"""
                     import sys
@@ -319,7 +491,74 @@ class CodexProviderTests(unittest.TestCase):
                 with self.assertRaises(expected):
                     CodexExecAdapter(
                         self.root, fake, environment={"PATH": "/usr/bin"}
-                    ).execute(self.attempt())
+                    ).execute(self.attempt(attempt_id=f"attempt-failure-{index}"))
+
+    def test_failed_attempt_preserves_reported_usage(self) -> None:
+        fake = self.fake_codex(
+            """
+            import json
+            print(json.dumps({
+                "type": "turn.failed",
+                "usage": {
+                    "input_tokens": 40,
+                    "cached_input_tokens": 10,
+                    "output_tokens": 2,
+                },
+            }))
+            raise SystemExit(1)
+            """
+        )
+        with self.assertRaises(ProviderProtocolError):
+            CodexExecAdapter(
+                self.root, fake, environment={"PATH": "/usr/bin"}
+            ).execute(self.attempt())
+        receipt = AttemptReceiptStore(self.workspace, "attempt-1").read()
+        self.assertEqual(receipt.state, ProviderAttemptState.FAILED)
+        self.assertEqual(receipt.usage, ProviderUsage(40, 10, 2))
+        inventory = {
+            item.role: item.disposition
+            for item in CodexExecAdapter(
+                self.root, fake, environment={"PATH": "/usr/bin"}
+            ).artifact_inventory(self.attempt())
+        }
+        self.assertEqual(
+            inventory[ProviderArtifactRole.EVENTS],
+            ProviderArtifactDisposition.RETAIN_DIAGNOSTIC,
+        )
+        self.assertEqual(
+            inventory[ProviderArtifactRole.OUTPUT_SCHEMA],
+            ProviderArtifactDisposition.CLEANABLE,
+        )
+
+    def test_persisted_provider_artifacts_redact_prompt_and_credentials(self) -> None:
+        fake = self.fake_codex(
+            """
+            import json
+            import sys
+            prompt = sys.stdin.read()
+            print(json.dumps({"type": "error", "message": prompt}))
+            sys.stderr.write(prompt)
+            sys.stderr.write(" Authorization: Bearer secret-token-value")
+            sys.stderr.write(" api_key=sk-abcdefghijklmnop123456")
+            raise SystemExit(1)
+            """
+        )
+        attempt = self.attempt(prompt="private synthetic prompt")
+        with self.assertRaises(ProviderProtocolError):
+            CodexExecAdapter(
+                self.root, fake, environment={"PATH": "/usr/bin"}
+            ).execute(attempt)
+
+        persisted = b"".join(
+            path.read_bytes()
+            for path in self.workspace.iterdir()
+            if path.name.startswith("provider-")
+        )
+        self.assertNotIn(b"private synthetic prompt", persisted)
+        self.assertNotIn(b"secret-token-value", persisted)
+        self.assertNotIn(b"sk-abcdefghijklmnop123456", persisted)
+        self.assertIn(b"[REDACTED_PROMPT]", persisted)
+        self.assertIn(b"[REDACTED_SECRET]", persisted)
 
 
 if __name__ == "__main__":
