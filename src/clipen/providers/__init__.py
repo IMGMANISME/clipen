@@ -7,6 +7,7 @@ from .codex import (
     CodexCapabilities,
     CodexExecAdapter,
     CodexProbeResult,
+    CodexReconciliation,
     ProviderAuthenticationError,
     ProviderCancelled,
     ProviderNetworkError,
@@ -16,6 +17,7 @@ from .codex import (
     ProviderUnavailable,
     ProviderUsageLimitError,
 )
+from .recovery import ProviderAttemptState, ProviderUsage
 
 __all__ = [
     "CancellationToken",
@@ -24,6 +26,8 @@ __all__ = [
     "CodexCapabilities",
     "CodexExecAdapter",
     "CodexProbeResult",
+    "CodexReconciliation",
+    "ProviderAttemptState",
     "ProviderAuthenticationError",
     "ProviderCancelled",
     "ProviderNetworkError",
@@ -32,4 +36,5 @@ __all__ = [
     "ProviderTimedOut",
     "ProviderUnavailable",
     "ProviderUsageLimitError",
+    "ProviderUsage",
 ]
