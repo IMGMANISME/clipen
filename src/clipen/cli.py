@@ -43,6 +43,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
             ServerPaths(
                 static_root=repo_root / "apps" / "web" / "dist",
                 attempt_root=attempt_root,
+                projects_root=data_root / "projects",
             ),
             provider,
             LocalSessionAuthority(),

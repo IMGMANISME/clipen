@@ -13,6 +13,7 @@ import webbrowser
 import uvicorn
 
 from clipen.providers import CodexExecAdapter, ProviderUnavailable
+from clipen.projects import ProjectWorkspace
 
 from .app import (
     ControllerConfig,
@@ -36,6 +37,7 @@ class PortUnavailable(RuntimeError):
 class ServerPaths:
     static_root: Path
     attempt_root: Path
+    projects_root: Path | None = None
 
     def prepare(self) -> None:
         if not self.static_root.resolve(strict=True).is_dir():
@@ -43,6 +45,8 @@ class ServerPaths:
         self.attempt_root.mkdir(mode=0o700, parents=True, exist_ok=True)
         if self.attempt_root.is_symlink():
             raise ValueError("provider attempt root cannot be a symbolic link")
+        if self.projects_root is not None and self.projects_root.is_symlink():
+            raise ValueError("projects root cannot be a symbolic link")
 
 
 def probe_codex(attempt_root: Path) -> ProviderStatus:
@@ -86,7 +90,14 @@ async def _serve(
 ) -> None:
     listener = _bind_socket()
     try:
-        app = create_app(ControllerConfig(paths.static_root), provider, authority)
+        workspace = (
+            ProjectWorkspace(paths.projects_root)
+            if paths.projects_root is not None
+            else None
+        )
+        app = create_app(
+            ControllerConfig(paths.static_root), provider, authority, workspace
+        )
         config = uvicorn.Config(
             app,
             host=HOST,
