@@ -2,6 +2,7 @@ import errno
 import io
 from pathlib import Path
 import socket
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -14,7 +15,7 @@ from clipen.controller.server import (
     _InstanceLease,
     _bind_socket,
     _read_instance_record,
-    _terminal_link,
+    _terminal_reopen_loop,
     probe_codex,
     run_server,
 )
@@ -150,14 +151,20 @@ class ControllerServerTests(unittest.TestCase):
         self.assertIn("Clipen 已在執行", output.getvalue())
         self.assertIn("UI：\nhttp://localhost:4207\n", output.getvalue())
 
-    def test_terminal_link_is_clickable_in_a_tty_and_plain_when_redirected(self) -> None:
-        url = "http://localhost:4201"
-        with mock.patch("sys.stdout.isatty", return_value=False):
-            self.assertEqual(_terminal_link(url), url)
-        with mock.patch("sys.stdout.isatty", return_value=True):
-            linked = _terminal_link(url)
-        self.assertIn(url, linked)
-        self.assertTrue(linked.startswith("\033]8;;"))
+    def test_pressing_enter_renews_handoff_and_reopens_the_browser(self) -> None:
+        authority = LocalSessionAuthority("t" * 32)
+        opened: list[str] = []
+        input_stream = io.StringIO("\n")
+        with mock.patch.object(sys, "stdin", input_stream):
+            _terminal_reopen_loop(
+                "http://localhost:4201",
+                authority,
+                lambda url: opened.append(url) is None,
+                lambda: False,
+            )
+        self.assertEqual(len(opened), 1)
+        self.assertTrue(opened[0].startswith("http://localhost:4201/#bootstrap="))
+        self.assertNotIn("t" * 32, opened[0])
 
     def test_server_paths_reject_symlink_attempt_root(self) -> None:
         static = self.root / "dist"
