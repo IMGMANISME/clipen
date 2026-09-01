@@ -216,12 +216,18 @@ class InventoryCoordinator:
         cancel: threading.Event,
     ) -> AssetCandidate:
         if not discovered.should_probe:
+            issue_code = discovered.issue_code or "non_media"
+            status = (
+                ItemStatus.NEEDS_ATTENTION
+                if issue_code == "entry_unreadable"
+                else ItemStatus.IGNORED
+            )
             return AssetCandidate(
                 discovered.role,
                 discovered.relative_path,
                 discovered.kind,
-                ItemStatus.IGNORED,
-                discovered.issue_code or "non_media",
+                status,
+                issue_code,
                 None,
                 None,
                 None,
