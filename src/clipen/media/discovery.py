@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import os
 from pathlib import PurePosixPath
 import stat
+import threading
 import time
 from typing import Iterator
 
@@ -77,7 +78,9 @@ class MediaDiscovery:
         self.maximum_depth = maximum_depth
         self.maximum_seconds = maximum_seconds
 
-    def scan(self, root: InventoryRoot) -> Iterator[DiscoveredAsset]:
+    def scan(
+        self, root: InventoryRoot, cancel: threading.Event | None = None
+    ) -> Iterator[DiscoveredAsset]:
         deadline = time.monotonic() + self.maximum_seconds
         flags = (
             os.O_RDONLY
@@ -96,11 +99,15 @@ class MediaDiscovery:
         discovered = 0
         try:
             while stack:
+                if cancel is not None and cancel.is_set():
+                    raise DiscoveryError("cancelled")
                 directory_fd, prefix, depth = stack.pop()
                 try:
                     if time.monotonic() >= deadline:
                         raise DiscoveryError("discovery_timeout")
                     for entry in _entries(directory_fd):
+                        if cancel is not None and cancel.is_set():
+                            raise DiscoveryError("cancelled")
                         if time.monotonic() >= deadline:
                             raise DiscoveryError("discovery_timeout")
                         name = entry.name
