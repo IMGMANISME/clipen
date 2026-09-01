@@ -14,6 +14,7 @@ from .models import (
 from .storage import InventoryRepository
 from .discovery import DiscoveredAsset, DiscoveryError, MediaDiscovery
 from .probe import FFprobeAdapter, MediaProbeError, MediaProbeResult
+from .service import InventoryCoordinator
 
 __all__ = [
     "AssetCandidate",
@@ -22,6 +23,7 @@ __all__ = [
     "DiscoveryError",
     "FFprobeAdapter",
     "InventoryCounts",
+    "InventoryCoordinator",
     "InventoryRepository",
     "InventoryRoot",
     "InventoryRun",

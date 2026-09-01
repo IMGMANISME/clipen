@@ -117,6 +117,68 @@ class MediaInventoryStorageTests(unittest.TestCase):
             )
         self.assertEqual(reused.exception.code, "request_reused")
 
+    def test_create_status_distinguishes_a_new_run_from_a_replayed_request(self) -> None:
+        created, was_created = self.inventories.create_run_with_status(
+            self.project.project_id,
+            "request-inventory-status",
+            self.project.revision,
+        )
+        replay, replay_was_created = self.inventories.create_run_with_status(
+            self.project.project_id,
+            "request-inventory-status",
+            self.project.revision,
+        )
+
+        self.assertTrue(was_created)
+        self.assertFalse(replay_was_created)
+        self.assertEqual(replay, created)
+
+    def test_cancel_request_is_idempotent_for_queued_running_and_terminal_runs(self) -> None:
+        queued = self.inventories.create_run(
+            self.project.project_id,
+            "request-inventory-cancel-queued",
+            self.project.revision,
+        )
+        cancelled = self.inventories.request_cancel(self.project.project_id, queued.run_id)
+        self.assertEqual(cancelled.state, InventoryState.CANCELLED)
+        self.assertEqual(
+            self.inventories.request_cancel(self.project.project_id, queued.run_id),
+            cancelled,
+        )
+
+        running = self.start("request-inventory-cancel-running")
+        cancelling = self.inventories.request_cancel(self.project.project_id, running.run_id)
+        self.assertEqual(cancelling.state, InventoryState.CANCELLING)
+        self.assertEqual(
+            self.inventories.request_cancel(self.project.project_id, running.run_id),
+            cancelling,
+        )
+        finished = self.inventories.transition(
+            self.project.project_id,
+            running.run_id,
+            InventoryState.CANCELLED,
+            phase="cancelled",
+        )
+        self.assertEqual(
+            self.inventories.request_cancel(self.project.project_id, running.run_id),
+            finished,
+        )
+
+    def test_latest_run_is_separate_from_last_successful_run(self) -> None:
+        first = self.start("request-inventory-latest-first")
+        self.inventories.stage_item(
+            self.project.project_id, first.run_id, self.usable_video()
+        )
+        published = self.inventories.publish(self.project.project_id, first.run_id)
+        latest = self.inventories.create_run(
+            self.project.project_id,
+            "request-inventory-latest-second",
+            self.project.revision,
+        )
+
+        self.assertEqual(self.inventories.current_run(self.project.project_id), published)
+        self.assertEqual(self.inventories.latest_run(self.project.project_id), latest)
+
     def test_successful_publish_is_atomic_and_persists_assets_and_streams(self) -> None:
         running = self.start()
         staged = self.inventories.stage_item(

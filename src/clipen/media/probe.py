@@ -29,9 +29,26 @@ _CODEC = re.compile(r"[A-Za-z0-9_.-]{1,80}\Z")
 
 
 class MediaProbeError(RuntimeError):
-    def __init__(self, code: str) -> None:
+    def __init__(
+        self,
+        code: str,
+        *,
+        fingerprint: str | None = None,
+        size_bytes: int | None = None,
+        mtime_ns: int | None = None,
+    ) -> None:
         super().__init__(code)
         self.code = code
+        self.fingerprint = fingerprint
+        self.size_bytes = size_bytes
+        self.mtime_ns = mtime_ns
+
+    @property
+    def has_version(self) -> bool:
+        return all(
+            value is not None
+            for value in (self.fingerprint, self.size_bytes, self.mtime_ns)
+        )
 
 
 @dataclass(frozen=True)
@@ -100,7 +117,15 @@ class FFprobeAdapter:
                 "json",
                 f"/dev/fd/{descriptor}",
             )
-            stdout, _, returncode = self._run(command, (descriptor,), cancel)
+            try:
+                stdout, _, returncode = self._run(command, (descriptor,), cancel)
+            except MediaProbeError as error:
+                raise MediaProbeError(
+                    error.code,
+                    fingerprint=fingerprint,
+                    size_bytes=before.st_size,
+                    mtime_ns=before.st_mtime_ns,
+                ) from error
             after = os.fstat(descriptor)
             if (
                 before.st_dev,
@@ -113,12 +138,35 @@ class FFprobeAdapter:
                 after.st_size,
                 after.st_mtime_ns,
             ):
-                raise MediaProbeError("changed")
+                raise MediaProbeError(
+                    "changed",
+                    fingerprint=fingerprint,
+                    size_bytes=before.st_size,
+                    mtime_ns=before.st_mtime_ns,
+                )
             if fingerprint != _bounded_fingerprint(descriptor, after.st_size):
-                raise MediaProbeError("changed")
+                raise MediaProbeError(
+                    "changed",
+                    fingerprint=fingerprint,
+                    size_bytes=before.st_size,
+                    mtime_ns=before.st_mtime_ns,
+                )
             if returncode != 0:
-                raise MediaProbeError("unreadable")
-            summary, streams = _parse_probe(stdout, asset.kind)
+                raise MediaProbeError(
+                    "unreadable",
+                    fingerprint=fingerprint,
+                    size_bytes=before.st_size,
+                    mtime_ns=before.st_mtime_ns,
+                )
+            try:
+                summary, streams = _parse_probe(stdout, asset.kind)
+            except MediaProbeError as error:
+                raise MediaProbeError(
+                    error.code,
+                    fingerprint=fingerprint,
+                    size_bytes=before.st_size,
+                    mtime_ns=before.st_mtime_ns,
+                ) from error
             return MediaProbeResult(
                 asset.kind,
                 fingerprint,

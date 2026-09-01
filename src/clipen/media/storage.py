@@ -65,6 +65,20 @@ class InventoryRepository:
         request_id: object,
         expected_revision: object,
     ) -> InventoryRun:
+        run, _ = self.create_run_with_status(project_id, request_id, expected_revision)
+        return run
+
+    def create_run_with_status(
+        self,
+        project_id: str,
+        request_id: object,
+        expected_revision: object,
+    ) -> tuple[InventoryRun, bool]:
+        """Create a queued run and report whether this call created it.
+
+        The boolean prevents a replayed request from accidentally scheduling an old
+        queued run in a new controller process.
+        """
         validate_project_id(project_id)
         normalized_request = validate_request_id(request_id)
         revision = validate_revision(expected_revision)
@@ -90,7 +104,7 @@ class InventoryRepository:
                         )
                     replay = self._read_run(connection, receipt["run_id"])
                     connection.rollback()
-                    return replay
+                    return replay, False
 
                 project = connection.execute(
                     "SELECT revision FROM project WHERE project_id = ?", (project_id,)
@@ -174,7 +188,7 @@ class InventoryRepository:
                 )
                 created = self._read_run(connection, run_id)
                 connection.commit()
-                return created
+                return created, True
             except ProjectError:
                 connection.rollback()
                 raise
@@ -205,6 +219,54 @@ class InventoryRepository:
                 "SELECT run_id FROM current_inventory WHERE slot = 1"
             ).fetchone()
             return None if row is None else self._read_run(connection, row["run_id"])
+
+    def latest_run(self, project_id: str) -> InventoryRun | None:
+        validate_project_id(project_id)
+        with self.projects.connect(project_id) as connection:
+            row = connection.execute(
+                "SELECT run_id FROM inventory_runs ORDER BY created_at DESC LIMIT 1"
+            ).fetchone()
+            return None if row is None else self._read_run(connection, row["run_id"])
+
+    def request_cancel(self, project_id: str, run_id: object) -> InventoryRun:
+        """Idempotently request cancellation without reviving terminal work."""
+        validate_project_id(project_id)
+        normalized_run = validate_run_id(run_id)
+        with self.projects.connect(project_id) as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                current = self._read_run(connection, normalized_run)
+                if current.project_id != project_id:
+                    raise ProjectError(
+                        "inventory_not_found", "找不到這次素材檢查。", status_code=404
+                    )
+                if current.state in _TERMINAL_STATES or current.state is InventoryState.CANCELLING:
+                    connection.rollback()
+                    return current
+                now = utc_now()
+                if current.state is InventoryState.QUEUED:
+                    connection.execute(
+                        "UPDATE inventory_runs SET state = 'cancelled', phase = 'cancelled', "
+                        "error_code = NULL, started_at = ?, completed_at = ? WHERE run_id = ?",
+                        (now, now, normalized_run),
+                    )
+                else:
+                    connection.execute(
+                        "UPDATE inventory_runs SET state = 'cancelling', "
+                        "phase = 'cancelling' WHERE run_id = ?",
+                        (normalized_run,),
+                    )
+                updated = self._read_run(connection, normalized_run)
+                connection.commit()
+                return updated
+            except ProjectError:
+                connection.rollback()
+                raise
+            except sqlite3.Error as error:
+                connection.rollback()
+                raise ProjectError(
+                    "storage_failed", "Clipen 無法取消素材檢查。", status_code=500
+                ) from error
 
     def transition(
         self,
