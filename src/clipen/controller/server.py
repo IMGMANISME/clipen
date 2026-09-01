@@ -14,6 +14,7 @@ import uvicorn
 
 from clipen.providers import CodexExecAdapter, ProviderUnavailable
 from clipen.projects import ProjectWorkspace
+from clipen.system_skills import VerifiedSystemSkillRelease
 
 from .app import (
     ControllerConfig,
@@ -85,6 +86,7 @@ async def _serve(
     paths: ServerPaths,
     provider: ProviderStatus,
     authority: LocalSessionAuthority,
+    system_skills: VerifiedSystemSkillRelease,
     *,
     browser_open: Callable[[str], bool],
 ) -> None:
@@ -96,7 +98,10 @@ async def _serve(
             else None
         )
         app = create_app(
-            ControllerConfig(paths.static_root), provider, authority, workspace
+            ControllerConfig(paths.static_root, system_skills.summaries),
+            provider,
+            authority,
+            workspace,
         )
         config = uvicorn.Config(
             app,
@@ -150,12 +155,21 @@ def run_server(
     paths: ServerPaths,
     provider: ProviderStatus,
     authority: LocalSessionAuthority,
+    system_skills: VerifiedSystemSkillRelease,
     *,
     browser_open: Callable[[str], bool] = webbrowser.open,
 ) -> int:
     paths.prepare()
     try:
-        asyncio.run(_serve(paths, provider, authority, browser_open=browser_open))
+        asyncio.run(
+            _serve(
+                paths,
+                provider,
+                authority,
+                system_skills,
+                browser_open=browser_open,
+            )
+        )
     except PortUnavailable as error:
         print(f"Clipen 無法啟動：{error}")
         return 1
