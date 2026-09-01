@@ -11,17 +11,22 @@ import os
 from pathlib import Path
 import platform
 import shutil
+import shlex
+import stat
 import subprocess
 import sys
 import uuid
 import venv
-from typing import Iterator, Sequence, TextIO
+from typing import Iterator, Mapping, Sequence, TextIO
 
 
 _RUNTIME_SCHEMA = 1
 _PIP_VERSION = "26.2.1"
 _SETUPTOOLS_VERSION = "84.0.0"
 _WHEEL_VERSION = "0.48.0"
+_PROFILE_START = "# >>> Clipen managed PATH >>>"
+_PROFILE_END = "# <<< Clipen managed PATH <<<"
+_COMMAND_MARKER = "# Managed by Clipen; rerun ./clipen to update."
 
 
 class BootstrapError(RuntimeError):
@@ -82,13 +87,23 @@ def runtime_is_ready(runtime: Path, fingerprint: str, repo_root: Path) -> bool:
     )
 
 
-def _confirm_setup(runtime: Path, stdin: TextIO, stdout: TextIO) -> bool:
+def _confirm_setup(
+    runtime: Path,
+    stdin: TextIO,
+    stdout: TextIO,
+    *,
+    command_path: Path | None = None,
+    profile_path: Path | None = None,
+) -> bool:
     print("Clipen 第一次設定", file=stdout)
     print("將會建立：", file=stdout)
     print("  • Clipen 專用 Python 虛擬環境", file=stdout)
     print("  • 鎖定版本的本機 Controller 與安全驗證套件", file=stdout)
+    if command_path is not None and profile_path is not None:
+        print(f"  • `clipen` 指令：{command_path}", file=stdout)
+        print(f"  • 將 Clipen 加入 PATH：{profile_path}", file=stdout)
     print(f"安裝位置：{runtime}", file=stdout)
-    print("不會修改系統 Python、shell 設定，也不會使用 sudo。", file=stdout)
+    print("不會修改系統 Python，也不會使用 sudo。", file=stdout)
     print("Codex 登入與模型呼叫不會在設定階段執行。", file=stdout)
     if not stdin.isatty():
         raise BootstrapError("第一次設定需要在互動式 Terminal 中確認。")
@@ -96,6 +111,125 @@ def _confirm_setup(runtime: Path, stdin: TextIO, stdout: TextIO) -> bool:
     stdout.flush()
     answer = stdin.readline().strip().lower()
     return answer in {"", "y", "yes"}
+
+
+def _command_script(repo_root: Path) -> str:
+    launcher = repo_root.resolve(strict=True) / "clipen"
+    if launcher.is_symlink() or not launcher.is_file() or not os.access(launcher, os.X_OK):
+        raise BootstrapError("Repo 內的 clipen launcher 不存在或不可執行")
+    return f"#!/bin/sh\n{_COMMAND_MARKER}\nexec {shlex.quote(str(launcher))} \"$@\"\n"
+
+
+def _shell_profile(home: Path, environment: Mapping[str, str]) -> Path:
+    shell = Path(environment.get("SHELL", "")).name
+    if shell == "zsh" or (not shell and sys.platform == "darwin"):
+        return home / ".zshrc"
+    if shell == "bash":
+        return home / (".bash_profile" if sys.platform == "darwin" else ".bashrc")
+    raise BootstrapError(
+        "目前只能自動設定 zsh 或 bash；請將 Clipen 的 bin 目錄手動加入 PATH"
+    )
+
+
+def _profile_block(bin_root: Path) -> str:
+    return (
+        f"{_PROFILE_START}\n"
+        f"export PATH={shlex.quote(str(bin_root))}:\"$PATH\"\n"
+        f"{_PROFILE_END}"
+    )
+
+
+def _replace_profile_block(contents: str, block: str) -> str:
+    if contents.count(_PROFILE_START) > 1 or contents.count(_PROFILE_END) > 1:
+        raise BootstrapError("shell 設定中有重複的 Clipen PATH 區塊，請先保留並回報問題")
+    start = contents.find(_PROFILE_START)
+    end = contents.find(_PROFILE_END)
+    if (start < 0) != (end < 0) or (start >= 0 and end < start):
+        raise BootstrapError("shell 設定中的 Clipen PATH 區塊不完整，請先保留並回報問題")
+    if start >= 0:
+        end += len(_PROFILE_END)
+        updated = contents[:start] + block + contents[end:]
+    else:
+        separator = "" if not contents or contents.endswith("\n") else "\n"
+        updated = f"{contents}{separator}{block}\n"
+    return updated
+
+
+def _atomic_write(path: Path, contents: str, mode: int) -> None:
+    staging = path.parent / f".{path.name}.clipen-{uuid.uuid4().hex}.tmp"
+    try:
+        with staging.open("x", encoding="utf-8") as output:
+            output.write(contents)
+            output.flush()
+            os.fsync(output.fileno())
+        staging.chmod(mode)
+        os.replace(staging, path)
+    finally:
+        if staging.exists() and not staging.is_symlink():
+            staging.unlink()
+
+
+def _install_command(
+    repo_root: Path,
+    data_root: Path,
+    home: Path,
+    environment: Mapping[str, str],
+) -> tuple[Path, Path]:
+    bin_root = data_root / "bin"
+    if bin_root.exists() and (bin_root.is_symlink() or not bin_root.is_dir()):
+        raise BootstrapError("Clipen bin 目錄不是安全的實體目錄")
+    bin_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    command_path = bin_root / "clipen"
+    script = _command_script(repo_root)
+    if command_path.exists() or command_path.is_symlink():
+        if command_path.is_symlink() or not command_path.is_file():
+            raise BootstrapError("Clipen 指令位置已被不安全的檔案占用")
+        try:
+            existing_command = command_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as error:
+            raise BootstrapError("無法安全讀取既有的 Clipen 指令") from error
+        if _COMMAND_MARKER not in existing_command:
+            raise BootstrapError("Clipen 指令位置已有其他程式，未進行覆寫")
+
+    profile_path = _shell_profile(home, environment)
+    if profile_path.exists() or profile_path.is_symlink():
+        if profile_path.is_symlink() or not profile_path.is_file():
+            raise BootstrapError("shell 設定檔不是安全的實體檔案，未進行修改")
+        try:
+            profile = profile_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as error:
+            raise BootstrapError("無法安全讀取 shell 設定檔") from error
+        profile_mode = stat.S_IMODE(profile_path.stat().st_mode)
+    else:
+        profile = ""
+        profile_mode = 0o600
+    updated_profile = _replace_profile_block(profile, _profile_block(bin_root))
+
+    _atomic_write(command_path, script, 0o700)
+    if updated_profile != profile:
+        _atomic_write(profile_path, updated_profile, profile_mode)
+    return command_path, profile_path
+
+
+def _command_is_ready(
+    repo_root: Path,
+    data_root: Path,
+    home: Path,
+    environment: Mapping[str, str],
+) -> bool:
+    try:
+        command_path = data_root / "bin" / "clipen"
+        profile_path = _shell_profile(home, environment)
+        return (
+            not command_path.is_symlink()
+            and command_path.is_file()
+            and command_path.read_text(encoding="utf-8") == _command_script(repo_root)
+            and not profile_path.is_symlink()
+            and profile_path.is_file()
+            and _profile_block(data_root / "bin") in profile_path.read_text(encoding="utf-8")
+        )
+    except (BootstrapError, OSError, UnicodeError):
+        return False
 
 
 @contextmanager
@@ -194,6 +328,7 @@ def ensure_runtime(
     data_root: Path | None = None,
     stdin: TextIO = sys.stdin,
     stdout: TextIO = sys.stdout,
+    confirmed: bool = False,
 ) -> Path | None:
     repo_root = repo_root.resolve(strict=True)
     fingerprint = runtime_fingerprint(repo_root)
@@ -210,7 +345,7 @@ def ensure_runtime(
             raise BootstrapError(
                 f"Clipen runtime 不完整，請先保留此目錄並回報問題：{runtime}"
             )
-        if not _confirm_setup(runtime, stdin, stdout):
+        if not confirmed and not _confirm_setup(runtime, stdin, stdout):
             print("已取消，沒有建立 Clipen runtime。", file=stdout)
             return None
 
@@ -231,15 +366,85 @@ def ensure_runtime(
         return runtime
 
 
+def ensure_installation(
+    repo_root: Path,
+    *,
+    data_root: Path | None = None,
+    home: Path | None = None,
+    environment: Mapping[str, str] | None = None,
+    stdin: TextIO = sys.stdin,
+    stdout: TextIO = sys.stdout,
+) -> Path | None:
+    repo_root = repo_root.resolve(strict=True)
+    selected_data_root = data_root or clipen_data_root()
+    selected_home = home or Path.home()
+    selected_environment = environment if environment is not None else os.environ
+    fingerprint = runtime_fingerprint(repo_root)
+    runtime = selected_data_root / "runtimes" / fingerprint
+    runtime_ready = runtime_is_ready(runtime, fingerprint, repo_root)
+    command_ready = _command_is_ready(
+        repo_root, selected_data_root, selected_home, selected_environment
+    )
+
+    if not runtime_ready:
+        command_path = selected_data_root / "bin" / "clipen"
+        profile_path = _shell_profile(selected_home, selected_environment)
+        if not _confirm_setup(
+            runtime,
+            stdin,
+            stdout,
+            command_path=command_path,
+            profile_path=profile_path,
+        ):
+            print("已取消，沒有建立 Clipen runtime。", file=stdout)
+            return None
+        installed_runtime = ensure_runtime(
+            repo_root,
+            data_root=selected_data_root,
+            stdin=stdin,
+            stdout=stdout,
+            confirmed=True,
+        )
+        if installed_runtime is None:
+            return None
+        command_path, profile_path = _install_command(
+            repo_root, selected_data_root, selected_home, selected_environment
+        )
+        print(f"✓ 已建立指令：{command_path}", file=stdout)
+        print(f"✓ 已更新 PATH：{profile_path}", file=stdout)
+        print("下次開啟 Terminal 後可直接輸入：clipen codex", file=stdout)
+        return installed_runtime
+
+    if not command_ready:
+        if not stdin.isatty():
+            return runtime
+        print("Clipen 需要完成一次指令設定。", file=stdout)
+        print(f"將建立：{selected_data_root / 'bin' / 'clipen'}", file=stdout)
+        profile_path = _shell_profile(selected_home, selected_environment)
+        print(f"將更新 PATH：{profile_path}", file=stdout)
+        stdout.write("完成設定？[Y/n] ")
+        stdout.flush()
+        if stdin.readline().strip().lower() not in {"", "y", "yes"}:
+            print("已略過；目前仍可使用 ./clipen codex。", file=stdout)
+            return runtime
+        command_path, profile_path = _install_command(
+            repo_root, selected_data_root, selected_home, selected_environment
+        )
+        print(f"✓ 已建立指令：{command_path}", file=stdout)
+        print(f"✓ 已更新 PATH：{profile_path}", file=stdout)
+        print("下次開啟 Terminal 後可直接輸入：clipen codex", file=stdout)
+    return runtime
+
+
 def main(repo_root: Path, arguments: Sequence[str]) -> int:
     if list(arguments) in (["--help"], ["-h"]):
-        print("用法：./clipen codex")
+        print("用法：clipen codex")
         return 0
     if list(arguments) != ["codex"]:
-        print("用法：./clipen codex", file=sys.stderr)
+        print("用法：clipen codex", file=sys.stderr)
         return 2
     try:
-        runtime = ensure_runtime(repo_root)
+        runtime = ensure_installation(repo_root)
     except (BootstrapError, OSError, subprocess.SubprocessError) as error:
         print(f"Clipen 設定失敗：{error}", file=sys.stderr)
         return 1
