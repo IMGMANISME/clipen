@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import datetime, timezone
-import fcntl
 import hashlib
 import json
 import os
@@ -15,9 +14,15 @@ import shlex
 import stat
 import subprocess
 import sys
+from types import ModuleType
 import uuid
 import venv
 from typing import Iterator, Mapping, Sequence, TextIO
+
+try:
+    import fcntl as _fcntl
+except ImportError:  # Windows does not provide POSIX advisory file locks.
+    _fcntl = None
 
 
 _RUNTIME_SCHEMA = 1
@@ -31,6 +36,14 @@ _COMMAND_MARKER = "# Managed by Clipen; rerun ./clipen to update."
 
 class BootstrapError(RuntimeError):
     """The managed source runtime could not be prepared safely."""
+
+
+def _require_posix_file_locking() -> ModuleType:
+    if _fcntl is None:
+        raise BootstrapError(
+            "這個開發版本尚不支援 Windows；第一次設定需要 POSIX 檔案鎖"
+        )
+    return _fcntl
 
 
 def clipen_data_root() -> Path:
@@ -234,13 +247,14 @@ def _command_is_ready(
 
 @contextmanager
 def _bootstrap_lock(runtime_root: Path) -> Iterator[None]:
+    locking = _require_posix_file_locking()
     lock_path = runtime_root / ".bootstrap.lock"
     with lock_path.open("a+b") as lock:
-        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        locking.flock(lock.fileno(), locking.LOCK_EX)
         try:
             yield
         finally:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+            locking.flock(lock.fileno(), locking.LOCK_UN)
 
 
 def _run_logged(command: Sequence[str], *, cwd: Path, log: TextIO) -> None:
@@ -444,6 +458,7 @@ def main(repo_root: Path, arguments: Sequence[str]) -> int:
         print("用法：clipen codex", file=sys.stderr)
         return 2
     try:
+        _require_posix_file_locking()
         runtime = ensure_installation(repo_root)
     except (BootstrapError, OSError, subprocess.SubprocessError) as error:
         print(f"Clipen 設定失敗：{error}", file=sys.stderr)

@@ -118,6 +118,13 @@ class ControllerServerTests(unittest.TestCase):
         assert replacement is not None
         replacement.close()
 
+    def test_instance_lease_fails_clearly_without_posix_file_locking(self) -> None:
+        with mock.patch("clipen.controller.server._fcntl", None):
+            with self.assertRaisesRegex(RuntimeError, "尚不支援 Windows"):
+                _InstanceLease.acquire(self.root)
+
+        self.assertFalse((self.root / ".controller.lock").exists())
+
     def test_second_launch_reopens_the_authenticated_existing_controller(self) -> None:
         static = self.root / "dist"
         static.mkdir()

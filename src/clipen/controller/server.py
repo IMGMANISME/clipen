@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 import errno
-import fcntl
 import http.client
 import json
 import os
@@ -19,6 +18,11 @@ import threading
 import time
 from typing import Callable
 import webbrowser
+
+try:
+    import fcntl as _fcntl
+except ImportError:  # Windows does not provide POSIX advisory file locks.
+    _fcntl = None
 
 import uvicorn
 
@@ -60,16 +64,23 @@ class _InstanceLease:
 
     @classmethod
     def acquire(cls, root: Path) -> "_InstanceLease | None":
+        if _fcntl is None:
+            raise RuntimeError(
+                "這個開發版本尚不支援 Windows；本機工作台需要 POSIX 檔案鎖"
+            )
         lock_path = root / ".controller.lock"
         flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
         descriptor = os.open(lock_path, flags, 0o600)
         os.fchmod(descriptor, 0o600)
         lock_file = os.fdopen(descriptor, "r+b")
         try:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            _fcntl.flock(lock_file.fileno(), _fcntl.LOCK_EX | _fcntl.LOCK_NB)
         except BlockingIOError:
             lock_file.close()
             return None
+        except BaseException:
+            lock_file.close()
+            raise
         return cls(lock_file, root / ".controller.json", secrets.token_urlsafe(32))
 
     def publish(self, port: int) -> None:
@@ -102,8 +113,11 @@ class _InstanceLease:
             if record is not None and record[1] == self.secret:
                 self.registry_path.unlink(missing_ok=True)
         finally:
-            fcntl.flock(self._lock_file.fileno(), fcntl.LOCK_UN)
-            self._lock_file.close()
+            try:
+                assert _fcntl is not None
+                _fcntl.flock(self._lock_file.fileno(), _fcntl.LOCK_UN)
+            finally:
+                self._lock_file.close()
 
 
 @dataclass(frozen=True)
