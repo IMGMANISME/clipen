@@ -783,7 +783,7 @@ function App() {
       )}
 
       {application.kind === 'failed' && (
-        <main className="system-main"><section className="system-card warning" role="alert"><span className="notice-symbol">!</span><div><p className="eyebrow">無法連線</p><h1>請從 Terminal 重新啟動 Clipen</h1><p>{application.message}</p><code>./clipen codex</code></div></section></main>
+        <main className="system-main"><section className="system-card warning" role="alert"><span className="notice-symbol">!</span><div><p className="eyebrow">無法連線</p><h1>請從 Terminal 重新啟動 Clipen</h1><p>{application.message}</p><code>clipen codex</code></div></section></main>
       )}
 
       {ready && (

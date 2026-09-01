@@ -18,13 +18,13 @@ Clipen 是由 terminal 啟動、在本機桌面瀏覽器操作的 AI 剪輯工�
 
 ### 1.1 使用者入口
 
-Source checkout：
+第一次從 source checkout 設定：
 
 ```sh
 ./clipen codex
 ```
 
-正式安裝：
+設定完成後：
 
 ```sh
 clipen codex
@@ -346,13 +346,16 @@ clipen reset --project <project-id>
 
 ## 12. 安裝、建置與更新
 
-Source checkout 的 `./clipen` 是 bootstrap launcher；正式發行可由 Homebrew 或簽章
-installer 提供全域 `clipen`。第一次執行先顯示 runtime 大小、版本、來源、安裝位置
-與會／不會執行的操作，取得同意後才安裝。
+Source checkout 的 `./clipen` 是 bootstrap launcher。第一次執行先顯示 runtime、
+全域 `clipen` 指令、PATH 設定檔、安裝位置與會／不會執行的操作，取得一次同意後
+才安裝。設定完成後，新 Terminal 的入口統一為 `clipen codex`；正式發行仍可改由
+Homebrew 或簽章 installer 提供該指令。
 
-Launcher 不使用 `sudo`、不修改 shell profile、不修改系統 Python、不設定 MCP，
-也不把 runtime 或模型寫入 repo。它依 OS／CPU 下載 pinned、簽章的 runtime，驗證
-hash 後在 staging 解壓並原子切換。失敗保留上一個可用版本。
+Launcher 不使用 `sudo`、不修改系統 Python、不設定 MCP，也不把 runtime 或模型
+寫入 repo。Source bootstrap 只在使用者確認後，以有標記、可重複執行的區塊更新
+目前 zsh 或 bash 的 profile，將 Clipen 私有 `bin` 目錄加入 PATH；不覆寫 symlink、
+不完整標記或非 Clipen 管理的同名指令。Runtime 安裝在 staging 後原子切換，失敗
+不留下半套可執行環境。
 
 一般使用者不執行 `pip install`、`npm install` 或前端 build。React／TypeScript 原始碼
 由 Vite 建置；production assets 隨 repo／runtime 交付並有 hash manifest。CI 重新建置
