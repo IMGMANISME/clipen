@@ -14,6 +14,7 @@ import secrets
 import signal
 import socket
 import stat
+import sys
 import time
 from typing import Callable
 import webbrowser
@@ -240,6 +241,19 @@ def _find_existing_controller(registry_path: Path) -> ExistingController | None:
     return None
 
 
+def _terminal_link(url: str) -> str:
+    """Keep a copyable URL while marking it clickable on capable terminals."""
+    if not sys.stdout.isatty():
+        return url
+    return f"\033]8;;{url}\007{url}\033]8;;\007"
+
+
+def _print_ui_url(url: str, *, first_connection: bool = False) -> None:
+    label = "首次連線：" if first_connection else "UI："
+    print(label, flush=True)
+    print(_terminal_link(url), flush=True)
+
+
 async def _serve(
     paths: ServerPaths,
     provider: ProviderStatus,
@@ -300,7 +314,7 @@ async def _serve(
                     print(f"AI：{provider.name} 可用", flush=True)
                 else:
                     print(f"AI：{provider.name} 需要處理", flush=True)
-                print(f"UI：{public_url}", flush=True)
+                _print_ui_url(public_url)
                 print("狀態：等待 UI 操作", flush=True)
                 print("按 Ctrl+C 關閉 Clipen", flush=True)
                 try:
@@ -308,7 +322,8 @@ async def _serve(
                 except Exception:
                     opened = False
                 if not opened:
-                    print(f"瀏覽器未自動開啟，首次連線：{connect_url}", flush=True)
+                    print("瀏覽器未自動開啟。", flush=True)
+                    _print_ui_url(connect_url, first_connection=True)
 
         announcement = asyncio.create_task(announce_when_started())
         previous_hup = None
@@ -344,13 +359,14 @@ def run_server(
             print("Clipen 無法連接正在啟動的本機工作台。請稍後再試。")
             return 1
         print("Clipen 已在執行", flush=True)
-        print(f"UI：{existing.public_url}", flush=True)
+        _print_ui_url(existing.public_url)
         try:
             opened = browser_open(existing.connect_url)
         except Exception:
             opened = False
         if not opened:
-            print(f"瀏覽器未自動開啟，首次連線：{existing.connect_url}", flush=True)
+            print("瀏覽器未自動開啟。", flush=True)
+            _print_ui_url(existing.connect_url, first_connection=True)
         return 0
     try:
         asyncio.run(

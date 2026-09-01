@@ -14,6 +14,7 @@ from clipen.controller.server import (
     _InstanceLease,
     _bind_socket,
     _read_instance_record,
+    _terminal_link,
     probe_codex,
     run_server,
 )
@@ -147,7 +148,16 @@ class ControllerServerTests(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assertEqual(opened, [existing.connect_url])
         self.assertIn("Clipen 已在執行", output.getvalue())
-        self.assertIn("UI：http://localhost:4207", output.getvalue())
+        self.assertIn("UI：\nhttp://localhost:4207\n", output.getvalue())
+
+    def test_terminal_link_is_clickable_in_a_tty_and_plain_when_redirected(self) -> None:
+        url = "http://localhost:4201"
+        with mock.patch("sys.stdout.isatty", return_value=False):
+            self.assertEqual(_terminal_link(url), url)
+        with mock.patch("sys.stdout.isatty", return_value=True):
+            linked = _terminal_link(url)
+        self.assertIn(url, linked)
+        self.assertTrue(linked.startswith("\033]8;;"))
 
     def test_server_paths_reject_symlink_attempt_root(self) -> None:
         static = self.root / "dist"
