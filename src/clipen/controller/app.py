@@ -21,6 +21,7 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from clipen.media import InventoryCoordinator
 from clipen.projects import DirectoryRole, ProjectError, ProjectWorkspace
 from clipen.system_skills import SystemSkillSummary
 
@@ -243,6 +244,7 @@ def create_app(
     provider: ProviderStatus,
     authority: LocalSessionAuthority,
     workspace: ProjectWorkspace | None = None,
+    inventories: InventoryCoordinator | None = None,
 ) -> ASGIApp:
     static_root = config.static_root.resolve(strict=True)
 
@@ -334,6 +336,15 @@ def create_app(
                 status_code=503,
             )
         return workspace
+
+    def require_inventories() -> InventoryCoordinator:
+        if inventories is None:
+            raise ProjectError(
+                "inventory_unavailable",
+                "Clipen 素材檢查尚未準備完成。",
+                status_code=503,
+            )
+        return inventories
 
     def require_fields(
         payload: dict[str, object], required: set[str], optional: set[str] | None = None
@@ -461,6 +472,71 @@ def create_app(
         except ProjectError as error:
             return await project_error_response(error)
 
+    async def inventory_status(request: Request) -> Response:
+        try:
+            coordinator = require_inventories()
+            project_id = request.path_params["project_id"]
+            latest, current = await run_in_threadpool(
+                lambda: (
+                    coordinator.repository.latest_run(project_id),
+                    coordinator.repository.current_run(project_id),
+                )
+            )
+            return JSONResponse(
+                {
+                    "latest": None if latest is None else latest.to_public(),
+                    "current": None if current is None else current.to_public(),
+                }
+            )
+        except ProjectError as error:
+            return await project_error_response(error)
+
+    async def inventory_items(request: Request) -> Response:
+        try:
+            coordinator = require_inventories()
+            offset = _query_integer(request, "offset", 0, minimum=0, maximum=1_000_000)
+            limit = _query_integer(request, "limit", 100, minimum=1, maximum=200)
+            project_id = request.path_params["project_id"]
+            run_id = request.path_params["run_id"]
+            run, page = await run_in_threadpool(
+                lambda: (
+                    coordinator.repository.get_run(project_id, run_id),
+                    coordinator.repository.list_items(
+                        project_id, run_id, offset=offset, limit=limit
+                    ),
+                )
+            )
+            return JSONResponse({"inventory": run.to_public(), **page.to_public()})
+        except ProjectError as error:
+            return await project_error_response(error)
+
+    async def start_inventory(request: Request) -> Response:
+        try:
+            payload = await read_json(request)
+            require_fields(payload, {"request_id", "expected_revision"})
+            run = await run_in_threadpool(
+                require_inventories().start,
+                request.path_params["project_id"],
+                payload["request_id"],
+                payload["expected_revision"],
+            )
+            return JSONResponse({"inventory": run.to_public()}, status_code=202)
+        except ProjectError as error:
+            return await project_error_response(error)
+
+    async def cancel_inventory(request: Request) -> Response:
+        try:
+            payload = await read_json(request)
+            require_fields(payload, set())
+            run = await run_in_threadpool(
+                require_inventories().cancel,
+                request.path_params["project_id"],
+                request.path_params["run_id"],
+            )
+            return JSONResponse({"inventory": run.to_public()})
+        except ProjectError as error:
+            return await project_error_response(error)
+
     async def system_skills(_: Request) -> Response:
         return JSONResponse(
             {"skills": [summary.as_public_dict() for summary in config.system_skills]}
@@ -496,6 +572,26 @@ def create_app(
                 remove_directory,
                 methods=["POST"],
             ),
+            Route(
+                "/api/projects/{project_id}/inventory",
+                inventory_status,
+                methods=["GET"],
+            ),
+            Route(
+                "/api/projects/{project_id}/inventories/{run_id}",
+                inventory_items,
+                methods=["GET"],
+            ),
+            Route(
+                "/api/projects/{project_id}/commands/start-inventory",
+                start_inventory,
+                methods=["POST"],
+            ),
+            Route(
+                "/api/projects/{project_id}/inventories/{run_id}/commands/cancel",
+                cancel_inventory,
+                methods=["POST"],
+            ),
             Mount("/", app=StaticFiles(directory=static_root, html=True), name="web"),
         ],
     )
@@ -505,3 +601,22 @@ def create_app(
         origin=config.origin,
         allowed_hosts=config.allowed_hosts,
     )
+
+
+def _query_integer(
+    request: Request,
+    name: str,
+    default: int,
+    *,
+    minimum: int,
+    maximum: int,
+) -> int:
+    raw = request.query_params.get(name)
+    if raw is None:
+        return default
+    if not raw.isascii() or not raw.isdigit() or len(raw) > 10:
+        raise ProjectError("pagination_invalid", "素材清單頁碼無效。", status_code=422)
+    value = int(raw)
+    if not minimum <= value <= maximum:
+        raise ProjectError("pagination_invalid", "素材清單頁碼無效。", status_code=422)
+    return value

@@ -2,6 +2,7 @@ import asyncio
 import json
 from pathlib import Path
 import tempfile
+import time
 import unittest
 
 from clipen.controller import (
@@ -10,6 +11,13 @@ from clipen.controller import (
     ProviderState,
     ProviderStatus,
     create_app,
+)
+from clipen.media import (
+    InventoryCoordinator,
+    InventoryRepository,
+    InventoryState,
+    MediaProbeResult,
+    MediaStream,
 )
 from clipen.projects import DirectoryRole, NativeDirectoryPicker, ProjectWorkspace
 
@@ -23,6 +31,19 @@ class FakePicker(NativeDirectoryPicker):
         return self.paths.pop(0)
 
 
+class ApiProbe:
+    def probe(self, root, asset, cancel=None) -> MediaProbeResult:
+        del root, cancel
+        return MediaProbeResult(
+            asset.kind,
+            "c" * 64,
+            asset.size_bytes,
+            asset.mtime_ns,
+            {"duration_seconds": "1.0", "format_names": ["mov"]},
+            (MediaStream(0, "video", "h264", {"width": 320, "height": 180}),),
+        )
+
+
 async def request_app(
     app,
     method: str,
@@ -31,6 +52,7 @@ async def request_app(
     headers: dict[str, str] | None = None,
     body: bytes = b"",
 ):
+    route_path, separator, query = path.partition("?")
     combined = {"host": "localhost:4200", **(headers or {})}
     if body and "content-length" not in combined:
         combined["content-length"] = str(len(body))
@@ -40,9 +62,9 @@ async def request_app(
         "http_version": "1.1",
         "method": method,
         "scheme": "http",
-        "path": path,
-        "raw_path": path.encode("ascii"),
-        "query_string": b"",
+        "path": route_path,
+        "raw_path": route_path.encode("ascii"),
+        "query_string": query.encode("ascii") if separator else b"",
         "root_path": "",
         "headers": [
             (key.lower().encode("ascii"), value.encode("latin-1"))
@@ -88,21 +110,29 @@ class ProjectApiTests(unittest.TestCase):
         self.source = self.root / "External" / "Raw"
         self.reference = self.root / "Reference"
         self.source.mkdir(parents=True)
+        (self.source / "clip.mov").write_bytes(b"synthetic-media")
         self.reference.mkdir()
         self.authority = LocalSessionAuthority("b" * 32)
         self.workspace = ProjectWorkspace(
             self.root / "managed" / "projects",
             picker=FakePicker(self.source, self.reference),
         )
+        self.inventory_repository = InventoryRepository(self.workspace.repository)
+        self.inventories = InventoryCoordinator(
+            self.inventory_repository,
+            probe_factory=lambda: ApiProbe(),
+        )
         self.app = create_app(
             ControllerConfig(self.static),
             ProviderStatus("Codex", ProviderState.READY, "AI 已連接"),
             self.authority,
             self.workspace,
+            self.inventories,
         )
         self.cookie, self.csrf = self._connect()
 
     def tearDown(self) -> None:
+        self.inventories.close()
         self.temporary.cleanup()
 
     def _request(
@@ -158,6 +188,29 @@ class ProjectApiTests(unittest.TestCase):
             headers=self.mutation_headers(),
         )
         self.assertEqual(status, 201)
+        return self.json_body(body)["project"]
+
+    def save_source(self, project: dict) -> dict:
+        status, _, body = self._request(
+            "POST",
+            "/api/system/commands/select-directory",
+            {"request_id": "request-api-inventory-pick", "role": "source"},
+            headers=self.mutation_headers(),
+        )
+        self.assertEqual(status, 200)
+        selection = self.json_body(body)["selection"]
+        status, _, body = self._request(
+            "POST",
+            f"/api/projects/{project['project_id']}/commands/set-directory",
+            {
+                "request_id": "request-api-inventory-save",
+                "expected_revision": project["revision"],
+                "role": "source",
+                "selection_token": selection["selection_token"],
+            },
+            headers=self.mutation_headers(),
+        )
+        self.assertEqual(status, 200)
         return self.json_body(body)["project"]
 
     def test_create_list_get_and_update_project(self) -> None:
@@ -300,6 +353,92 @@ class ProjectApiTests(unittest.TestCase):
             )
         )
         self.assertEqual(too_large[0], 413)
+
+    def test_inventory_api_starts_polls_and_lists_sanitized_results(self) -> None:
+        project = self.save_source(self.create_project())
+        status, _, body = self._request(
+            "POST",
+            f"/api/projects/{project['project_id']}/commands/start-inventory",
+            {
+                "request_id": "request-api-inventory-start",
+                "expected_revision": project["revision"],
+            },
+            headers=self.mutation_headers(),
+        )
+        self.assertEqual(status, 202)
+        inventory = self.json_body(body)["inventory"]
+        self.assertNotIn(str(self.source), body.decode("utf-8"))
+
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            status, _, body = self._request(
+                "GET",
+                f"/api/projects/{project['project_id']}/inventory",
+                headers={"cookie": self.cookie},
+            )
+            self.assertEqual(status, 200)
+            payload = self.json_body(body)
+            if payload["latest"]["state"] == "succeeded":
+                break
+            time.sleep(0.01)
+        else:
+            self.fail("inventory API did not reach succeeded")
+
+        self.assertEqual(payload["current"], payload["latest"])
+        status, _, body = self._request(
+            "GET",
+            f"/api/projects/{project['project_id']}/inventories/"
+            f"{inventory['run_id']}?offset=0&limit=25",
+            headers={"cookie": self.cookie},
+        )
+        self.assertEqual(status, 200)
+        page = self.json_body(body)
+        self.assertEqual(page["total"], 1)
+        self.assertEqual(page["items"][0]["relative_path"], "clip.mov")
+        self.assertEqual(page["items"][0]["probe_status"], "ready")
+        self.assertNotIn("fingerprint", repr(page))
+        self.assertNotIn(str(self.source), repr(page))
+
+        invalid = self._request(
+            "GET",
+            f"/api/projects/{project['project_id']}/inventories/"
+            f"{inventory['run_id']}?limit=201",
+            headers={"cookie": self.cookie},
+        )
+        self.assertEqual(invalid[0], 422)
+
+    def test_inventory_cancel_endpoint_is_csrf_protected_and_idempotent(self) -> None:
+        project = self.save_source(self.create_project())
+        queued = self.inventory_repository.create_run(
+            project["project_id"],
+            "request-api-inventory-queued",
+            project["revision"],
+        )
+        path = (
+            f"/api/projects/{project['project_id']}/inventories/"
+            f"{queued.run_id}/commands/cancel"
+        )
+        rejected = self._request(
+            "POST",
+            path,
+            {},
+            headers={
+                "origin": "http://localhost:4200",
+                "sec-fetch-site": "same-origin",
+                "content-type": "application/json",
+                "cookie": self.cookie,
+            },
+        )
+        self.assertEqual(rejected[0], 403)
+
+        first = self._request("POST", path, {}, headers=self.mutation_headers())
+        replay = self._request("POST", path, {}, headers=self.mutation_headers())
+        self.assertEqual(first[0], 200)
+        self.assertEqual(first[2], replay[2])
+        self.assertEqual(
+            self.json_body(first[2])["inventory"]["state"],
+            InventoryState.CANCELLED.value,
+        )
 
 
 if __name__ == "__main__":
