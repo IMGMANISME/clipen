@@ -64,6 +64,19 @@ class BootstrapTests(unittest.TestCase):
                 stdout=io.StringIO(),
             )
 
+    def test_windows_fails_before_setup_creates_files_or_prompts(self) -> None:
+        errors = io.StringIO()
+        with (
+            mock.patch("clipen.bootstrap._fcntl", None),
+            mock.patch("clipen.bootstrap.ensure_installation") as install,
+            mock.patch("sys.stderr", errors),
+        ):
+            result = bootstrap.main(self.repo, ["codex"])
+
+        self.assertEqual(result, 1)
+        self.assertIn("尚不支援 Windows", errors.getvalue())
+        install.assert_not_called()
+
     def test_successful_runtime_is_reused_without_prompt_or_reinstall(self) -> None:
         installs = []
 
