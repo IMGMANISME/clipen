@@ -4,18 +4,26 @@ import {
   ApiError,
   bootstrapSession,
   createProject,
+  cancelInventory,
+  getInventory,
+  getInventoryItems,
   getProject,
   getStatus,
   listProjects,
   removeDirectory,
   saveDirectory,
   selectDirectory,
+  startInventory,
   updateProjectDetails,
 } from './api'
 import type {
   DirectoryAvailability,
   DirectoryReference,
   DirectoryRole,
+  InventoryItem,
+  InventoryItemsPage,
+  InventoryRun,
+  InventorySummary,
   Project,
   ProviderState,
   StatusPayload,
@@ -41,6 +49,41 @@ const availabilityCopy: Record<DirectoryAvailability, { label: string; help: str
   offline: { label: '磁碟未連接', help: '重新連接外接磁碟後，Clipen 會再次確認這個位置。' },
   changed: { label: '位置已改變', help: '這個路徑現在指向不同資料夾，請重新選擇。' },
   permission_required: { label: '需要權限', help: '請重新選擇資料夾，讓 macOS 確認存取。' },
+}
+
+const inventoryErrorCopy: Record<string, string> = {
+  controller_restarted: 'Clipen 上次關閉時檢查尚未完成，請重新檢查。',
+  controller_stopped: 'Clipen 關閉時已安全停止檢查，請重新檢查。',
+  probe_unavailable: '找不到 FFprobe。請先安裝 FFmpeg，再重新檢查。',
+  probe_unsupported: '目前的 FFprobe 版本不支援這次檢查，請更新 FFmpeg。',
+  inventory_input_changed: '檢查期間素材位置有變動，請重新檢查。',
+  root_unavailable: '素材磁碟目前無法使用，請確認磁碟已連接。',
+  root_changed: '素材位置已改變，請重新選擇資料夾。',
+  discovery_timeout: '資料夾內容很多，這次檢查已安全停止。請整理後再試一次。',
+  too_many_files: '資料夾中的檔案超過安全檢查上限，請縮小素材範圍。',
+  tree_too_deep: '資料夾層級太深，請整理後再試一次。',
+}
+
+const itemIssueCopy: Record<string, string> = {
+  probe_unsupported: '不支援的媒體格式',
+  probe_unreadable: '無法讀取媒體資訊',
+  probe_timeout: '讀取媒體資訊逾時',
+  probe_changed: '檢查時檔案有變動',
+  probe_entry_unreadable: '無法讀取檔案',
+  probe_entry_not_regular: '檔案位置已改變',
+}
+
+function formatBytes(value: number | null): string {
+  if (value === null) return '大小未知'
+  if (value < 1024) return `${value} B`
+  const units = ['KB', 'MB', 'GB', 'TB']
+  let size = value / 1024
+  let unit = units[0]
+  for (let index = 1; index < units.length && size >= 1024; index += 1) {
+    size /= 1024
+    unit = units[index]
+  }
+  return `${size >= 10 ? size.toFixed(0) : size.toFixed(1)} ${unit}`
 }
 
 function fragmentToken(): string | null {
@@ -264,6 +307,138 @@ function DirectoryCard({
   )
 }
 
+function InventorySection({
+  summary,
+  page,
+  loading,
+  sourceReady,
+  actionBusy,
+  onStart,
+  onCancel,
+}: {
+  summary: InventorySummary | null
+  page: InventoryItemsPage | null
+  loading: boolean
+  sourceReady: boolean
+  actionBusy: boolean
+  onStart: () => void
+  onCancel: (run: InventoryRun) => void
+}) {
+  const latest = summary?.latest ?? null
+  const current = summary?.current ?? null
+  const active = latest !== null && ['queued', 'running', 'cancelling'].includes(latest.state)
+  const failed = latest !== null && ['failed', 'cancelled', 'interrupted'].includes(latest.state)
+  const resultItems: InventoryItem[] = page?.items.filter((item) => item.status !== 'ignored') ?? []
+  const canStart = sourceReady && !actionBusy && !active
+
+  return (
+    <section className="inventory-section" aria-labelledby="inventory-title">
+      <div className="inventory-heading">
+        <div>
+          <p className="eyebrow">下一步</p>
+          <h2 id="inventory-title">檢查素材是否可用</h2>
+          <p>Clipen 會讀取媒體格式、長度與影音軌資訊。這次不會呼叫 AI，也不會修改或複製任何素材。</p>
+        </div>
+        {!active && (
+          <button className="button primary" onClick={onStart} disabled={!canStart}>
+            {actionBusy ? '正在準備…' : latest ? '重新檢查素材' : '檢查素材'}
+          </button>
+        )}
+      </div>
+
+      {!sourceReady && (
+        <div className="inventory-empty muted-state">
+          <strong>先選擇可使用的毛片資料夾</strong>
+          <p>完成上方的毛片位置設定後，就能開始檢查。</p>
+        </div>
+      )}
+
+      {sourceReady && loading && !summary && (
+        <div className="inventory-empty" role="status">
+          <span className="small-spinner" aria-hidden="true" />
+          <div><strong>正在讀取上次檢查狀態</strong><p>素材尚未被重新讀取。</p></div>
+        </div>
+      )}
+
+      {sourceReady && !loading && !latest && (
+        <div className="inventory-empty">
+          <span className="inventory-mark" aria-hidden="true" />
+          <div><strong>尚未檢查素材</strong><p>按下「檢查素材」後，這裡會即時顯示進度與需要處理的檔案。</p></div>
+        </div>
+      )}
+
+      {latest && active && (
+        <div className="inventory-progress" role="status" aria-live="polite">
+          <div className="progress-main">
+            <span className="small-spinner" aria-hidden="true" />
+            <div>
+              <strong>{latest.state === 'cancelling' ? '正在安全停止…' : '正在檢查素材…'}</strong>
+              <p>已找到 {latest.counts.discovered.toLocaleString()} 個檔案，已讀取 {latest.counts.probed.toLocaleString()} 個媒體資訊。</p>
+            </div>
+          </div>
+          <button
+            className="button secondary"
+            onClick={() => onCancel(latest)}
+            disabled={actionBusy || latest.state === 'cancelling'}
+          >
+            {latest.state === 'cancelling' ? '停止中…' : '停止檢查'}
+          </button>
+        </div>
+      )}
+
+      {latest && failed && (
+        <div className={`inventory-outcome ${latest.state === 'failed' ? 'has-error' : ''}`} role="status">
+          <span className="outcome-symbol" aria-hidden="true">{latest.state === 'failed' ? '!' : '×'}</span>
+          <div>
+            <strong>{latest.state === 'failed' ? '這次檢查沒有完成' : latest.state === 'cancelled' ? '檢查已取消' : '檢查已安全中斷'}</strong>
+            <p>{latest.error_code ? inventoryErrorCopy[latest.error_code] ?? 'Clipen 無法完成這次素材檢查，請重新試一次。' : '素材沒有被修改，你可以隨時重新檢查。'}</p>
+            {current && current.run_id !== latest.run_id && <small>下方仍保留上次成功的檢查結果。</small>}
+          </div>
+        </div>
+      )}
+
+      {current && (
+        <div className="inventory-results">
+          <div className="result-title-row">
+            <div>
+              <strong>{current.counts.issues ? '素材已檢查，部分檔案需要注意' : '素材已準備好'}</strong>
+              <p>{current.counts.discovered.toLocaleString()} 個檔案完成整理</p>
+            </div>
+            <span className="result-ready">檢查完成</span>
+          </div>
+          <div className="inventory-counts" aria-label="素材檢查摘要">
+            <div><strong>{current.counts.usable.toLocaleString()}</strong><span>可使用媒體</span></div>
+            <div className={current.counts.issues ? 'attention' : ''}><strong>{current.counts.issues.toLocaleString()}</strong><span>需要注意</span></div>
+            <div><strong>{current.counts.ignored.toLocaleString()}</strong><span>略過的其他檔案</span></div>
+          </div>
+
+          {page && resultItems.length > 0 && (
+            <div className="asset-list">
+              <div className="asset-list-heading"><strong>媒體清單</strong><span>需要注意的項目會排在最前面</span></div>
+              {resultItems.map((item) => {
+                const duration = item.probe?.duration_seconds
+                const codecs = [...new Set(item.streams.map((stream) => stream.codec))].join(' · ')
+                return (
+                  <div className={`asset-row ${item.status}`} key={item.asset_id}>
+                    <span className={`asset-kind ${item.kind}`} aria-hidden="true">{item.kind === 'video' ? 'V' : item.kind === 'audio' ? 'A' : 'I'}</span>
+                    <div className="asset-name"><strong>{item.display_name}</strong><span title={item.relative_path}>{item.relative_path}</span></div>
+                    <div className="asset-detail">
+                      {item.status === 'needs_attention'
+                        ? <strong>{item.issue_code ? itemIssueCopy[item.issue_code] ?? '需要確認' : '需要確認'}</strong>
+                        : <><span>{typeof duration === 'string' ? `${duration} 秒` : formatBytes(item.size_bytes)}</span>{codecs && <span>{codecs}</span>}</>}
+                    </div>
+                  </div>
+                )
+              })}
+              {page.total > page.items.length && <p className="asset-limit">目前顯示前 {page.items.length.toLocaleString()} 個項目，共 {page.total.toLocaleString()} 個。</p>}
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  )
+}
+
 function MaterialsWorkspace({
   project,
   csrf,
@@ -282,9 +457,47 @@ function MaterialsWorkspace({
   const [busyRole, setBusyRole] = useState<DirectoryRole | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [inventory, setInventory] = useState<InventorySummary | null>(null)
+  const [inventoryPage, setInventoryPage] = useState<InventoryItemsPage | null>(null)
+  const [inventoryLoading, setInventoryLoading] = useState(true)
+  const [inventoryActionBusy, setInventoryActionBusy] = useState(false)
 
   const source = project.directories.find((directory) => directory.role === 'source')
   const reference = project.directories.find((directory) => directory.role === 'reference')
+
+  useEffect(() => {
+    let mounted = true
+    getInventory(project.project_id)
+      .then((result) => { if (mounted) setInventory(result) })
+      .catch((caught) => { if (mounted) setError(errorMessage(caught)) })
+      .finally(() => { if (mounted) setInventoryLoading(false) })
+    return () => { mounted = false }
+  }, [project.project_id, project.revision])
+
+  const latestState = inventory?.latest?.state
+  useEffect(() => {
+    if (!latestState || !['queued', 'running', 'cancelling'].includes(latestState)) return
+    let mounted = true
+    const timer = window.setInterval(() => {
+      getInventory(project.project_id)
+        .then((result) => { if (mounted) setInventory(result) })
+        .catch(() => { /* A later poll or the global reconnect state can recover. */ })
+    }, 650)
+    return () => { mounted = false; window.clearInterval(timer) }
+  }, [latestState, project.project_id])
+
+  const currentInventoryId = inventory?.current?.run_id
+  useEffect(() => {
+    if (!currentInventoryId) return
+    let mounted = true
+    getInventoryItems(project.project_id, currentInventoryId)
+      .then((result) => { if (mounted) setInventoryPage(result) })
+      .catch((caught) => { if (mounted) setError(errorMessage(caught)) })
+    return () => { mounted = false }
+  }, [currentInventoryId, project.project_id])
+  const visibleInventoryPage = inventoryPage?.inventory.run_id === currentInventoryId
+    ? inventoryPage
+    : null
 
   async function recoverConflict(caught: unknown) {
     if (caught instanceof ApiError && caught.code === 'revision_conflict') {
@@ -316,6 +529,47 @@ function MaterialsWorkspace({
       await recoverConflict(caught)
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function inspectMedia() {
+    if (inventoryActionBusy || !source || source.availability !== 'available') return
+    setInventoryActionBusy(true)
+    setError(null)
+    setNotice(null)
+    try {
+      let target = project
+      if (dirty) {
+        if (!name.trim()) return
+        target = await updateProjectDetails(csrf, project, name, brief)
+        setDirty(false)
+        onProject(target)
+      }
+      const run = await startInventory(csrf, target)
+      setInventory((previous) => ({ latest: run, current: previous?.current ?? null }))
+      setNotice('素材檢查已開始，你可以留在這裡查看進度')
+    } catch (caught) {
+      await recoverConflict(caught)
+    } finally {
+      setInventoryActionBusy(false)
+    }
+  }
+
+  async function stopInventory(run: InventoryRun) {
+    if (inventoryActionBusy) return
+    setInventoryActionBusy(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const updated = await cancelInventory(csrf, project.project_id, run.run_id)
+      setInventory((previous) => ({
+        latest: updated,
+        current: previous?.current ?? null,
+      }))
+    } catch (caught) {
+      setError(errorMessage(caught))
+    } finally {
+      setInventoryActionBusy(false)
     }
   }
 
@@ -381,7 +635,7 @@ function MaterialsWorkspace({
             <div>
               <p className="eyebrow">01 · 素材</p>
               <h1 id="materials-title">準備這次剪輯</h1>
-              <p>先告訴 Clipen 素材在哪裡、希望剪成什麼樣子。這一步不會讀取媒體內容或呼叫 AI。</p>
+              <p>先告訴 Clipen 素材在哪裡、希望剪成什麼樣子。只有按下下方「檢查素材」後才會讀取媒體資訊；這個階段不會呼叫 AI。</p>
             </div>
             <div className={`save-state ${dirty ? 'unsaved' : ''}`} aria-live="polite">
               <span aria-hidden="true" />{saving ? '保存中' : dirty ? '尚未保存' : '已保存'}
@@ -441,8 +695,18 @@ function MaterialsWorkspace({
 
           <div className="scope-note">
             <span className="lock-icon" aria-hidden="true" />
-            <div><strong>這一步只保存位置</strong><p>Clipen 不會複製、搬移、重新命名或修改毛片。媒體檢查會在下一步另外取得同意。</p></div>
+            <div><strong>目前只保存位置</strong><p>Clipen 不會複製、搬移、重新命名或修改毛片。只有按下下方的「檢查素材」才會開始讀取媒體資訊。</p></div>
           </div>
+
+          <InventorySection
+            summary={inventory}
+            page={visibleInventoryPage}
+            loading={inventoryLoading}
+            sourceReady={source?.availability === 'available'}
+            actionBusy={inventoryActionBusy}
+            onStart={() => void inspectMedia()}
+            onCancel={(run) => void stopInventory(run)}
+          />
         </section>
       </div>
     </main>

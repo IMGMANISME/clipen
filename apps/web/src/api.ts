@@ -44,6 +44,67 @@ export type DirectorySelection = {
   expires_in_seconds: number
 }
 
+export type InventoryState =
+  | 'queued'
+  | 'running'
+  | 'cancelling'
+  | 'succeeded'
+  | 'failed'
+  | 'cancelled'
+  | 'interrupted'
+
+export type InventoryRun = {
+  run_id: string
+  project_revision: number
+  roles: DirectoryRole[]
+  state: InventoryState
+  phase: string
+  counts: {
+    discovered: number
+    probed: number
+    usable: number
+    issues: number
+    ignored: number
+  }
+  error_code: string | null
+  created_at: string
+  started_at: string | null
+  completed_at: string | null
+}
+
+export type InventorySummary = {
+  latest: InventoryRun | null
+  current: InventoryRun | null
+}
+
+export type InventoryItem = {
+  asset_id: string
+  role: DirectoryRole
+  relative_path: string
+  display_name: string
+  kind: 'video' | 'audio' | 'image' | 'unknown'
+  status: 'usable' | 'needs_attention' | 'ignored'
+  issue_code: string | null
+  size_bytes: number | null
+  probe_status: 'ready' | 'unsupported' | 'unreadable' | 'timeout' | 'changed' | null
+  probe: Record<string, unknown> | null
+  streams: Array<{
+    stream_index: number
+    kind: 'video' | 'audio'
+    codec: string
+    details: Record<string, unknown>
+  }>
+}
+
+export type InventoryItemsPage = {
+  inventory: InventoryRun
+  items: InventoryItem[]
+  total: number
+  offset: number
+  limit: number
+  next_offset: number | null
+}
+
 export class ApiError extends Error {
   code: string
   status: number
@@ -187,4 +248,47 @@ export async function removeDirectory(
       },
     )
   ).project
+}
+
+export async function getInventory(projectId: string): Promise<InventorySummary> {
+  return request<InventorySummary>(`/api/projects/${projectId}/inventory`)
+}
+
+export async function getInventoryItems(
+  projectId: string,
+  runId: string,
+): Promise<InventoryItemsPage> {
+  return request<InventoryItemsPage>(
+    `/api/projects/${projectId}/inventories/${runId}?offset=0&limit=100`,
+  )
+}
+
+export async function startInventory(
+  csrf: string,
+  project: Project,
+): Promise<InventoryRun> {
+  return (
+    await command<{ inventory: InventoryRun }>(
+      `/api/projects/${project.project_id}/commands/start-inventory`,
+      csrf,
+      {
+        request_id: crypto.randomUUID(),
+        expected_revision: project.revision,
+      },
+    )
+  ).inventory
+}
+
+export async function cancelInventory(
+  csrf: string,
+  projectId: string,
+  runId: string,
+): Promise<InventoryRun> {
+  return (
+    await command<{ inventory: InventoryRun }>(
+      `/api/projects/${projectId}/inventories/${runId}/commands/cancel`,
+      csrf,
+      {},
+    )
+  ).inventory
 }
