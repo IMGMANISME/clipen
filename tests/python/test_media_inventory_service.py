@@ -20,6 +20,9 @@ class FakeProbe:
     def __init__(self) -> None:
         self.calls = 0
 
+    def version(self) -> str:
+        return "ffprobe version fake"
+
     def probe(self, root, asset, cancel=None) -> MediaProbeResult:
         self.calls += 1
         return MediaProbeResult(
@@ -35,6 +38,9 @@ class FakeProbe:
 class BlockingProbe:
     def __init__(self) -> None:
         self.started = threading.Event()
+
+    def version(self) -> str:
+        return "ffprobe version fake"
 
     def probe(self, root, asset, cancel=None) -> MediaProbeResult:
         self.started.set()

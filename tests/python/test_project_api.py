@@ -32,6 +32,9 @@ class FakePicker(NativeDirectoryPicker):
 
 
 class ApiProbe:
+    def version(self) -> str:
+        return "ffprobe version fake"
+
     def probe(self, root, asset, cancel=None) -> MediaProbeResult:
         del root, cancel
         return MediaProbeResult(

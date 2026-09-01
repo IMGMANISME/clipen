@@ -345,6 +345,56 @@ class MediaInventoryStorageTests(unittest.TestCase):
         )
         self.assertEqual(second.state, InventoryState.QUEUED)
 
+    def test_item_batches_update_progress_once_and_roll_back_atomically(self) -> None:
+        running = self.start("request-inventory-batch")
+        ignored = AssetCandidate(
+            DirectoryRole.SOURCE,
+            "camera/notes.txt",
+            AssetKind.UNKNOWN,
+            ItemStatus.IGNORED,
+            "non_media",
+            None,
+            None,
+            None,
+            None,
+        )
+        staged = self.inventories.stage_items(
+            self.project.project_id,
+            running.run_id,
+            (self.usable_video(), ignored),
+        )
+        self.assertEqual(staged.counts.discovered, 2)
+
+        with self.assertRaises(ProjectError) as duplicate:
+            self.inventories.stage_items(
+                self.project.project_id,
+                running.run_id,
+                (
+                    AssetCandidate(
+                        DirectoryRole.SOURCE,
+                        "camera/new.txt",
+                        AssetKind.UNKNOWN,
+                        ItemStatus.IGNORED,
+                        "non_media",
+                        None,
+                        None,
+                        None,
+                        None,
+                    ),
+                    ignored,
+                ),
+            )
+        self.assertEqual(duplicate.exception.code, "inventory_item_conflict")
+        after = self.inventories.get_run(self.project.project_id, running.run_id)
+        self.assertEqual(after.counts.discovered, 2)
+        with self.projects.connect(self.project.project_id) as connection:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM assets WHERE relative_path = 'camera/new.txt'"
+                ).fetchone()[0],
+                0,
+            )
+
     def test_v1_database_migrates_atomically_without_changing_project(self) -> None:
         before = self.projects.get_project(self.project.project_id)
         database = self.projects_root / self.project.project_id / "project.sqlite3"
