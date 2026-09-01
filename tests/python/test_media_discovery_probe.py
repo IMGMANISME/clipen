@@ -5,6 +5,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 
 from clipen.media import (
     AssetKind,
@@ -90,6 +91,40 @@ class MediaDiscoveryTests(unittest.TestCase):
         with self.assertRaises(DiscoveryError) as count:
             tuple(MediaDiscovery(maximum_files=1).scan(actual))
         self.assertEqual(count.exception.code, "too_many_files")
+
+    def test_wide_tree_keeps_open_descriptors_bounded(self) -> None:
+        wide = Path(self.temporary.name) / "wide"
+        wide.mkdir()
+        for index in range(80):
+            child = wide / f"camera-{index:03d}"
+            child.mkdir()
+            (child / "clip.mov").write_bytes(b"media")
+
+        actual_open = os.open
+        actual_close = os.close
+        tracked: set[int] = set()
+        peak = 0
+
+        def open_tracked(*args, **kwargs):
+            nonlocal peak
+            descriptor = actual_open(*args, **kwargs)
+            tracked.add(descriptor)
+            peak = max(peak, len(tracked))
+            return descriptor
+
+        def close_tracked(descriptor: int) -> None:
+            tracked.discard(descriptor)
+            actual_close(descriptor)
+
+        with (
+            mock.patch("clipen.media.discovery.os.open", side_effect=open_tracked),
+            mock.patch("clipen.media.discovery.os.close", side_effect=close_tracked),
+        ):
+            items = tuple(MediaDiscovery().scan(root_snapshot(wide)))
+
+        self.assertEqual(len(items), 80)
+        self.assertLessEqual(peak, 2)
+        self.assertEqual(tracked, set())
 
 
 class FFprobeAdapterTests(unittest.TestCase):

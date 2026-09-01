@@ -91,94 +91,123 @@ class MediaDiscovery:
             root_fd = os.open(root.canonical_path, flags)
         except OSError as error:
             raise DiscoveryError("root_unavailable") from error
-        identity = os.fstat(root_fd)
+        try:
+            identity = os.fstat(root_fd)
+        except OSError as error:
+            os.close(root_fd)
+            raise DiscoveryError("root_unavailable") from error
         if identity.st_dev != root.device or identity.st_ino != root.inode:
             os.close(root_fd)
             raise DiscoveryError("root_changed")
-        stack: list[tuple[int, tuple[str, ...], int]] = [(root_fd, (), 0)]
-        discovered = 0
+        discovered = [0]
+        yield from self._scan_directory(
+            root_fd,
+            root.role,
+            (),
+            0,
+            deadline,
+            flags,
+            discovered,
+            cancel,
+        )
+
+    def _scan_directory(
+        self,
+        directory_fd: int,
+        role: DirectoryRole,
+        prefix: tuple[str, ...],
+        depth: int,
+        deadline: float,
+        flags: int,
+        discovered: list[int],
+        cancel: threading.Event | None,
+    ) -> Iterator[DiscoveredAsset]:
+        """Depth-first traversal keeps descriptor use bounded by maximum depth."""
         try:
-            while stack:
+            if cancel is not None and cancel.is_set():
+                raise DiscoveryError("cancelled")
+            if time.monotonic() >= deadline:
+                raise DiscoveryError("discovery_timeout")
+            for entry in _entries(directory_fd):
                 if cancel is not None and cancel.is_set():
                     raise DiscoveryError("cancelled")
-                directory_fd, prefix, depth = stack.pop()
+                if time.monotonic() >= deadline:
+                    raise DiscoveryError("discovery_timeout")
+                name = entry.name
+                if not name or name in _SYSTEM_NAMES:
+                    continue
+                relative_parts = prefix + (name,)
+                relative = PurePosixPath(*relative_parts).as_posix()
                 try:
-                    if time.monotonic() >= deadline:
-                        raise DiscoveryError("discovery_timeout")
-                    for entry in _entries(directory_fd):
-                        if cancel is not None and cancel.is_set():
-                            raise DiscoveryError("cancelled")
-                        if time.monotonic() >= deadline:
-                            raise DiscoveryError("discovery_timeout")
-                        name = entry.name
-                        if not name or name in _SYSTEM_NAMES:
-                            continue
-                        relative_parts = prefix + (name,)
-                        relative = PurePosixPath(*relative_parts).as_posix()
-                        try:
-                            validate_relative_path(relative)
-                        except ValueError as error:
-                            raise DiscoveryError("path_too_long") from error
-                        try:
-                            if entry.is_symlink():
-                                discovered += 1
-                                self._check_file_limit(discovered)
-                                yield DiscoveredAsset(
-                                    root.role,
-                                    relative,
-                                    AssetKind.UNKNOWN,
-                                    None,
-                                    None,
-                                    "symlink_ignored",
-                                )
-                                continue
-                            if entry.is_dir(follow_symlinks=False):
-                                if name.startswith("."):
-                                    continue
-                                if depth + 1 > self.maximum_depth:
-                                    raise DiscoveryError("tree_too_deep")
-                                child_fd = os.open(name, flags, dir_fd=directory_fd)
-                                stack.append((child_fd, relative_parts, depth + 1))
-                                continue
-                            file_stat = entry.stat(follow_symlinks=False)
-                        except OSError:
-                            discovered += 1
-                            self._check_file_limit(discovered)
-                            yield DiscoveredAsset(
-                                root.role,
-                                relative,
-                                AssetKind.UNKNOWN,
-                                None,
-                                None,
-                                "entry_unreadable",
-                            )
-                            continue
-                        discovered += 1
-                        self._check_file_limit(discovered)
-                        if name.startswith(".") or not stat.S_ISREG(file_stat.st_mode):
-                            yield DiscoveredAsset(
-                                root.role,
-                                relative,
-                                AssetKind.UNKNOWN,
-                                None,
-                                None,
-                                "non_media",
-                            )
-                            continue
-                        kind = _kind_for_name(name)
+                    validate_relative_path(relative)
+                except ValueError as error:
+                    raise DiscoveryError("path_too_long") from error
+                try:
+                    if entry.is_symlink():
+                        discovered[0] += 1
+                        self._check_file_limit(discovered[0])
                         yield DiscoveredAsset(
-                            root.role,
+                            role,
                             relative,
-                            kind,
-                            file_stat.st_size,
-                            file_stat.st_mtime_ns,
-                            None if kind is not AssetKind.UNKNOWN else "non_media",
+                            AssetKind.UNKNOWN,
+                            None,
+                            None,
+                            "symlink_ignored",
                         )
-                finally:
-                    os.close(directory_fd)
+                        continue
+                    if entry.is_dir(follow_symlinks=False):
+                        if name.startswith("."):
+                            continue
+                        if depth + 1 > self.maximum_depth:
+                            raise DiscoveryError("tree_too_deep")
+                        child_fd = os.open(name, flags, dir_fd=directory_fd)
+                        yield from self._scan_directory(
+                            child_fd,
+                            role,
+                            relative_parts,
+                            depth + 1,
+                            deadline,
+                            flags,
+                            discovered,
+                            cancel,
+                        )
+                        continue
+                    file_stat = entry.stat(follow_symlinks=False)
+                except OSError:
+                    discovered[0] += 1
+                    self._check_file_limit(discovered[0])
+                    yield DiscoveredAsset(
+                        role,
+                        relative,
+                        AssetKind.UNKNOWN,
+                        None,
+                        None,
+                        "entry_unreadable",
+                    )
+                    continue
+                discovered[0] += 1
+                self._check_file_limit(discovered[0])
+                if name.startswith(".") or not stat.S_ISREG(file_stat.st_mode):
+                    yield DiscoveredAsset(
+                        role,
+                        relative,
+                        AssetKind.UNKNOWN,
+                        None,
+                        None,
+                        "non_media",
+                    )
+                    continue
+                kind = _kind_for_name(name)
+                yield DiscoveredAsset(
+                    role,
+                    relative,
+                    kind,
+                    file_stat.st_size,
+                    file_stat.st_mtime_ns,
+                    None if kind is not AssetKind.UNKNOWN else "non_media",
+                )
         finally:
-            for descriptor, _, _ in stack:
-                os.close(descriptor)
+            os.close(directory_fd)
 
     def _check_file_limit(self, discovered: int) -> None:
         if discovered > self.maximum_files:
