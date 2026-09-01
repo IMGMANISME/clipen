@@ -12,6 +12,7 @@ from clipen.projects.models import ProjectError
 from .discovery import DiscoveredAsset, DiscoveryError, MediaDiscovery
 from .models import (
     AssetCandidate,
+    InventoryRoot,
     InventoryRun,
     InventoryState,
     ItemStatus,
@@ -29,18 +30,21 @@ _ITEM_PROBE_ERRORS = {
     "timeout": ProbeStatus.TIMEOUT,
     "changed": ProbeStatus.CHANGED,
 }
+_STAGE_BATCH_SIZE = 32
 
 
 class _Discovery(Protocol):
     def scan(
-        self, root: object, cancel: threading.Event | None = None
+        self, root: InventoryRoot, cancel: threading.Event | None = None
     ) -> Iterable[DiscoveredAsset]: ...
 
 
 class _Probe(Protocol):
+    def version(self) -> str: ...
+
     def probe(
         self,
-        root: object,
+        root: InventoryRoot,
         asset: DiscoveredAsset,
         cancel: threading.Event | None = None,
     ) -> MediaProbeResult: ...
@@ -166,16 +170,25 @@ class InventoryCoordinator:
             )
             discovery = self._discovery_factory()
             prober = self._probe_factory()
+            prober.version()
+            batch: list[AssetCandidate] = []
             for root in running.roots:
                 for discovered in discovery.scan(root, cancel):
                     if cancel.is_set():
                         self._finish_cancel(job)
                         return
                     candidate = self._inspect(prober, root, discovered, cancel)
-                    self.repository.stage_item(job.project_id, job.run_id, candidate)
+                    batch.append(candidate)
+                    if len(batch) >= _STAGE_BATCH_SIZE:
+                        self.repository.stage_items(
+                            job.project_id, job.run_id, tuple(batch)
+                        )
+                        batch.clear()
             if cancel.is_set():
                 self._finish_cancel(job)
                 return
+            if batch:
+                self.repository.stage_items(job.project_id, job.run_id, tuple(batch))
             self.repository.publish(job.project_id, job.run_id)
         except DiscoveryError as error:
             if error.code == "cancelled":
@@ -198,7 +211,7 @@ class InventoryCoordinator:
     @staticmethod
     def _inspect(
         prober: _Probe,
-        root: object,
+        root: InventoryRoot,
         discovered: DiscoveredAsset,
         cancel: threading.Event,
     ) -> AssetCandidate:

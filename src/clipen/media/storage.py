@@ -288,13 +288,22 @@ class InventoryRepository:
                     version_ids,
                 ).fetchall()
                 for stream_row in stream_rows:
-                    streams_by_version.setdefault(stream_row["version_id"], []).append(
-                        MediaStream(
+                    try:
+                        details = json.loads(stream_row["details_json"])
+                        stream = MediaStream(
                             stream_row["stream_index"],
                             stream_row["kind"],
                             stream_row["codec"],
-                            json.loads(stream_row["details_json"]),
+                            details,
                         )
+                    except (json.JSONDecodeError, TypeError, ValueError) as error:
+                        raise ProjectError(
+                            "storage_corrupt",
+                            "Clipen 無法讀取素材清單。",
+                            status_code=500,
+                        ) from error
+                    streams_by_version.setdefault(stream_row["version_id"], []).append(
+                        stream
                     )
             try:
                 items = tuple(
@@ -498,10 +507,18 @@ class InventoryRepository:
         run_id: object,
         candidate: AssetCandidate,
     ) -> InventoryRun:
+        return self.stage_items(project_id, run_id, (candidate,))
+
+    def stage_items(
+        self,
+        project_id: str,
+        run_id: object,
+        candidates: tuple[AssetCandidate, ...],
+    ) -> InventoryRun:
         validate_project_id(project_id)
         normalized_run = validate_run_id(run_id)
-        asset_id = candidate.asset_id(project_id)
-        version_id = candidate.version_id(project_id)
+        if not candidates or len(candidates) > 100:
+            raise ValueError("inventory stage batch must contain 1 to 100 items")
         with self.projects.connect(project_id) as connection:
             try:
                 connection.execute("BEGIN IMMEDIATE")
@@ -512,95 +529,37 @@ class InventoryRepository:
                         "這次素材檢查目前不能保存結果。",
                         status_code=409,
                     )
-                existing = connection.execute(
-                    "SELECT 1 FROM inventory_items WHERE run_id = ? AND asset_id = ?",
-                    (normalized_run, asset_id),
-                ).fetchone()
-                if existing is not None:
-                    raise ProjectError(
-                        "inventory_item_conflict",
-                        "素材檢查出現重複項目。",
-                        status_code=409,
-                    )
                 now = utc_now()
-                connection.execute(
-                    "INSERT INTO assets (asset_id, project_id, role, relative_path, first_seen_at) "
-                    "VALUES (?, ?, ?, ?, ?) ON CONFLICT(asset_id) DO NOTHING",
-                    (asset_id, project_id, candidate.role.value, candidate.relative_path, now),
-                )
-                if version_id is not None:
-                    probe_json = (
-                        None
-                        if candidate.probe is None
-                        else json.dumps(
-                            candidate.probe,
-                            ensure_ascii=False,
-                            sort_keys=True,
-                            separators=(",", ":"),
-                        )
-                    )
-                    connection.execute(
-                        "INSERT INTO asset_versions "
-                        "(version_id, asset_id, size_bytes, mtime_ns, fingerprint, "
-                        "probe_status, probe_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
-                        "ON CONFLICT(version_id) DO NOTHING",
-                        (
-                            version_id,
-                            asset_id,
-                            candidate.size_bytes,
-                            candidate.mtime_ns,
-                            candidate.fingerprint,
-                            candidate.probe_status.value,
-                            probe_json,
-                            now,
-                        ),
-                    )
-                    for stream in candidate.streams:
-                        connection.execute(
-                            "INSERT INTO media_streams "
-                            "(version_id, stream_index, kind, codec, details_json) "
-                            "VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
-                            (
-                                version_id,
-                                stream.stream_index,
-                                stream.kind,
-                                stream.codec,
-                                json.dumps(
-                                    stream.details,
-                                    ensure_ascii=False,
-                                    sort_keys=True,
-                                    separators=(",", ":"),
-                                ),
-                            ),
-                        )
-                connection.execute(
-                    "INSERT INTO inventory_items "
-                    "(run_id, asset_id, version_id, display_name, kind, status, issue_code) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (
+                probed_increment = 0
+                usable_increment = 0
+                issue_increment = 0
+                ignored_increment = 0
+                for candidate in candidates:
+                    self._insert_candidate(
+                        connection,
+                        project_id,
                         normalized_run,
-                        asset_id,
-                        version_id,
-                        candidate.display_name,
-                        candidate.kind.value,
-                        candidate.status.value,
-                        candidate.issue_code,
-                    ),
-                )
-                probed_increment = int(
-                    candidate.probe_status is not None
-                    and candidate.probe_status.value != "pending"
-                )
+                        candidate,
+                        now,
+                    )
+                    probed_increment += int(
+                        candidate.probe_status is not None
+                        and candidate.probe_status.value != "pending"
+                    )
+                    usable_increment += int(candidate.status is ItemStatus.USABLE)
+                    issue_increment += int(candidate.status is ItemStatus.NEEDS_ATTENTION)
+                    ignored_increment += int(candidate.status is ItemStatus.IGNORED)
                 connection.execute(
-                    "UPDATE inventory_runs SET discovered_count = discovered_count + 1, "
+                    "UPDATE inventory_runs SET discovered_count = discovered_count + ?, "
                     "probed_count = probed_count + ?, usable_count = usable_count + ?, "
                     "issue_count = issue_count + ?, ignored_count = ignored_count + ? "
                     "WHERE run_id = ?",
                     (
+                        len(candidates),
                         probed_increment,
-                        int(candidate.status.value == "usable"),
-                        int(candidate.status.value == "needs_attention"),
-                        int(candidate.status.value == "ignored"),
+                        usable_increment,
+                        issue_increment,
+                        ignored_increment,
                         normalized_run,
                     ),
                 )
@@ -620,6 +579,91 @@ class InventoryRepository:
                 raise ProjectError(
                     "storage_failed", "Clipen 無法保存素材檢查結果。", status_code=500
                 ) from error
+
+    @staticmethod
+    def _insert_candidate(
+        connection: sqlite3.Connection,
+        project_id: str,
+        run_id: str,
+        candidate: AssetCandidate,
+        now: str,
+    ) -> None:
+        asset_id = candidate.asset_id(project_id)
+        version_id = candidate.version_id(project_id)
+        existing = connection.execute(
+            "SELECT 1 FROM inventory_items WHERE run_id = ? AND asset_id = ?",
+            (run_id, asset_id),
+        ).fetchone()
+        if existing is not None:
+            raise ProjectError(
+                "inventory_item_conflict",
+                "素材檢查出現重複項目。",
+                status_code=409,
+            )
+        connection.execute(
+            "INSERT INTO assets (asset_id, project_id, role, relative_path, first_seen_at) "
+            "VALUES (?, ?, ?, ?, ?) ON CONFLICT(asset_id) DO NOTHING",
+            (asset_id, project_id, candidate.role.value, candidate.relative_path, now),
+        )
+        if version_id is not None:
+            probe_json = (
+                None
+                if candidate.probe is None
+                else json.dumps(
+                    candidate.probe,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+            )
+            connection.execute(
+                "INSERT INTO asset_versions "
+                "(version_id, asset_id, size_bytes, mtime_ns, fingerprint, "
+                "probe_status, probe_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(version_id) DO NOTHING",
+                (
+                    version_id,
+                    asset_id,
+                    candidate.size_bytes,
+                    candidate.mtime_ns,
+                    candidate.fingerprint,
+                    candidate.probe_status.value,
+                    probe_json,
+                    now,
+                ),
+            )
+            for stream in candidate.streams:
+                connection.execute(
+                    "INSERT INTO media_streams "
+                    "(version_id, stream_index, kind, codec, details_json) "
+                    "VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
+                    (
+                        version_id,
+                        stream.stream_index,
+                        stream.kind,
+                        stream.codec,
+                        json.dumps(
+                            stream.details,
+                            ensure_ascii=False,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        ),
+                    ),
+                )
+        connection.execute(
+            "INSERT INTO inventory_items "
+            "(run_id, asset_id, version_id, display_name, kind, status, issue_code) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                run_id,
+                asset_id,
+                version_id,
+                candidate.display_name,
+                candidate.kind.value,
+                candidate.status.value,
+                candidate.issue_code,
+            ),
+        )
 
     def interrupt_incomplete(self, project_id: str) -> int:
         validate_project_id(project_id)

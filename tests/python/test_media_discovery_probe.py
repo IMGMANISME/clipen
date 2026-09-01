@@ -2,6 +2,7 @@ import errno
 import os
 from pathlib import Path
 import tempfile
+import threading
 import time
 import unittest
 
@@ -156,6 +157,15 @@ JSON
             oversized.probe(root_snapshot(self.root), self.asset)
         self.assertEqual(oversized_error.exception.code, "probe_output_too_large")
 
+        diagnostic = FFprobeAdapter(
+            self.script("echo 'private source diagnostic' >&2\nexit 1")
+        )
+        with self.assertRaises(MediaProbeError) as diagnostic_error:
+            diagnostic.probe(root_snapshot(self.root), self.asset)
+        self.assertEqual(diagnostic_error.exception.code, "unreadable")
+        self.assertNotIn("private source diagnostic", repr(diagnostic_error.exception))
+        self.assertNotIn(str(self.root), repr(diagnostic_error.exception))
+
     def test_timeout_terminates_the_complete_process_group(self) -> None:
         pid_file = Path("/private/tmp") / f"clipen-ffprobe-child-{os.getpid()}-{time.monotonic_ns()}.pid"
         script = self.script(
@@ -178,6 +188,43 @@ JSON
             else:
                 self.fail("ffprobe child process was still alive after timeout")
         finally:
+            pid_file.unlink(missing_ok=True)
+
+    def test_cancel_terminates_the_complete_process_group(self) -> None:
+        pid_file = (
+            Path("/private/tmp")
+            / f"clipen-ffprobe-cancel-child-{os.getpid()}-{time.monotonic_ns()}.pid"
+        )
+        script = self.script(f"/bin/sleep 30 &\necho $! > '{pid_file}'\nwait\n")
+        cancelled = threading.Event()
+
+        def cancel_after_start() -> None:
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline and not pid_file.exists():
+                time.sleep(0.01)
+            cancelled.set()
+
+        canceller = threading.Thread(target=cancel_after_start)
+        try:
+            canceller.start()
+            with self.assertRaises(MediaProbeError) as cancellation:
+                FFprobeAdapter(script, timeout_seconds=5).probe(
+                    root_snapshot(self.root), self.asset, cancelled
+                )
+            self.assertEqual(cancellation.exception.code, "cancelled")
+            child_pid = int(pid_file.read_text(encoding="ascii"))
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline:
+                try:
+                    os.kill(child_pid, 0)
+                except OSError as error:
+                    if error.errno == errno.ESRCH:
+                        break
+                time.sleep(0.02)
+            else:
+                self.fail("ffprobe child process was still alive after cancellation")
+        finally:
+            canceller.join(2)
             pid_file.unlink(missing_ok=True)
 
     def test_rejects_symlink_swapped_after_discovery(self) -> None:
