@@ -15,6 +15,7 @@ import signal
 import socket
 import stat
 import sys
+import threading
 import time
 from typing import Callable
 import webbrowser
@@ -241,17 +242,34 @@ def _find_existing_controller(registry_path: Path) -> ExistingController | None:
     return None
 
 
-def _terminal_link(url: str) -> str:
-    """Keep a copyable URL while marking it clickable on capable terminals."""
-    if not sys.stdout.isatty():
-        return url
-    return f"\033]8;;{url}\007{url}\033]8;;\007"
-
-
 def _print_ui_url(url: str, *, first_connection: bool = False) -> None:
     label = "首次連線：" if first_connection else "UI："
     print(label, flush=True)
-    print(_terminal_link(url), flush=True)
+    print(url, flush=True)
+
+
+def _terminal_reopen_loop(
+    public_url: str,
+    authority: LocalSessionAuthority,
+    browser_open: Callable[[str], bool],
+    should_stop: Callable[[], bool],
+) -> None:
+    while not should_stop():
+        try:
+            line = sys.stdin.readline()
+        except (OSError, UnicodeError):
+            return
+        if line == "" or should_stop():
+            return
+        token = authority.renew_bootstrap()
+        connect_url = f"{public_url}/#bootstrap={token}"
+        try:
+            opened = browser_open(connect_url)
+        except Exception:
+            opened = False
+        if not opened:
+            print("瀏覽器未自動開啟。", flush=True)
+            _print_ui_url(connect_url, first_connection=True)
 
 
 async def _serve(
@@ -316,7 +334,6 @@ async def _serve(
                     print(f"AI：{provider.name} 需要處理", flush=True)
                 _print_ui_url(public_url)
                 print("狀態：等待 UI 操作", flush=True)
-                print("按 Ctrl+C 關閉 Clipen", flush=True)
                 try:
                     opened = browser_open(connect_url)
                 except Exception:
@@ -324,6 +341,21 @@ async def _serve(
                 if not opened:
                     print("瀏覽器未自動開啟。", flush=True)
                     _print_ui_url(connect_url, first_connection=True)
+                if sys.stdin.isatty():
+                    print("按 Enter 重新開啟 UI · 按 Ctrl+C 關閉 Clipen", flush=True)
+                    threading.Thread(
+                        target=_terminal_reopen_loop,
+                        args=(
+                            public_url,
+                            authority,
+                            browser_open,
+                            lambda: server.should_exit,
+                        ),
+                        name="clipen-terminal-reopen",
+                        daemon=True,
+                    ).start()
+                else:
+                    print("按 Ctrl+C 關閉 Clipen", flush=True)
 
         announcement = asyncio.create_task(announce_when_started())
         previous_hup = None
