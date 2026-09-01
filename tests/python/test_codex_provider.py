@@ -482,6 +482,29 @@ class CodexProviderTests(unittest.TestCase):
                         self.root, fake, environment={"PATH": "/usr/bin"}
                     ).execute(self.attempt(attempt_id=f"attempt-failure-{index}"))
 
+    def test_failed_attempt_preserves_reported_usage(self) -> None:
+        fake = self.fake_codex(
+            """
+            import json
+            print(json.dumps({
+                "type": "turn.failed",
+                "usage": {
+                    "input_tokens": 40,
+                    "cached_input_tokens": 10,
+                    "output_tokens": 2,
+                },
+            }))
+            raise SystemExit(1)
+            """
+        )
+        with self.assertRaises(ProviderProtocolError):
+            CodexExecAdapter(
+                self.root, fake, environment={"PATH": "/usr/bin"}
+            ).execute(self.attempt())
+        receipt = AttemptReceiptStore(self.workspace, "attempt-1").read()
+        self.assertEqual(receipt.state, ProviderAttemptState.FAILED)
+        self.assertEqual(receipt.usage, ProviderUsage(40, 10, 2))
+
 
 if __name__ == "__main__":
     unittest.main()

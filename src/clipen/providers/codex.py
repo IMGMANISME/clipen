@@ -543,6 +543,7 @@ class CodexExecAdapter:
                 diagnostics_sha256=self._optional_artifact_hash(
                     diagnostics_path, _MAX_CAPTURE_BYTES
                 ),
+                usage=self._optional_usage(events_path),
                 error_code=error_code,
             )
             try:
@@ -803,7 +804,9 @@ class CodexExecAdapter:
             if isinstance(event_type, str) and event_type:
                 event_types.append(event_type)
             candidate_usage = event.get("usage")
-            if event_type == "turn.completed" and isinstance(candidate_usage, dict):
+            if event_type in {"turn.completed", "turn.failed"} and isinstance(
+                candidate_usage, dict
+            ):
                 try:
                     usage = ProviderUsage(
                         input_tokens=candidate_usage["input_tokens"],
@@ -817,6 +820,16 @@ class CodexExecAdapter:
                         "Codex usage data was malformed"
                     ) from error
         return tuple(event_types), usage
+
+    @classmethod
+    def _optional_usage(cls, path: Path) -> ProviderUsage | None:
+        try:
+            _, usage = cls._events_and_usage(
+                cls._read_artifact(path, _MAX_CAPTURE_BYTES)
+            )
+            return usage
+        except (OSError, ProviderProtocolError):
+            return None
 
     @staticmethod
     def _read_artifact(path: Path, limit: int) -> bytes:
