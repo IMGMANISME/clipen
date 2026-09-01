@@ -5,7 +5,7 @@ metadata:
   origin: "system"
   role: "editing"
   editable: "false"
-  status: "draft"
+  status: "release"
 ---
 
 # 口播教學

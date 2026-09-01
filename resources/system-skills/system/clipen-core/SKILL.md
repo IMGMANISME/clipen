@@ -5,7 +5,7 @@ metadata:
   origin: "system"
   role: "core"
   editable: "false"
-  status: "draft"
+  status: "release"
 ---
 
 # Clipen 核心流程
