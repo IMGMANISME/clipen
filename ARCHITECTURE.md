@@ -39,13 +39,15 @@ Terminal 只顯示產品狀態：
 ```text
 Clipen 已啟動
 AI：Codex 可用
-UI：http://localhost:4200
+UI：
+http://localhost:4200
 狀態：等待 UI 操作
-按 Ctrl+C 關閉 Clipen
+按 Enter 重新開啟 UI · 按 Ctrl+C 關閉 Clipen
 ```
 
-只關閉瀏覽器分頁不停止 Controller；相同瀏覽器可重新開啟固定網址。關閉執行
-Clipen 的 terminal 會停止本機服務與 worker，保留可核對、可續作的持久狀態。
+只關閉瀏覽器分頁不停止 Controller；使用者可回到 Terminal 按 Enter 取得新的短期
+連線憑證並重新開頁。關閉執行 Clipen 的 terminal 會停止本機服務與 worker，保留
+可核對、可續作的持久狀態。
 
 ### 1.2 完整產品流程
 
@@ -337,7 +339,8 @@ clipen reset --project <project-id>
 
 ## 11. 本機 UI 安全
 
-- 只綁定 loopback，產品入口固定為 `http://localhost:4200`；port 被占用時明確停止。
+- 只綁定 loopback，優先使用 `http://localhost:4200`；被占用時在有界範圍選擇下一個
+  可用 port，不終止或干預占用者。私人 instance registry 讓重複啟動只重開同一個 UI。
 - 首次開頁使用短期 bootstrap token，成功後改用 HttpOnly、SameSite session cookie。
 - Mutation 驗證 CSRF、Host、Origin 與 Fetch Metadata。
 - 使用嚴格 CSP、`no-store`、frame denial 與 MIME 防護。
