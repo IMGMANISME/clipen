@@ -9,6 +9,7 @@ from http.cookies import SimpleCookie
 import json
 from pathlib import Path
 import secrets
+import threading
 import time
 from typing import Callable
 
@@ -29,6 +30,7 @@ from clipen.system_skills import SystemSkillSummary
 _SESSION_COOKIE = "clipen_session"
 _BOOTSTRAP_HEADER = "x-clipen-bootstrap"
 _CSRF_HEADER = "x-clipen-csrf"
+_INSTANCE_HEADER = "x-clipen-instance"
 _SESSION_LIFETIME_SECONDS = 12 * 60 * 60
 _BOOTSTRAP_LIFETIME_SECONDS = 5 * 60
 _MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
@@ -62,6 +64,7 @@ class ControllerConfig:
     system_skills: tuple[SystemSkillSummary, ...] = ()
     origin: str = "http://localhost:4200"
     allowed_hosts: tuple[str, ...] = ("localhost:4200", "127.0.0.1:4200")
+    instance_secret: str | None = None
 
     def __post_init__(self) -> None:
         root = self.static_root.resolve(strict=True)
@@ -71,6 +74,8 @@ class ControllerConfig:
             raise ValueError("Clipen origin must use localhost over HTTP")
         if not self.allowed_hosts:
             raise ValueError("at least one local Host value is required")
+        if self.instance_secret is not None and len(self.instance_secret) < 32:
+            raise ValueError("controller instance secret is too short")
         identifiers = [summary.skill_id for summary in self.system_skills]
         if len(identifiers) != len(set(identifiers)):
             raise ValueError("system Skill catalog contains duplicate identifiers")
@@ -98,31 +103,41 @@ class LocalSessionAuthority:
         self._bootstrap_expires_at = now() + _BOOTSTRAP_LIFETIME_SECONDS
         self._credentials: SessionCredentials | None = None
         self._session_digest: bytes | None = None
+        self._lock = threading.Lock()
 
     @property
     def bootstrap_token(self) -> str:
         return self._bootstrap_token
 
     def bootstrap(self, candidate: str) -> SessionCredentials | None:
-        if self._now() > self._bootstrap_expires_at:
-            return None
-        if not secrets.compare_digest(candidate, self._bootstrap_token):
-            return None
-        if self._credentials is None:
-            credentials = SessionCredentials(
-                session_token=secrets.token_urlsafe(32),
-                csrf_token=secrets.token_urlsafe(32),
-            )
-            self._credentials = credentials
-            self._session_digest = self._digest(credentials.session_token)
-        return self._credentials
+        with self._lock:
+            if self._now() > self._bootstrap_expires_at:
+                return None
+            if not secrets.compare_digest(candidate, self._bootstrap_token):
+                return None
+            if self._credentials is None:
+                credentials = SessionCredentials(
+                    session_token=secrets.token_urlsafe(32),
+                    csrf_token=secrets.token_urlsafe(32),
+                )
+                self._credentials = credentials
+                self._session_digest = self._digest(credentials.session_token)
+            return self._credentials
+
+    def renew_bootstrap(self) -> str:
+        """Issue a fresh one-process browser handoff token."""
+        with self._lock:
+            self._bootstrap_token = secrets.token_urlsafe(32)
+            self._bootstrap_expires_at = self._now() + _BOOTSTRAP_LIFETIME_SECONDS
+            return self._bootstrap_token
 
     def authenticate(self, candidate: str | None) -> SessionCredentials | None:
-        if not candidate or self._credentials is None or self._session_digest is None:
+        with self._lock:
+            if not candidate or self._credentials is None or self._session_digest is None:
+                return None
+            if secrets.compare_digest(self._digest(candidate), self._session_digest):
+                return self._credentials
             return None
-        if secrets.compare_digest(self._digest(candidate), self._session_digest):
-            return self._credentials
-        return None
 
     @staticmethod
     def _digest(value: str) -> bytes:
@@ -176,6 +191,7 @@ class LocalRequestGuard:
         if path.startswith("/api/") and path not in {
             "/api/health",
             "/api/session/bootstrap",
+            "/api/instance/reopen",
         }:
             credentials = self.authority.authenticate(
                 _cookie_value(headers, _SESSION_COOKIE)
@@ -183,7 +199,7 @@ class LocalRequestGuard:
             if credentials is None:
                 await self._reject(scope, receive, send, 401, "session_required")
                 return
-        if method in _MUTATING_METHODS:
+        if method in _MUTATING_METHODS and path != "/api/instance/reopen":
             if supplied_origin != self.origin or headers.get("sec-fetch-site") != "same-origin":
                 await self._reject(scope, receive, send, 403, "cross_site_request")
                 return
@@ -300,6 +316,20 @@ def create_app(
                 "session": {"csrf_token": credentials.csrf_token},
             }
         )
+
+    async def reopen_instance(request: Request) -> Response:
+        supplied = request.headers.get(_INSTANCE_HEADER)
+        expected = config.instance_secret
+        if (
+            expected is None
+            or supplied is None
+            or not secrets.compare_digest(supplied, expected)
+        ):
+            return JSONResponse(
+                {"error": {"code": "instance_invalid", "message": "找不到 Clipen instance。"}},
+                status_code=404,
+            )
+        return JSONResponse({"bootstrap_token": authority.renew_bootstrap()})
 
     async def read_json(request: Request) -> dict[str, object]:
         content_type = request.headers.get("content-type", "").split(";", 1)[0].strip()
@@ -547,6 +577,7 @@ def create_app(
         routes=[
             Route("/api/health", health, methods=["GET"]),
             Route("/api/session/bootstrap", bootstrap, methods=["POST"]),
+            Route("/api/instance/reopen", reopen_instance, methods=["POST"]),
             Route("/api/status", status, methods=["GET"]),
             Route("/api/system-skills", system_skills, methods=["GET"]),
             Route("/api/projects", list_projects, methods=["GET"]),

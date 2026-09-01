@@ -1,12 +1,20 @@
-"""Uvicorn lifecycle for the fixed local Clipen workspace URL."""
+"""Single-instance Uvicorn lifecycle for the local Clipen workspace."""
 
 from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+import errno
+import fcntl
+import http.client
+import json
+import os
 from pathlib import Path
+import secrets
 import signal
 import socket
+import stat
+import time
 from typing import Callable
 import webbrowser
 
@@ -27,12 +35,73 @@ from .app import (
 
 
 HOST = "127.0.0.1"
-PORT = 4200
-PUBLIC_URL = "http://localhost:4200"
+PRIMARY_PORT = 4200
+LAST_FALLBACK_PORT = 4299
+_INSTANCE_SCHEMA = 1
 
 
 class PortUnavailable(RuntimeError):
-    """The fixed Clipen port is already occupied."""
+    """Every port reserved for the local Clipen UI is unavailable."""
+
+
+@dataclass(frozen=True)
+class ExistingController:
+    public_url: str
+    connect_url: str
+
+
+class _InstanceLease:
+    def __init__(self, lock_file, registry_path: Path, secret: str) -> None:
+        self._lock_file = lock_file
+        self.registry_path = registry_path
+        self.secret = secret
+
+    @classmethod
+    def acquire(cls, root: Path) -> "_InstanceLease | None":
+        lock_path = root / ".controller.lock"
+        flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(lock_path, flags, 0o600)
+        os.fchmod(descriptor, 0o600)
+        lock_file = os.fdopen(descriptor, "r+b")
+        try:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            lock_file.close()
+            return None
+        return cls(lock_file, root / ".controller.json", secrets.token_urlsafe(32))
+
+    def publish(self, port: int) -> None:
+        payload = json.dumps(
+            {"schema": _INSTANCE_SCHEMA, "port": port, "secret": self.secret},
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        temporary = self.registry_path.with_name(
+            f".{self.registry_path.name}.tmp-{os.getpid()}-{secrets.token_hex(4)}"
+        )
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(temporary, flags, 0o600)
+        try:
+            with os.fdopen(descriptor, "wb", closefd=False) as output:
+                output.write(payload)
+                output.flush()
+                os.fsync(output.fileno())
+            os.close(descriptor)
+            descriptor = -1
+            os.replace(temporary, self.registry_path)
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+            temporary.unlink(missing_ok=True)
+
+    def close(self) -> None:
+        try:
+            record = _read_instance_record(self.registry_path)
+            if record is not None and record[1] == self.secret:
+                self.registry_path.unlink(missing_ok=True)
+        finally:
+            fcntl.flock(self._lock_file.fileno(), fcntl.LOCK_UN)
+            self._lock_file.close()
 
 
 @dataclass(frozen=True)
@@ -44,9 +113,15 @@ class ServerPaths:
     def prepare(self) -> None:
         if not self.static_root.resolve(strict=True).is_dir():
             raise ValueError("Clipen UI production bundle is missing")
-        self.attempt_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        data_root = self.attempt_root.parent
+        data_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if data_root.is_symlink():
+            raise ValueError("Clipen data root cannot be a symbolic link")
+        data_root.chmod(0o700)
+        self.attempt_root.mkdir(mode=0o700, exist_ok=True)
         if self.attempt_root.is_symlink():
             raise ValueError("provider attempt root cannot be a symbolic link")
+        self.attempt_root.chmod(0o700)
         if self.projects_root is not None and self.projects_root.is_symlink():
             raise ValueError("projects root cannot be a symbolic link")
 
@@ -71,16 +146,98 @@ def probe_codex(attempt_root: Path) -> ProviderStatus:
     return ProviderStatus("Codex", ProviderState.READY, "AI 已連接，可以開始使用")
 
 
-def _bind_socket() -> socket.socket:
-    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+def _bind_socket(
+    first_port: int = PRIMARY_PORT,
+    last_port: int = LAST_FALLBACK_PORT,
+) -> tuple[socket.socket, int]:
+    for port in range(first_port, last_port + 1):
+        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            listener.bind((HOST, port))
+            listener.listen(2048)
+            return listener, port
+        except OSError as error:
+            listener.close()
+            if error.errno != errno.EADDRINUSE:
+                raise PortUnavailable(f"localhost:{port} 無法使用") from error
+    raise PortUnavailable(
+        f"localhost:{first_port}–{last_port} 都已被其他程式使用"
+    )
+
+
+def _read_instance_record(path: Path) -> tuple[int, str] | None:
+    descriptor = -1
     try:
-        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        listener.bind((HOST, PORT))
-        listener.listen(2048)
-    except OSError as error:
-        listener.close()
-        raise PortUnavailable(f"localhost:{PORT} 已被其他程式使用") from error
-    return listener
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        info = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_size > 4096
+            or info.st_mode & 0o077
+        ):
+            return None
+        raw = os.read(descriptor, 4097)
+        if len(raw) > 4096:
+            return None
+        value = json.loads(raw.decode("utf-8"))
+        port = value.get("port") if isinstance(value, dict) else None
+        secret = value.get("secret") if isinstance(value, dict) else None
+        if (
+            value.get("schema") != _INSTANCE_SCHEMA
+            or isinstance(port, bool)
+            or not isinstance(port, int)
+            or not PRIMARY_PORT <= port <= LAST_FALLBACK_PORT
+            or not isinstance(secret, str)
+            or not 32 <= len(secret) <= 256
+        ):
+            return None
+        return port, secret
+    except (OSError, UnicodeError, json.JSONDecodeError, AttributeError):
+        return None
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
+def _request_reopen(port: int, secret: str) -> ExistingController | None:
+    connection = http.client.HTTPConnection(HOST, port, timeout=0.5)
+    try:
+        connection.request(
+            "POST",
+            "/api/instance/reopen",
+            body=b"",
+            headers={
+                "Host": f"localhost:{port}",
+                "X-Clipen-Instance": secret,
+                "Content-Length": "0",
+            },
+        )
+        response = connection.getresponse()
+        body = response.read(4097)
+        if response.status != 200 or len(body) > 4096:
+            return None
+        value = json.loads(body.decode("utf-8"))
+        token = value.get("bootstrap_token") if isinstance(value, dict) else None
+        if not isinstance(token, str) or not 32 <= len(token) <= 256:
+            return None
+        public_url = f"http://localhost:{port}"
+        return ExistingController(public_url, f"{public_url}/#bootstrap={token}")
+    except (OSError, http.client.HTTPException, UnicodeError, json.JSONDecodeError):
+        return None
+    finally:
+        connection.close()
+
+
+def _find_existing_controller(registry_path: Path) -> ExistingController | None:
+    for _ in range(20):
+        record = _read_instance_record(registry_path)
+        if record is not None:
+            existing = _request_reopen(*record)
+            if existing is not None:
+                return existing
+        time.sleep(0.05)
+    return None
 
 
 async def _serve(
@@ -90,8 +247,11 @@ async def _serve(
     system_skills: VerifiedSystemSkillRelease,
     *,
     browser_open: Callable[[str], bool],
+    lease: _InstanceLease,
 ) -> None:
-    listener = _bind_socket()
+    listener, port = _bind_socket()
+    public_url = f"http://localhost:{port}"
+    lease.publish(port)
     inventories = None
     try:
         workspace = (
@@ -106,7 +266,13 @@ async def _serve(
                 project.project_id for project in workspace.repository.list_projects()
             )
         app = create_app(
-            ControllerConfig(paths.static_root, system_skills.summaries),
+            ControllerConfig(
+                paths.static_root,
+                system_skills.summaries,
+                origin=public_url,
+                allowed_hosts=(f"localhost:{port}", f"127.0.0.1:{port}"),
+                instance_secret=lease.secret,
+            ),
             provider,
             authority,
             workspace,
@@ -115,7 +281,7 @@ async def _serve(
         config = uvicorn.Config(
             app,
             host=HOST,
-            port=PORT,
+            port=port,
             log_level="critical",
             access_log=False,
             server_header=False,
@@ -123,7 +289,7 @@ async def _serve(
             lifespan="off",
         )
         server = uvicorn.Server(config)
-        connect_url = f"{PUBLIC_URL}/#bootstrap={authority.bootstrap_token}"
+        connect_url = f"{public_url}/#bootstrap={authority.bootstrap_token}"
 
         async def announce_when_started() -> None:
             while not server.started and not server.should_exit:
@@ -134,7 +300,7 @@ async def _serve(
                     print(f"AI：{provider.name} 可用", flush=True)
                 else:
                     print(f"AI：{provider.name} 需要處理", flush=True)
-                print(f"UI：{PUBLIC_URL}", flush=True)
+                print(f"UI：{public_url}", flush=True)
                 print("狀態：等待 UI 操作", flush=True)
                 print("按 Ctrl+C 關閉 Clipen", flush=True)
                 try:
@@ -171,6 +337,21 @@ def run_server(
     browser_open: Callable[[str], bool] = webbrowser.open,
 ) -> int:
     paths.prepare()
+    lease = _InstanceLease.acquire(paths.attempt_root.parent)
+    if lease is None:
+        existing = _find_existing_controller(paths.attempt_root.parent / ".controller.json")
+        if existing is None:
+            print("Clipen 無法連接正在啟動的本機工作台。請稍後再試。")
+            return 1
+        print("Clipen 已在執行", flush=True)
+        print(f"UI：{existing.public_url}", flush=True)
+        try:
+            opened = browser_open(existing.connect_url)
+        except Exception:
+            opened = False
+        if not opened:
+            print(f"瀏覽器未自動開啟，首次連線：{existing.connect_url}", flush=True)
+        return 0
     try:
         asyncio.run(
             _serve(
@@ -179,6 +360,7 @@ def run_server(
                 authority,
                 system_skills,
                 browser_open=browser_open,
+                lease=lease,
             )
         )
     except PortUnavailable as error:
@@ -186,5 +368,7 @@ def run_server(
         return 1
     except KeyboardInterrupt:
         pass
+    finally:
+        lease.close()
     print("Clipen 已停止", flush=True)
     return 0

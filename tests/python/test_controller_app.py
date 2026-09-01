@@ -197,6 +197,38 @@ class ControllerAppTests(unittest.TestCase):
         clock[0] += 301
         self.assertIsNone(authority.bootstrap("x" * 32))
 
+        renewed = authority.renew_bootstrap()
+        self.assertNotEqual(renewed, "x" * 32)
+        self.assertIsNotNone(authority.bootstrap(renewed))
+
+    def test_private_instance_reopen_issues_a_fresh_browser_handoff(self) -> None:
+        self.app = create_app(
+            ControllerConfig(self.static_root, instance_secret="i" * 32),
+            self.provider,
+            self.authority,
+        )
+        rejected = self.request("POST", "/api/instance/reopen")
+        self.assertEqual(rejected.status, 404)
+
+        reopened = self.request(
+            "POST",
+            "/api/instance/reopen",
+            {"x-clipen-instance": "i" * 32},
+        )
+        self.assertEqual(reopened.status, 200)
+        token = reopened.json()["bootstrap_token"]
+        self.assertGreaterEqual(len(token), 32)
+        accepted = self.request(
+            "POST",
+            "/api/session/bootstrap",
+            {
+                "origin": "http://localhost:4200",
+                "sec-fetch-site": "same-origin",
+                "x-clipen-bootstrap": token,
+            },
+        )
+        self.assertEqual(accepted.status, 200)
+
     def test_static_and_api_responses_have_security_cache_headers(self) -> None:
         index = self.request("GET", "/")
         self.assertEqual(index.status, 200)
