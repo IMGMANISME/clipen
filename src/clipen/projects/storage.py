@@ -286,13 +286,8 @@ class ProjectRepository:
         expected_revision: int,
         reference: DirectoryReference,
     ) -> ProjectSnapshot:
-        return self._mutate(
-            project_id,
-            request_id,
-            "set_directory",
-            request_hash,
-            expected_revision,
-            lambda connection, now: connection.execute(
+        def mutation(connection: sqlite3.Connection, now: str) -> None:
+            connection.execute(
                 "INSERT INTO project_directories "
                 "(role, canonical_path, display_path, display_name, device, inode, saved_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?) "
@@ -308,7 +303,16 @@ class ProjectRepository:
                     reference.inode,
                     reference.saved_at,
                 ),
-            ),
+            )
+            connection.execute("DELETE FROM current_inventory")
+
+        return self._mutate(
+            project_id,
+            request_id,
+            "set_directory",
+            request_hash,
+            expected_revision,
+            mutation,
         )
 
     def remove_directory(
@@ -323,15 +327,20 @@ class ProjectRepository:
         command_hash = command_digest(
             {"expected_revision": revision, "role": role.value}
         )
+
+        def mutation(connection: sqlite3.Connection, _: str) -> None:
+            connection.execute(
+                "DELETE FROM project_directories WHERE role = ?", (role.value,)
+            )
+            connection.execute("DELETE FROM current_inventory")
+
         return self._mutate(
             project_id,
             normalized_request,
             "remove_directory",
             command_hash,
             revision,
-            lambda connection, _: connection.execute(
-                "DELETE FROM project_directories WHERE role = ?", (role.value,)
-            ),
+            mutation,
         )
 
     def _mutate(

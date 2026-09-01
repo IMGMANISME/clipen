@@ -425,10 +425,21 @@ class InventoryRepository:
                         "這次素材檢查目前不能完成。",
                         status_code=409,
                     )
-                project = connection.execute(
-                    "SELECT revision FROM project WHERE project_id = ?", (project_id,)
-                ).fetchone()
-                if project is None or project["revision"] != current.project_revision:
+                root_rows = connection.execute(
+                    "SELECT role, canonical_path, device, inode, saved_at "
+                    "FROM project_directories ORDER BY role"
+                ).fetchall()
+                current_roots = tuple(
+                    InventoryRoot(
+                        DirectoryRole(row["role"]),
+                        row["canonical_path"],
+                        row["device"],
+                        row["inode"],
+                        row["saved_at"],
+                    )
+                    for row in root_rows
+                )
+                if current_roots != current.roots:
                     raise ProjectError(
                         "inventory_input_changed",
                         "素材位置已更新，請重新檢查素材。",

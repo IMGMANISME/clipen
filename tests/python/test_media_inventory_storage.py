@@ -274,6 +274,41 @@ class MediaInventoryStorageTests(unittest.TestCase):
         self.assertEqual(failed.state, InventoryState.FAILED)
         self.assertEqual(self.inventories.current_run(self.project.project_id), published)
 
+    def test_detail_edits_keep_current_inventory_but_directory_edits_invalidate_it(self) -> None:
+        running = self.start("request-inventory-current-validity")
+        self.inventories.stage_item(
+            self.project.project_id, running.run_id, self.usable_video()
+        )
+        published = self.inventories.publish(self.project.project_id, running.run_id)
+        updated = self.projects.update_details(
+            self.project.project_id,
+            "request-inventory-detail-edit",
+            self.project.revision,
+            self.project.name,
+            "新的剪輯需求",
+        )
+        self.assertEqual(self.inventories.current_run(self.project.project_id), published)
+
+        reference = self.root / "reference"
+        reference.mkdir()
+        identity = reference.stat()
+        self.projects.set_directory(
+            self.project.project_id,
+            "request-inventory-reference-edit",
+            "e" * 64,
+            updated.revision,
+            DirectoryReference(
+                DirectoryRole.REFERENCE,
+                str(reference.resolve()),
+                str(reference),
+                "reference",
+                identity.st_dev,
+                identity.st_ino,
+                "2026-09-01T00:00:01+00:00",
+            ),
+        )
+        self.assertIsNone(self.inventories.current_run(self.project.project_id))
+
     def test_restart_marks_incomplete_runs_interrupted_without_replaying(self) -> None:
         running = self.start("request-inventory-restart")
         restarted = InventoryRepository(ProjectRepository(self.projects_root))
