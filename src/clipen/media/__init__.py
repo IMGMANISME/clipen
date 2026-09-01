@@ -4,6 +4,7 @@ from .models import (
     AssetCandidate,
     AssetKind,
     InventoryCounts,
+    InventoryRoot,
     InventoryRun,
     InventoryState,
     ItemStatus,
@@ -11,15 +12,24 @@ from .models import (
     ProbeStatus,
 )
 from .storage import InventoryRepository
+from .discovery import DiscoveredAsset, DiscoveryError, MediaDiscovery
+from .probe import FFprobeAdapter, MediaProbeError, MediaProbeResult
 
 __all__ = [
     "AssetCandidate",
     "AssetKind",
+    "DiscoveredAsset",
+    "DiscoveryError",
+    "FFprobeAdapter",
     "InventoryCounts",
     "InventoryRepository",
+    "InventoryRoot",
     "InventoryRun",
     "InventoryState",
     "ItemStatus",
     "MediaStream",
+    "MediaDiscovery",
+    "MediaProbeError",
+    "MediaProbeResult",
     "ProbeStatus",
 ]
