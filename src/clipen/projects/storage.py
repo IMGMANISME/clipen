@@ -26,8 +26,87 @@ from .models import (
 )
 
 
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
 _PROJECT_DIRECTORY = re.compile(r"prj_[0-9a-f]{32}\Z")
+
+_INVENTORY_SCHEMA = """
+CREATE TABLE inventory_runs (
+    run_id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES project(project_id),
+    request_id TEXT NOT NULL UNIQUE,
+    project_revision INTEGER NOT NULL CHECK (project_revision >= 1),
+    input_fingerprint TEXT NOT NULL,
+    roots_json TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (
+        state IN ('queued', 'running', 'cancelling', 'succeeded', 'failed',
+                  'cancelled', 'interrupted')
+    ),
+    phase TEXT NOT NULL,
+    discovered_count INTEGER NOT NULL DEFAULT 0 CHECK (discovered_count >= 0),
+    probed_count INTEGER NOT NULL DEFAULT 0 CHECK (probed_count >= 0),
+    usable_count INTEGER NOT NULL DEFAULT 0 CHECK (usable_count >= 0),
+    issue_count INTEGER NOT NULL DEFAULT 0 CHECK (issue_count >= 0),
+    ignored_count INTEGER NOT NULL DEFAULT 0 CHECK (ignored_count >= 0),
+    error_code TEXT,
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    completed_at TEXT
+);
+CREATE TABLE inventory_command_receipts (
+    request_id TEXT PRIMARY KEY,
+    command_type TEXT NOT NULL,
+    request_hash TEXT NOT NULL,
+    run_id TEXT NOT NULL REFERENCES inventory_runs(run_id),
+    created_at TEXT NOT NULL
+);
+CREATE TABLE assets (
+    asset_id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES project(project_id),
+    role TEXT NOT NULL CHECK (role IN ('source', 'reference')),
+    relative_path TEXT NOT NULL,
+    first_seen_at TEXT NOT NULL,
+    UNIQUE(project_id, role, relative_path)
+);
+CREATE TABLE asset_versions (
+    version_id TEXT PRIMARY KEY,
+    asset_id TEXT NOT NULL REFERENCES assets(asset_id),
+    size_bytes INTEGER NOT NULL CHECK (size_bytes >= 0),
+    mtime_ns INTEGER NOT NULL CHECK (mtime_ns >= 0),
+    fingerprint TEXT NOT NULL,
+    probe_status TEXT NOT NULL CHECK (
+        probe_status IN ('pending', 'ready', 'unsupported', 'unreadable',
+                         'timeout', 'changed', 'internal_error')
+    ),
+    probe_json TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE inventory_items (
+    run_id TEXT NOT NULL REFERENCES inventory_runs(run_id) ON DELETE CASCADE,
+    asset_id TEXT NOT NULL REFERENCES assets(asset_id),
+    version_id TEXT REFERENCES asset_versions(version_id),
+    display_name TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('video', 'audio', 'image', 'unknown')),
+    status TEXT NOT NULL CHECK (status IN ('usable', 'needs_attention', 'ignored')),
+    issue_code TEXT,
+    PRIMARY KEY(run_id, asset_id)
+);
+CREATE TABLE media_streams (
+    version_id TEXT NOT NULL REFERENCES asset_versions(version_id) ON DELETE CASCADE,
+    stream_index INTEGER NOT NULL CHECK (stream_index >= 0),
+    kind TEXT NOT NULL CHECK (kind IN ('video', 'audio')),
+    codec TEXT NOT NULL,
+    details_json TEXT NOT NULL,
+    PRIMARY KEY(version_id, stream_index)
+);
+CREATE TABLE current_inventory (
+    slot INTEGER PRIMARY KEY CHECK (slot = 1),
+    run_id TEXT NOT NULL REFERENCES inventory_runs(run_id)
+);
+CREATE INDEX inventory_runs_project_created
+    ON inventory_runs(project_id, created_at DESC);
+CREATE INDEX inventory_items_run_status
+    ON inventory_items(run_id, status, display_name);
+"""
 
 
 def utc_now() -> str:
@@ -128,7 +207,7 @@ class ProjectRepository:
 
     def get_project(self, project_id: str) -> ProjectSnapshot:
         validate_project_id(project_id)
-        with self._connect(project_id) as connection:
+        with self.connect(project_id) as connection:
             snapshot = self._read_snapshot(connection)
         if snapshot.project_id != project_id:
             raise ProjectError(
@@ -145,7 +224,7 @@ class ProjectRepository:
     ) -> ProjectSnapshot | None:
         validate_project_id(project_id)
         validate_request_id(request_id)
-        with self._connect(project_id) as connection:
+        with self.connect(project_id) as connection:
             row = connection.execute(
                 "SELECT command_type, request_hash, response_json FROM command_receipts "
                 "WHERE request_id = ?",
@@ -267,7 +346,7 @@ class ProjectRepository:
         validate_project_id(project_id)
         validate_request_id(request_id)
         validate_revision(expected_revision)
-        with self._connect(project_id) as connection:
+        with self.connect(project_id) as connection:
             try:
                 connection.execute("BEGIN IMMEDIATE")
                 receipt = connection.execute(
@@ -375,7 +454,10 @@ class ProjectRepository:
                     response_json TEXT NOT NULL,
                     created_at TEXT NOT NULL
                 );
-                PRAGMA user_version = 1;
+                """
+                + _INVENTORY_SCHEMA
+                + """
+                PRAGMA user_version = 2;
                 """
             )
             connection.execute(
@@ -408,7 +490,7 @@ class ProjectRepository:
         return snapshot
 
     @contextmanager
-    def _connect(self, project_id: str) -> Iterator[sqlite3.Connection]:
+    def connect(self, project_id: str) -> Iterator[sqlite3.Connection]:
         project_dir = self._project_dir(project_id)
         if project_dir.is_symlink() or not project_dir.is_dir():
             raise ProjectError("project_not_found", "找不到這個作品。", status_code=404)
@@ -422,6 +504,9 @@ class ProjectRepository:
             connection.row_factory = sqlite3.Row
             self._configure(connection)
             version = connection.execute("PRAGMA user_version").fetchone()[0]
+            if version == 1:
+                self._migrate_v1_to_v2(connection)
+                version = connection.execute("PRAGMA user_version").fetchone()[0]
             if version != _SCHEMA_VERSION:
                 connection.close()
                 raise ProjectError(
@@ -437,6 +522,18 @@ class ProjectRepository:
         finally:
             if "connection" in locals():
                 connection.close()
+
+    @staticmethod
+    def _migrate_v1_to_v2(connection: sqlite3.Connection) -> None:
+        try:
+            connection.executescript(
+                "BEGIN IMMEDIATE;\n"
+                + _INVENTORY_SCHEMA
+                + "\nPRAGMA user_version = 2;\nCOMMIT;"
+            )
+        except sqlite3.Error:
+            connection.rollback()
+            raise
 
     @staticmethod
     def _configure(connection: sqlite3.Connection) -> None:
