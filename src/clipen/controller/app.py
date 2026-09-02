@@ -450,10 +450,10 @@ def create_app(
 
     async def asr_setup_error_response(error: ASRSetupError) -> JSONResponse:
         messages = {
-            "asr_notice_required": "請先確認安裝內容、容量、來源與授權說明。",
-            "asr_platform_unsupported": "目前只支援 Apple 晶片的 macOS 本機語音辨識。",
             "asr_setup_busy": "本機語音辨識正在安裝或移除，請稍候。",
-            "asr_release_conflict": "現有安裝不完整，請先移除後再重新安裝。",
+            "asr_release_unsafe": "語音辨識安裝位置不安全，Clipen 沒有進行刪除。",
+            "asr_remove_failed": "無法移除本機語音辨識，毛片與分析成果沒有變動。",
+            "asr_pre_remove_failed": "無法先安全停止素材分析，語音辨識沒有被移除。",
         }
         return JSONResponse(
             {
@@ -462,7 +462,7 @@ def create_app(
                     "message": messages.get(error.code, "Clipen 無法安全完成語音辨識設定。"),
                 }
             },
-            status_code=409 if error.code != "asr_platform_unsupported" else 422,
+            status_code=409,
         )
 
     async def list_projects(_: Request) -> Response:
@@ -680,30 +680,6 @@ def create_app(
         except ProjectError as error:
             return await project_error_response(error)
 
-    async def install_asr(request: Request) -> Response:
-        try:
-            payload = await read_json(request)
-            require_fields(payload, {"accepted_notice"})
-            runtime = require_analysis_runtime()
-            await run_in_threadpool(runtime.start_install, payload["accepted_notice"])
-            return JSONResponse({"runtime": runtime.public_status()}, status_code=202)
-        except ProjectError as error:
-            return await project_error_response(error)
-        except ASRSetupError as error:
-            return await asr_setup_error_response(error)
-
-    async def cancel_asr_install(request: Request) -> Response:
-        try:
-            payload = await read_json(request)
-            require_fields(payload, set())
-            runtime = require_analysis_runtime()
-            await run_in_threadpool(runtime.cancel_install)
-            return JSONResponse({"runtime": runtime.public_status()})
-        except ProjectError as error:
-            return await project_error_response(error)
-        except ASRSetupError as error:
-            return await asr_setup_error_response(error)
-
     async def remove_asr(request: Request) -> Response:
         try:
             payload = await read_json(request)
@@ -827,16 +803,6 @@ def create_app(
             Route("/api/session/bootstrap", bootstrap, methods=["POST"]),
             Route("/api/instance/reopen", reopen_instance, methods=["POST"]),
             Route("/api/status", status, methods=["GET"]),
-            Route(
-                "/api/system/commands/install-asr",
-                install_asr,
-                methods=["POST"],
-            ),
-            Route(
-                "/api/system/commands/cancel-asr-install",
-                cancel_asr_install,
-                methods=["POST"],
-            ),
             Route(
                 "/api/system/commands/remove-asr",
                 remove_asr,

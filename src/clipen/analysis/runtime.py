@@ -28,12 +28,6 @@ class ManagedAnalysisRuntime:
     def public_status(self) -> dict[str, object]:
         return self._setup.public_status()
 
-    def start_install(self, accepted_notice: object) -> ASRSetupStatus:
-        return self._setup.start_install(accepted_notice)
-
-    def cancel_install(self) -> ASRSetupStatus:
-        return self._setup.cancel_install()
-
     def coordinator(self) -> PreparationCoordinator | None:
         with self._lock:
             if self._coordinator is not None:
