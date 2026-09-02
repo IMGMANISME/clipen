@@ -11,13 +11,16 @@ import {
   getInventoryItems,
   getProject,
   getStatus,
+  installASR,
   listProjects,
   removeDirectory,
+  removeASR,
   resumeAnalysis,
   saveDirectory,
   selectDirectory,
   startInventory,
   startAnalysis,
+  cancelASRInstall,
   updateProjectDetails,
 } from './api'
 import type {
@@ -87,6 +90,17 @@ const analysisErrorCopy: Record<string, string> = {
   asr_runtime_unavailable: '本機語音辨識執行環境目前無法使用。',
   asr_model_changed: '語音辨識模型內容已改變，為避免混用結果，這次分析已停止。',
   scope_changed: '素材檢查結果已改變，請重新確認分析範圍。',
+}
+
+const asrSetupErrorCopy: Record<string, string> = {
+  asr_runtime_create_failed: '無法建立隔離的執行環境，請確認磁碟空間後再試一次。',
+  asr_runtime_install_failed: '語音辨識元件下載或安裝失敗，請確認網路後再試一次。',
+  asr_runtime_install_timeout: '安裝時間超過安全上限，已停止這次設定。',
+  asr_download_failed: '模型下載失敗，請確認網路後再試一次。',
+  asr_download_verification_failed: '下載的模型未通過完整性驗證，Clipen 沒有啟用它。',
+  asr_model_invalid: '模型檔案不完整，Clipen 沒有啟用它。',
+  asr_receipt_invalid: '安裝紀錄不完整，請清除後重新安裝。',
+  asr_setup_cleanup_failed: '未完成的暫存內容無法清除，請重新啟動 Clipen 再試一次。',
 }
 
 function formatBytes(value: number | null): string {
@@ -462,6 +476,9 @@ function AnalysisSection({
   onStart,
   onCancel,
   onResume,
+  onInstallRuntime,
+  onCancelRuntimeInstall,
+  onRemoveRuntime,
 }: {
   summary: AnalysisSummary | null
   loading: boolean
@@ -469,7 +486,11 @@ function AnalysisSection({
   onStart: () => void
   onCancel: (run: AnalysisRun) => void
   onResume: (run: AnalysisRun) => void
+  onInstallRuntime: (noticeVersion: string) => void
+  onCancelRuntimeInstall: () => void
+  onRemoveRuntime: () => void
 }) {
+  const [setupAccepted, setSetupAccepted] = useState(false)
   const latest = summary?.latest ?? null
   const current = summary?.current ?? null
   const scope = summary?.scope ?? null
@@ -485,6 +506,10 @@ function AnalysisSection({
         + latest.counts.no_speech
         + latest.counts.issues) / latest.counts.total) * 100,
     )
+    : 0
+  const runtime = summary?.runtime
+  const setupProgress = runtime && runtime.total_units > 0
+    ? Math.round((runtime.completed_units / runtime.total_units) * 100)
     : 0
 
   return (
@@ -509,13 +534,68 @@ function AnalysisSection({
         </div>
       )}
 
-      {summary?.runtime.state === 'setup_required' && (
-        <div className="analysis-card setup-required">
+      {runtime?.state === 'setup_required' && runtime.notice && (
+        <div className="analysis-card setup-required runtime-setup">
           <span className="outcome-symbol" aria-hidden="true">↓</span>
-          <div>
+          <div className="runtime-setup-content">
             <strong>需要先準備本機語音辨識</strong>
-            <p>{summary.runtime.message}。Clipen 會在提供安裝動作前列出授權、位置與刪除方式，不會暗中下載。</p>
+            <p>只需設定一次。模型與執行環境只放在這台 Mac，不會收進作品或 Repo。</p>
+            <dl className="runtime-facts">
+              <div><dt>下載</dt><dd>約 {formatBytes(runtime.notice.download_bytes)}</dd></div>
+              <div><dt>安裝後</dt><dd>約 {formatBytes(runtime.notice.installed_bytes)}</dd></div>
+              <div><dt>模型</dt><dd>{runtime.notice.model.name} · 固定版本 {runtime.notice.model.revision.slice(0, 8)}</dd></div>
+              <div><dt>位置</dt><dd title={runtime.notice.install_location}>{runtime.notice.install_location}</dd></div>
+            </dl>
+            <p className="runtime-license">
+              原始 Whisper 軟體採用 <a href={runtime.notice.license.whisper_license_url} target="_blank" rel="noreferrer">{runtime.notice.license.whisper_software} 授權</a>。{runtime.notice.license.conversion_notice}
+            </p>
+            <label className="runtime-consent">
+              <input
+                type="checkbox"
+                checked={setupAccepted}
+                onChange={(event) => setSetupAccepted(event.target.checked)}
+              />
+              <span>我了解下載容量、安裝位置與授權說明</span>
+            </label>
+            <button
+              className="button primary"
+              disabled={!setupAccepted || actionBusy}
+              onClick={() => onInstallRuntime(runtime.notice!.version)}
+            >
+              {actionBusy ? '正在開始…' : '安裝本機語音辨識'}
+            </button>
           </div>
+        </div>
+      )}
+
+      {runtime?.state === 'installing' && (
+        <div className="analysis-progress runtime-progress" role="status" aria-live="polite">
+          <div className="progress-main">
+            <span className="small-spinner" aria-hidden="true" />
+            <div>
+              <strong>{runtime.message}</strong>
+              <p>步驟 {runtime.completed_units + 1} / {runtime.total_units} · 約 {setupProgress}%</p>
+              <span className="runtime-progress-track"><i style={{ width: `${setupProgress}%` }} /></span>
+            </div>
+          </div>
+          <button className="button secondary" onClick={onCancelRuntimeInstall} disabled={actionBusy}>
+            {actionBusy ? '取消中…' : '取消安裝'}
+          </button>
+        </div>
+      )}
+
+      {runtime?.state === 'removing' && (
+        <div className="analysis-card" role="status">
+          <span className="small-spinner" aria-hidden="true" />
+          <div><strong>{runtime.message}</strong><p>只會移除 Clipen 管理的模型與執行環境。</p></div>
+        </div>
+      )}
+
+      {runtime?.state === 'failed' && (
+        <div className="analysis-outcome has-error runtime-failed" role="alert">
+          <span className="outcome-symbol" aria-hidden="true">!</span>
+          <div><strong>本機語音辨識設定沒有完成</strong><p>{runtime.error_code ? asrSetupErrorCopy[runtime.error_code] ?? runtime.message : runtime.message}</p></div>
+          <button className="button secondary" onClick={onRemoveRuntime} disabled={actionBusy}>清除未完成安裝</button>
         </div>
       )}
 
@@ -579,6 +659,16 @@ function AnalysisSection({
           </div>
           <span className="result-ready">分析完成</span>
         </div>
+      )}
+
+      {runtime?.state === 'ready' && !active && (
+        <details className="runtime-settings">
+          <summary>本機語音辨識設定</summary>
+          <div>
+            <p>{runtime.message}。移除只會刪除 Clipen 管理的模型與執行環境，不會碰素材或逐字稿。</p>
+            <button className="text-button danger" onClick={onRemoveRuntime} disabled={actionBusy}>移除本機語音辨識</button>
+          </div>
+        </details>
       )}
     </section>
   )
@@ -686,6 +776,22 @@ function MaterialsWorkspace({
       window.clearInterval(fallback)
     }
   }, [analysis?.latest?.run_id, latestAnalysisState, project.project_id])
+
+  const runtimeState = analysis?.runtime.state
+  useEffect(() => {
+    if (!runtimeState || !['installing', 'removing'].includes(runtimeState)) return
+    let mounted = true
+    let refreshing = false
+    const timer = window.setInterval(() => {
+      if (refreshing) return
+      refreshing = true
+      getAnalysis(project.project_id)
+        .then((result) => { if (mounted) setAnalysis(result) })
+        .catch(() => { /* A later poll can recover a transient local error. */ })
+        .finally(() => { refreshing = false })
+    }, 700)
+    return () => { mounted = false; window.clearInterval(timer) }
+  }, [project.project_id, runtimeState])
 
   async function recoverConflict(caught: unknown) {
     if (caught instanceof ApiError && caught.code === 'revision_conflict') {
@@ -803,6 +909,64 @@ function MaterialsWorkspace({
       const updated = await resumeAnalysis(csrf, project.project_id, run.run_id)
       setAnalysis((previous) => previous && { ...previous, latest: updated })
       setNotice('已從上次保存的 checkpoint 接續分析')
+    } catch (caught) {
+      setError(errorMessage(caught))
+    } finally {
+      setAnalysisActionBusy(false)
+    }
+  }
+
+  async function setupLocalASR(noticeVersion: string) {
+    if (analysisActionBusy) return
+    setAnalysisActionBusy(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const runtime = await installASR(csrf, noticeVersion)
+      setAnalysis((previous) => previous && { ...previous, runtime })
+      setNotice('語音辨識已開始安裝，可以在分析區查看進度')
+    } catch (caught) {
+      setError(errorMessage(caught))
+    } finally {
+      setAnalysisActionBusy(false)
+    }
+  }
+
+  async function stopLocalASRSetup() {
+    if (analysisActionBusy) return
+    setAnalysisActionBusy(true)
+    setError(null)
+    try {
+      const runtime = await cancelASRInstall(csrf)
+      setAnalysis((previous) => previous && { ...previous, runtime })
+    } catch (caught) {
+      setError(errorMessage(caught))
+    } finally {
+      setAnalysisActionBusy(false)
+    }
+  }
+
+  async function removeLocalASR() {
+    if (analysisActionBusy) return
+    const confirmed = window.confirm(
+      '移除 Clipen 管理的本機語音辨識？毛片與已產生的逐字稿不會被刪除。',
+    )
+    if (!confirmed) return
+    setAnalysisActionBusy(true)
+    setError(null)
+    setAnalysis((previous) => previous && {
+      ...previous,
+      runtime: {
+        ...previous.runtime,
+        state: 'removing',
+        phase: 'removing',
+        message: '正在停止分析並移除本機語音辨識…',
+      },
+    })
+    try {
+      const runtime = await removeASR(csrf)
+      setAnalysis((previous) => previous && { ...previous, runtime })
+      setNotice('本機語音辨識已移除，毛片與分析成果沒有變動')
     } catch (caught) {
       setError(errorMessage(caught))
     } finally {
@@ -963,6 +1127,9 @@ function MaterialsWorkspace({
               onStart={() => void analyzeMedia()}
               onCancel={(run) => void stopAnalysis(run)}
               onResume={(run) => void continueAnalysis(run)}
+              onInstallRuntime={(version) => void setupLocalASR(version)}
+              onCancelRuntimeInstall={() => void stopLocalASRSetup()}
+              onRemoveRuntime={() => void removeLocalASR()}
             />
           )}
         </section>
