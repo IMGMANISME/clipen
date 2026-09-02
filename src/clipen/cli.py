@@ -49,6 +49,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
                 static_root=repo_root / "apps" / "web" / "dist",
                 attempt_root=attempt_root,
                 projects_root=data_root / "projects",
+                asr_requirements=repo_root / "requirements" / "asr-runtime.txt",
             ),
             provider,
             LocalSessionAuthority(),

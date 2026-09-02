@@ -12,7 +12,7 @@ from clipen.controller import (
     ProviderStatus,
     create_app,
 )
-from clipen.analysis import PreparationRepository
+from clipen.analysis import ASRSetupError, PreparationRepository
 from clipen.media import (
     InventoryCoordinator,
     InventoryRepository,
@@ -67,6 +67,54 @@ class ApiPreparationCoordinator:
 
     def resume(self, project_id, run_id, request_id):
         return self.repository.resume_interrupted(project_id, run_id, request_id)[0]
+
+
+class ApiAnalysisRuntime:
+    def __init__(self, repository: PreparationRepository) -> None:
+        self.repository = repository
+        self.state = "setup_required"
+
+    def coordinator(self):
+        return None
+
+    def public_status(self):
+        return {
+            "state": self.state,
+            "phase": "not_installed" if self.state == "setup_required" else self.state,
+            "message": "test ASR setup",
+            "error_code": None,
+            "completed_units": 0,
+            "total_units": 3,
+            "notice": {
+                "version": "asr-mlx-whisper-small-v1",
+                "download_bytes": 1_200_000_000,
+                "installed_bytes": 1_700_000_000,
+                "install_location": "/managed/asr",
+                "model": {
+                    "name": "Whisper Small MLX",
+                    "source": "https://example.invalid/model",
+                    "revision": "fixed",
+                    "model_bytes": 481_307_858,
+                },
+                "license": {
+                    "whisper_software": "MIT",
+                    "whisper_license_url": "https://example.invalid/license",
+                    "conversion_notice": "converted model notice",
+                },
+                "removable": True,
+            },
+        }
+
+    def start_install(self, accepted_notice):
+        if accepted_notice != "asr-mlx-whisper-small-v1":
+            raise ASRSetupError("asr_notice_required")
+        self.state = "installing"
+
+    def cancel_install(self):
+        self.state = "setup_required"
+
+    def remove(self):
+        self.state = "setup_required"
 
 
 async def request_app(
@@ -550,6 +598,58 @@ class ProjectApiTests(unittest.TestCase):
             "GET",
             f"/api/projects/{self.create_project()['project_id']}/analysis",
             headers={"cookie": self.cookie},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(self.json_body(body)["runtime"]["state"], "setup_required")
+
+    def test_managed_asr_setup_commands_require_consent_and_csrf(self) -> None:
+        runtime = ApiAnalysisRuntime(self.preparation_repository)
+        self.app = create_app(
+            ControllerConfig(self.static),
+            ProviderStatus("Codex", ProviderState.READY, "AI 已連接"),
+            self.authority,
+            self.workspace,
+            self.inventories,
+            preparation_repository=self.preparation_repository,
+            analysis_runtime=runtime,
+        )
+        status, _, body = self._request(
+            "POST",
+            "/api/system/commands/install-asr",
+            {"accepted_notice": "asr-mlx-whisper-small-v1"},
+            headers={
+                "cookie": self.cookie,
+                "content-type": "application/json",
+                "origin": "http://localhost:4200",
+                "sec-fetch-site": "same-origin",
+            },
+        )
+        self.assertEqual(status, 403)
+        self.assertEqual(self.json_body(body)["error"]["code"], "csrf_failed")
+
+        status, _, body = self._request(
+            "POST",
+            "/api/system/commands/install-asr",
+            {"accepted_notice": "wrong"},
+            headers=self.mutation_headers(),
+        )
+        self.assertEqual(status, 409)
+        self.assertEqual(self.json_body(body)["error"]["code"], "asr_notice_required")
+
+        status, _, body = self._request(
+            "POST",
+            "/api/system/commands/install-asr",
+            {"accepted_notice": "asr-mlx-whisper-small-v1"},
+            headers=self.mutation_headers(),
+        )
+        self.assertEqual(status, 202)
+        self.assertEqual(self.json_body(body)["runtime"]["state"], "installing")
+
+        status, _, body = self._request(
+            "POST",
+            "/api/system/commands/cancel-asr-install",
+            {},
+            headers=self.mutation_headers(),
         )
         self.assertEqual(status, 200)
         self.assertEqual(self.json_body(body)["runtime"]["state"], "setup_required")

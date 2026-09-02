@@ -23,7 +23,12 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from clipen.analysis import PreparationCoordinator, PreparationRepository
+from clipen.analysis import (
+    ASRSetupError,
+    ManagedAnalysisRuntime,
+    PreparationCoordinator,
+    PreparationRepository,
+)
 from clipen.media import InventoryCoordinator
 from clipen.projects import DirectoryRole, ProjectError, ProjectWorkspace
 from clipen.system_skills import SystemSkillSummary
@@ -265,6 +270,7 @@ def create_app(
     inventories: InventoryCoordinator | None = None,
     preparations: PreparationCoordinator | None = None,
     preparation_repository: PreparationRepository | None = None,
+    analysis_runtime: ManagedAnalysisRuntime | None = None,
 ) -> ASGIApp:
     static_root = config.static_root.resolve(strict=True)
 
@@ -382,7 +388,11 @@ def create_app(
 
     def require_preparation_repository() -> PreparationRepository:
         repository = (
-            preparations.repository if preparations is not None else preparation_repository
+            analysis_runtime.repository
+            if analysis_runtime is not None
+            else preparations.repository
+            if preparations is not None
+            else preparation_repository
         )
         if repository is None:
             raise ProjectError(
@@ -393,13 +403,27 @@ def create_app(
         return repository
 
     def require_preparations() -> PreparationCoordinator:
-        if preparations is None:
+        coordinator = (
+            analysis_runtime.coordinator()
+            if analysis_runtime is not None
+            else preparations
+        )
+        if coordinator is None:
             raise ProjectError(
                 "asr_setup_required",
                 "本機語音辨識尚未安裝。",
                 status_code=409,
             )
-        return preparations
+        return coordinator
+
+    def require_analysis_runtime() -> ManagedAnalysisRuntime:
+        if analysis_runtime is None:
+            raise ProjectError(
+                "asr_setup_unavailable",
+                "這個 Clipen 工作台無法管理本機語音辨識。",
+                status_code=503,
+            )
+        return analysis_runtime
 
     def require_fields(
         payload: dict[str, object], required: set[str], optional: set[str] | None = None
@@ -422,6 +446,23 @@ def create_app(
         return JSONResponse(
             {"error": {"code": error.code, "message": error.message}},
             status_code=error.status_code,
+        )
+
+    async def asr_setup_error_response(error: ASRSetupError) -> JSONResponse:
+        messages = {
+            "asr_notice_required": "請先確認安裝內容、容量、來源與授權說明。",
+            "asr_platform_unsupported": "目前只支援 Apple 晶片的 macOS 本機語音辨識。",
+            "asr_setup_busy": "本機語音辨識正在安裝或移除，請稍候。",
+            "asr_release_conflict": "現有安裝不完整，請先移除後再重新安裝。",
+        }
+        return JSONResponse(
+            {
+                "error": {
+                    "code": error.code,
+                    "message": messages.get(error.code, "Clipen 無法安全完成語音辨識設定。"),
+                }
+            },
+            status_code=409 if error.code != "asr_platform_unsupported" else 422,
         )
 
     async def list_projects(_: Request) -> Response:
@@ -611,16 +652,25 @@ def create_app(
                 return latest, current, scope, blocked_reason
 
             latest, current, scope, blocked_reason = await run_in_threadpool(read_status)
+            runtime_status = (
+                analysis_runtime.public_status()
+                if analysis_runtime is not None
+                else {
+                    "state": "ready" if preparations is not None else "setup_required",
+                    "phase": "ready" if preparations is not None else "not_installed",
+                    "message": (
+                        "本機語音辨識可用"
+                        if preparations is not None
+                        else "需要約 1.6 GB 空間安裝隔離的本機語音辨識環境與模型"
+                    ),
+                    "error_code": None,
+                    "completed_units": 3 if preparations is not None else 0,
+                    "total_units": 3,
+                }
+            )
             return JSONResponse(
                 {
-                    "runtime": {
-                        "state": "ready" if preparations is not None else "setup_required",
-                        "message": (
-                            "本機語音辨識可用"
-                            if preparations is not None
-                            else "需要約 1.6 GB 空間安裝隔離的本機語音辨識環境與模型"
-                        ),
-                    },
+                    "runtime": runtime_status,
                     "scope": scope,
                     "blocked_reason": blocked_reason,
                     "latest": None if latest is None else latest.to_public(),
@@ -629,6 +679,42 @@ def create_app(
             )
         except ProjectError as error:
             return await project_error_response(error)
+
+    async def install_asr(request: Request) -> Response:
+        try:
+            payload = await read_json(request)
+            require_fields(payload, {"accepted_notice"})
+            runtime = require_analysis_runtime()
+            await run_in_threadpool(runtime.start_install, payload["accepted_notice"])
+            return JSONResponse({"runtime": runtime.public_status()}, status_code=202)
+        except ProjectError as error:
+            return await project_error_response(error)
+        except ASRSetupError as error:
+            return await asr_setup_error_response(error)
+
+    async def cancel_asr_install(request: Request) -> Response:
+        try:
+            payload = await read_json(request)
+            require_fields(payload, set())
+            runtime = require_analysis_runtime()
+            await run_in_threadpool(runtime.cancel_install)
+            return JSONResponse({"runtime": runtime.public_status()})
+        except ProjectError as error:
+            return await project_error_response(error)
+        except ASRSetupError as error:
+            return await asr_setup_error_response(error)
+
+    async def remove_asr(request: Request) -> Response:
+        try:
+            payload = await read_json(request)
+            require_fields(payload, set())
+            runtime = require_analysis_runtime()
+            await run_in_threadpool(runtime.remove)
+            return JSONResponse({"runtime": runtime.public_status()})
+        except ProjectError as error:
+            return await project_error_response(error)
+        except ASRSetupError as error:
+            return await asr_setup_error_response(error)
 
     async def start_analysis(request: Request) -> Response:
         try:
@@ -741,6 +827,21 @@ def create_app(
             Route("/api/session/bootstrap", bootstrap, methods=["POST"]),
             Route("/api/instance/reopen", reopen_instance, methods=["POST"]),
             Route("/api/status", status, methods=["GET"]),
+            Route(
+                "/api/system/commands/install-asr",
+                install_asr,
+                methods=["POST"],
+            ),
+            Route(
+                "/api/system/commands/cancel-asr-install",
+                cancel_asr_install,
+                methods=["POST"],
+            ),
+            Route(
+                "/api/system/commands/remove-asr",
+                remove_asr,
+                methods=["POST"],
+            ),
             Route("/api/system-skills", system_skills, methods=["GET"]),
             Route("/api/projects", list_projects, methods=["GET"]),
             Route("/api/projects/{project_id}", get_project, methods=["GET"]),

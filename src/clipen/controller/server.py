@@ -26,7 +26,12 @@ except ImportError:  # Windows does not provide POSIX advisory file locks.
 
 import uvicorn
 
-from clipen.analysis import PreparationRepository
+from clipen.analysis import (
+    ASRSetupManager,
+    ArtifactStore,
+    ManagedAnalysisRuntime,
+    PreparationRepository,
+)
 from clipen.media import InventoryCoordinator, InventoryRepository
 from clipen.providers import CodexExecAdapter, ProviderUnavailable
 from clipen.projects import ProjectWorkspace
@@ -126,6 +131,7 @@ class ServerPaths:
     static_root: Path
     attempt_root: Path
     projects_root: Path | None = None
+    asr_requirements: Path | None = None
 
     def prepare(self) -> None:
         if not self.static_root.resolve(strict=True).is_dir():
@@ -141,6 +147,10 @@ class ServerPaths:
         self.attempt_root.chmod(0o700)
         if self.projects_root is not None and self.projects_root.is_symlink():
             raise ValueError("projects root cannot be a symbolic link")
+        if self.asr_requirements is not None and not self.asr_requirements.resolve(
+            strict=True
+        ).is_file():
+            raise ValueError("ASR runtime requirements are missing")
 
 
 def probe_codex(attempt_root: Path) -> ProviderStatus:
@@ -301,6 +311,7 @@ async def _serve(
     lease.publish(port)
     inventories = None
     preparation_repository = None
+    analysis_runtime = None
     try:
         workspace = (
             ProjectWorkspace(paths.projects_root)
@@ -316,6 +327,15 @@ async def _serve(
             preparation_repository = PreparationRepository(workspace.repository)
             for project in workspace.repository.list_projects():
                 preparation_repository.interrupt_incomplete(project.project_id)
+            if paths.asr_requirements is not None:
+                analysis_runtime = ManagedAnalysisRuntime(
+                    preparation_repository,
+                    ArtifactStore(workspace.repository),
+                    ASRSetupManager(
+                        paths.attempt_root.parent,
+                        paths.asr_requirements,
+                    ),
+                )
         app = create_app(
             ControllerConfig(
                 paths.static_root,
@@ -329,6 +349,7 @@ async def _serve(
             workspace,
             inventories,
             preparation_repository=preparation_repository,
+            analysis_runtime=analysis_runtime,
         )
         config = uvicorn.Config(
             app,
@@ -390,6 +411,8 @@ async def _serve(
             if hasattr(signal, "SIGHUP") and previous_hup is not None:
                 signal.signal(signal.SIGHUP, previous_hup)
     finally:
+        if analysis_runtime is not None:
+            analysis_runtime.close()
         if inventories is not None:
             inventories.close()
         listener.close()
