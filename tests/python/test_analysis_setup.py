@@ -8,6 +8,8 @@ import unittest
 from unittest import mock
 
 from clipen.analysis import ASRSetupError, ASRSetupManager, ASRSetupState
+from clipen.analysis.setup import ASRSetupStatus
+from clipen.analysis import setup_cli
 
 
 def _sha256(value: bytes) -> str:
@@ -167,6 +169,21 @@ class ASRSetupManagerTests(unittest.TestCase):
         self.assertFalse(stale.exists())
         self.assertTrue(unrelated.exists())
 
+    def test_restart_rejects_symlinked_runtime_without_deleting_target(self) -> None:
+        manager = self.manager()
+        manager.start_install("asr-mlx-whisper-small-v1")
+        self._wait(manager, ASRSetupState.READY)
+        runtime = manager.release / "runtime"
+        outside = self.root / "outside-runtime"
+        runtime.rename(outside)
+        runtime.symlink_to(outside, target_is_directory=True)
+
+        restarted = self.manager()
+        self.assertEqual(restarted.status().state, ASRSetupState.FAILED)
+        self.assertEqual(restarted.status().error_code, "asr_runtime_invalid")
+        restarted.remove()
+        self.assertTrue(outside.is_dir())
+
     def test_runtime_environment_copies_python_and_installs_only_pinned_binaries(self) -> None:
         manager = self.manager()
         destination = self.root / "runtime"
@@ -190,6 +207,31 @@ class ASRSetupManagerTests(unittest.TestCase):
         self.assertIn("--only-binary=:all:", command)
         self.assertIn("--no-cache-dir", command)
         self.assertEqual(command[-2:], ("-r", str(self.requirements)))
+
+    def test_blocking_setup_entry_reports_phases_and_closes_manager(self) -> None:
+        manager = mock.Mock()
+        manager.status.side_effect = (
+            ASRSetupStatus(ASRSetupState.SETUP_REQUIRED, "not_installed", "尚未安裝"),
+            ASRSetupStatus(ASRSetupState.INSTALLING, "creating_runtime", "建立環境"),
+            ASRSetupStatus(ASRSetupState.READY, "ready", "安裝完成", completed_units=3),
+        )
+        output = mock.Mock()
+        with (
+            mock.patch("clipen.analysis.setup_cli.ASRSetupManager", return_value=manager),
+            mock.patch("clipen.analysis.setup_cli.time.sleep"),
+            mock.patch("sys.stdout", output),
+        ):
+            result = setup_cli.main(
+                [
+                    "--data-root",
+                    str(self.root / "data"),
+                    "--requirements",
+                    str(self.requirements),
+                ]
+            )
+        self.assertEqual(result, 0)
+        manager.start_install.assert_called_once_with("asr-mlx-whisper-small-v1")
+        manager.close.assert_called_once_with(timeout=10)
 
 
 if __name__ == "__main__":

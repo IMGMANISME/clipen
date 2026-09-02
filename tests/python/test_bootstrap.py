@@ -24,6 +24,9 @@ class BootstrapTests(unittest.TestCase):
         (self.repo / "requirements" / "runtime.txt").write_text(
             "starlette==1.6.0\n", encoding="utf-8"
         )
+        (self.repo / "requirements" / "asr-runtime.txt").write_text(
+            "mlx-whisper==0.4.3\n", encoding="utf-8"
+        )
         launcher = self.repo / "clipen"
         launcher.write_text("#!/bin/sh\n", encoding="utf-8")
         launcher.chmod(0o755)
@@ -76,6 +79,21 @@ class BootstrapTests(unittest.TestCase):
         self.assertEqual(result, 1)
         self.assertIn("尚不支援 Windows", errors.getvalue())
         install.assert_not_called()
+
+    def test_unsupported_hardware_fails_before_creating_installation(self) -> None:
+        with (
+            mock.patch("clipen.bootstrap.platform.machine", return_value="x86_64"),
+            self.assertRaisesRegex(bootstrap.BootstrapError, "Apple 晶片"),
+        ):
+            bootstrap.ensure_installation(
+                self.repo,
+                data_root=self.data,
+                home=self.home,
+                environment=self.environment,
+                stdin=TTYInput("y\n"),
+                stdout=io.StringIO(),
+            )
+        self.assertFalse(self.data.exists())
 
     def test_successful_runtime_is_reused_without_prompt_or_reinstall(self) -> None:
         installs = []
@@ -137,7 +155,14 @@ class BootstrapTests(unittest.TestCase):
             log_path.write_text("ok", encoding="utf-8")
 
         output = io.StringIO()
-        with mock.patch("clipen.bootstrap._install_runtime", side_effect=fake_install):
+        with (
+            mock.patch("clipen.bootstrap._install_runtime", side_effect=fake_install),
+            mock.patch(
+                "clipen.bootstrap.quick_release_is_ready",
+                side_effect=(False, True),
+            ),
+            mock.patch("clipen.bootstrap._install_asr_bundle") as install_asr,
+        ):
             runtime = bootstrap.ensure_installation(
                 self.repo,
                 data_root=self.data,
@@ -149,6 +174,7 @@ class BootstrapTests(unittest.TestCase):
 
         self.assertIsNotNone(runtime)
         self.assertEqual(len(installs), 1)
+        install_asr.assert_called_once()
         command = self.data / "bin" / "clipen"
         self.assertTrue(command.is_file())
         self.assertTrue(command.stat().st_mode & 0o100)
@@ -156,7 +182,130 @@ class BootstrapTests(unittest.TestCase):
         profile = (self.home / ".zshrc").read_text(encoding="utf-8")
         self.assertIn(str(self.data / "bin"), profile)
         self.assertEqual(output.getvalue().count("[Y/n]"), 1)
+        self.assertIn("1.2 GB", output.getvalue())
+        self.assertIn("1.7 GB", output.getvalue())
+        self.assertIn("MIT", output.getvalue())
         self.assertIn("下次開啟 Terminal", output.getvalue())
+
+    def test_asr_failure_keeps_runtime_but_does_not_publish_command(self) -> None:
+        def fake_install(
+            staging: Path, repo: Path, fingerprint: str, log_path: Path
+        ) -> None:
+            python = bootstrap.runtime_python(staging)
+            python.parent.mkdir(parents=True, exist_ok=True)
+            python.write_text("#!/bin/sh\n", encoding="utf-8")
+            python.chmod(0o700)
+            (staging / "clipen-runtime.json").write_text(
+                json.dumps(
+                    {
+                        "schema": 1,
+                        "fingerprint": fingerprint,
+                        "repo_root": str(repo.resolve()),
+                    }
+                ),
+                encoding="utf-8",
+            )
+            log_path.write_text("ok", encoding="utf-8")
+
+        with (
+            mock.patch("clipen.bootstrap._install_runtime", side_effect=fake_install),
+            mock.patch("clipen.bootstrap.quick_release_is_ready", return_value=False),
+            mock.patch(
+                "clipen.bootstrap._install_asr_bundle",
+                side_effect=bootstrap.BootstrapError("download failed"),
+            ),
+        ):
+            with self.assertRaisesRegex(bootstrap.BootstrapError, "download failed"):
+                bootstrap.ensure_installation(
+                    self.repo,
+                    data_root=self.data,
+                    home=self.home,
+                    environment=self.environment,
+                    stdin=TTYInput("y\n"),
+                    stdout=io.StringIO(),
+                )
+
+        fingerprint = bootstrap.runtime_fingerprint(self.repo)
+        self.assertTrue(
+            bootstrap.runtime_is_ready(
+                self.data / "runtimes" / fingerprint, fingerprint, self.repo
+            )
+        )
+        self.assertFalse((self.data / "bin" / "clipen").exists())
+
+    def test_retry_reuses_core_runtime_and_only_finishes_missing_asr(self) -> None:
+        fingerprint = bootstrap.runtime_fingerprint(self.repo)
+        runtime = self.data / "runtimes" / fingerprint
+        python = bootstrap.runtime_python(runtime)
+        python.parent.mkdir(parents=True)
+        python.write_text("#!/bin/sh\n", encoding="utf-8")
+        python.chmod(0o700)
+        (runtime / "clipen-runtime.json").write_text(
+            json.dumps(
+                {
+                    "schema": 1,
+                    "fingerprint": fingerprint,
+                    "repo_root": str(self.repo.resolve()),
+                }
+            ),
+            encoding="utf-8",
+        )
+        output = io.StringIO()
+        with (
+            mock.patch("clipen.bootstrap._install_runtime") as install_runtime,
+            mock.patch(
+                "clipen.bootstrap.quick_release_is_ready",
+                side_effect=(False, True),
+            ),
+            mock.patch("clipen.bootstrap._install_asr_bundle") as install_asr,
+        ):
+            observed = bootstrap.ensure_installation(
+                self.repo,
+                data_root=self.data,
+                home=self.home,
+                environment=self.environment,
+                stdin=TTYInput("y\n"),
+                stdout=output,
+            )
+
+        self.assertEqual(observed, runtime)
+        install_runtime.assert_not_called()
+        install_asr.assert_called_once()
+        self.assertIn("Clipen 需要完成設定", output.getvalue())
+        self.assertNotIn("Clipen runtime：", output.getvalue())
+        self.assertTrue((self.data / "bin" / "clipen").is_file())
+
+    def test_asr_subprocess_progress_is_bounded_streamed_and_logged(self) -> None:
+        runtime = self.root / "runtime"
+        python = bootstrap.runtime_python(runtime)
+        python.parent.mkdir(parents=True)
+        python.write_text("python", encoding="utf-8")
+        output = io.StringIO()
+        log = self.root / "asr.log"
+        process = mock.Mock()
+        process.stdout = iter(("正在建立…\n", "下載完成\n"))
+        process.wait.return_value = 0
+        with mock.patch("clipen.bootstrap.subprocess.Popen", return_value=process) as popen:
+            bootstrap._install_asr_bundle(runtime, self.repo, self.data, log, output)
+
+        command = popen.call_args.args[0]
+        self.assertIn("clipen.analysis.setup_cli", command)
+        self.assertEqual(output.getvalue(), "正在建立…\n下載完成\n")
+        self.assertEqual(log.read_text(encoding="utf-8"), output.getvalue())
+
+    def test_keyboard_interrupt_during_setup_returns_130_without_exec(self) -> None:
+        errors = io.StringIO()
+        with (
+            mock.patch(
+                "clipen.bootstrap.ensure_installation", side_effect=KeyboardInterrupt
+            ),
+            mock.patch("clipen.bootstrap.os.execve") as execute,
+            mock.patch("sys.stderr", errors),
+        ):
+            result = bootstrap.main(self.repo, ["codex"])
+        self.assertEqual(result, 130)
+        self.assertIn("設定已取消", errors.getvalue())
+        execute.assert_not_called()
 
     def test_command_setup_is_idempotent_and_preserves_shell_settings(self) -> None:
         profile = self.home / ".zshrc"
