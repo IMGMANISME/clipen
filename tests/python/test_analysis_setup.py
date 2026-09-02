@@ -208,9 +208,18 @@ class ASRSetupManagerTests(unittest.TestCase):
         self.assertIsInstance(cancel, threading.Event)
         self.assertTrue(callable(reporter))
         self.assertIn("--only-binary=:all:", command)
+        self.assertIn("--no-deps", command)
         self.assertIn("--progress-bar=raw", command)
         self.assertIn("--no-cache-dir", command)
         self.assertEqual(command[-2:], ("-r", str(self.requirements)))
+
+    def test_bundled_runtime_excludes_torch_conversion_stack(self) -> None:
+        requirements = Path(__file__).resolve().parents[2] / "requirements" / "asr-runtime.txt"
+        names = ASRSetupManager._requirement_names(requirements)
+        self.assertTrue({"mlx-whisper", "mlx", "mlx-metal"} <= names)
+        self.assertTrue(
+            names.isdisjoint({"torch", "sympy", "networkx", "jinja2", "markupsafe", "mpmath"})
+        )
 
     def test_dependency_reporter_tracks_real_package_and_download_progress(self) -> None:
         manager = self.manager(runtime_installer=None)
