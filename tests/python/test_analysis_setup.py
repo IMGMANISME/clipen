@@ -199,18 +199,79 @@ class ASRSetupManagerTests(unittest.TestCase):
         with (
             mock.patch("clipen.analysis.setup.venv.EnvBuilder", return_value=builder) as factory,
             mock.patch.object(manager, "_run") as run,
+            mock.patch.object(manager, "_supports_raw_progress", return_value=True),
         ):
             manager._install_runtime(destination, self.requirements, threading.Event())
 
         factory.assert_called_once_with(with_pip=True, clear=False, symlinks=False)
-        command, cancel = run.call_args.args
+        command, cancel, reporter = run.call_args.args
         self.assertIsInstance(cancel, threading.Event)
+        self.assertTrue(callable(reporter))
         self.assertIn("--only-binary=:all:", command)
+        self.assertIn("--progress-bar=raw", command)
         self.assertIn("--no-cache-dir", command)
         self.assertEqual(command[-2:], ("-r", str(self.requirements)))
 
+    def test_dependency_reporter_tracks_real_package_and_download_progress(self) -> None:
+        manager = self.manager(runtime_installer=None)
+        destination = self.root / "runtime-progress"
+        self.requirements.write_text("alpha==1.0\nbeta==2.0\n", encoding="utf-8")
+        observed = []
+
+        def create_runtime(path: Path) -> None:
+            executable = path / "bin" / "python"
+            executable.parent.mkdir(parents=True)
+            executable.write_bytes(b"python")
+
+        def run(_command, _cancel, reporter) -> None:
+            reporter("Collecting alpha==1.0")
+            reporter("Progress 25 of 100")
+            observed.append(manager.status())
+            reporter("Collecting beta==2.0")
+            observed.append(manager.status())
+            reporter("Installing collected packages: alpha, beta")
+            observed.append(manager.status())
+
+        with (
+            mock.patch("clipen.analysis.setup.venv.EnvBuilder") as builder,
+            mock.patch.object(manager, "_run", side_effect=run),
+            mock.patch.object(manager, "_supports_raw_progress", return_value=True),
+        ):
+            builder.return_value.create.side_effect = create_runtime
+            manager._install_runtime(destination, self.requirements, threading.Event())
+
+        self.assertGreater(observed[0].progress_percent, 5)
+        self.assertEqual(observed[0].detail_completed_bytes, 25)
+        self.assertEqual(observed[0].detail_total_bytes, 100)
+        self.assertGreater(observed[1].progress_percent, observed[0].progress_percent)
+        self.assertEqual(observed[2].progress_percent, 39)
+        self.assertIn("正在安裝已下載", observed[2].message)
+        self.assertEqual(manager.status().progress_percent, 40)
+
+    def test_old_pip_falls_back_to_compatible_progress_mode(self) -> None:
+        manager = self.manager(runtime_installer=None)
+        destination = self.root / "runtime-old-pip"
+
+        def create_runtime(path: Path) -> None:
+            executable = path / "bin" / "python"
+            executable.parent.mkdir(parents=True)
+            executable.write_bytes(b"python")
+
+        with (
+            mock.patch("clipen.analysis.setup.venv.EnvBuilder") as builder,
+            mock.patch.object(manager, "_supports_raw_progress", return_value=False),
+            mock.patch.object(manager, "_run") as run,
+        ):
+            builder.return_value.create.side_effect = create_runtime
+            manager._install_runtime(destination, self.requirements, threading.Event())
+
+        command = run.call_args.args[0]
+        self.assertIn("--progress-bar=off", command)
+        self.assertNotIn("--progress-bar=raw", command)
+
     def test_blocking_setup_entry_reports_phases_and_closes_manager(self) -> None:
         manager = mock.Mock()
+        manager.diagnostic_lines.return_value = ()
         manager.status.side_effect = (
             ASRSetupStatus(ASRSetupState.SETUP_REQUIRED, "not_installed", "尚未安裝"),
             ASRSetupStatus(ASRSetupState.INSTALLING, "creating_runtime", "建立環境"),
@@ -236,6 +297,7 @@ class ASRSetupManagerTests(unittest.TestCase):
 
     def test_blocking_setup_reports_heartbeat_while_phase_is_unchanged(self) -> None:
         manager = mock.Mock()
+        manager.diagnostic_lines.return_value = ()
         manager.status.side_effect = (
             ASRSetupStatus(ASRSetupState.SETUP_REQUIRED, "not_installed", "尚未安裝"),
             ASRSetupStatus(ASRSetupState.INSTALLING, "installing", "正在下載套件…"),
@@ -263,7 +325,53 @@ class ASRSetupManagerTests(unittest.TestCase):
 
         self.assertEqual(result, 0)
         self.assertEqual(output.getvalue().count("正在下載套件"), 2)
-        self.assertIn("已進行 0 分 11 秒", output.getvalue())
+        self.assertIn("0 分 11 秒", output.getvalue())
+
+    def test_blocking_setup_renders_percentage_bar_and_download_bytes(self) -> None:
+        manager = mock.Mock()
+        manager.diagnostic_lines.return_value = ()
+        manager.status.side_effect = (
+            ASRSetupStatus(ASRSetupState.SETUP_REQUIRED, "not_installed", "尚未安裝"),
+            ASRSetupStatus(
+                ASRSetupState.INSTALLING,
+                "downloading_model",
+                "正在下載模型…",
+                completed_units=1,
+                progress_percent=62,
+                detail_completed_bytes=200_000_000,
+                detail_total_bytes=481_000_000,
+            ),
+            ASRSetupStatus(
+                ASRSetupState.READY,
+                "ready",
+                "完成",
+                completed_units=3,
+                progress_percent=100,
+            ),
+        )
+        output = io.StringIO()
+        with (
+            mock.patch("clipen.analysis.setup_cli.ASRSetupManager", return_value=manager),
+            mock.patch("clipen.analysis.setup_cli.time.sleep"),
+            mock.patch(
+                "clipen.analysis.setup_cli.time.monotonic",
+                side_effect=(0.0, 0.0, 0.1),
+            ),
+            mock.patch("sys.stdout", output),
+        ):
+            result = setup_cli.main(
+                [
+                    "--data-root",
+                    str(self.root / "data"),
+                    "--requirements",
+                    str(self.requirements),
+                ]
+            )
+
+        self.assertEqual(result, 0)
+        self.assertIn("62%", output.getvalue())
+        self.assertIn("200.0 MB / 481.0 MB", output.getvalue())
+        self.assertIn("████", output.getvalue())
 
 
 if __name__ == "__main__":

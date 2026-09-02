@@ -33,6 +33,7 @@ CONVERSION_NOTICE = (
     "MLX 轉換模型頁未另外標示 license；Clipen 會從固定來源下載，"
     "不會把模型檔收進 Repo。"
 )
+PROGRESS_RECORD_PREFIX = "CLIPEN_PROGRESS\t"
 
 
 def release_root(data_root: Path) -> Path:
@@ -108,6 +109,7 @@ __all__ = [
     "MODEL_REPOSITORY",
     "MODEL_REVISION",
     "NOTICE_VERSION",
+    "PROGRESS_RECORD_PREFIX",
     "RELEASE_ID",
     "WHISPER_LICENSE",
     "WHISPER_LICENSE_URL",

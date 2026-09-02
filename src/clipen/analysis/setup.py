@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass
 from enum import Enum
 import hashlib
@@ -15,7 +16,6 @@ import shutil
 import signal
 import stat
 import subprocess
-import tempfile
 import threading
 import time
 from typing import Callable
@@ -62,6 +62,9 @@ class ASRSetupStatus:
     error_code: str | None = None
     completed_units: int = 0
     total_units: int = 3
+    progress_percent: int = 0
+    detail_completed_bytes: int = 0
+    detail_total_bytes: int = 0
 
     def to_public(
         self,
@@ -78,6 +81,9 @@ class ASRSetupStatus:
             "error_code": self.error_code,
             "completed_units": self.completed_units,
             "total_units": self.total_units,
+            "progress_percent": self.progress_percent,
+            "detail_completed_bytes": self.detail_completed_bytes,
+            "detail_total_bytes": self.detail_total_bytes,
             "notice": {
                 "version": NOTICE_VERSION,
                 "download_bytes": DOWNLOAD_BYTES,
@@ -146,6 +152,7 @@ class ASRSetupManager:
         self._lock = threading.Lock()
         self._cancel = threading.Event()
         self._worker: threading.Thread | None = None
+        self._diagnostic_lines: tuple[str, ...] = ()
         self._cleanup_staging()
         self._status = self._initial_status()
 
@@ -161,6 +168,12 @@ class ASRSetupManager:
             model_files=self._model_files,
         )
 
+    def diagnostic_lines(self) -> tuple[str, ...]:
+        """Return a bounded, local-only diagnostic tail for the setup CLI."""
+
+        with self._lock:
+            return self._diagnostic_lines
+
     def start_install(self, accepted_notice: object) -> ASRSetupStatus:
         if accepted_notice != NOTICE_VERSION:
             raise ASRSetupError("asr_notice_required")
@@ -172,10 +185,12 @@ class ASRSetupManager:
             if self._worker is not None and self._worker.is_alive():
                 raise ASRSetupError("asr_setup_busy")
             self._cancel = threading.Event()
+            self._diagnostic_lines = ()
             self._status = ASRSetupStatus(
                 ASRSetupState.INSTALLING,
                 "creating_runtime",
                 "正在建立隔離的語音辨識環境…",
+                progress_percent=1,
             )
             self._worker = threading.Thread(
                 target=self._install_worker,
@@ -272,6 +287,7 @@ class ASRSetupManager:
                 "ready",
                 "本機語音辨識可用。",
                 completed_units=3,
+                progress_percent=100,
             )
         except ASRSetupError as error:
             return ASRSetupStatus(
@@ -291,14 +307,30 @@ class ASRSetupManager:
             model = staging / "model"
             model.mkdir(mode=0o700)
             self._runtime_installer(runtime, self.requirements, self._cancel)
-            self._set_progress("downloading_model", "正在下載固定版本的語音辨識模型…", 1)
+            model_total = sum(item[1] for item in self._model_files)
+            model_completed = 0
+            self._set_progress(
+                "downloading_model",
+                "正在下載固定版本的語音辨識模型…",
+                1,
+                progress_percent=40,
+                detail_total_bytes=model_total,
+            )
             for filename, size, digest in self._model_files:
                 url = (
                     f"https://huggingface.co/{self._model_repository}/resolve/"
                     f"{self._model_revision}/{filename}"
                 )
+                self._active_model_download = (model_completed, model_total)
                 self._downloader(url, model / filename, size, digest, self._cancel)
-            self._set_progress("verifying", "正在驗證安裝內容…", 2)
+                model_completed += size
+                self._set_model_download_progress(model_completed, model_total)
+            self._set_progress(
+                "verifying",
+                "正在驗證安裝內容…",
+                2,
+                progress_percent=97,
+            )
             manifest = self._hash_model(model)
             receipt = {
                 "schema": 1,
@@ -319,6 +351,7 @@ class ASRSetupManager:
                 "ready",
                 "本機語音辨識安裝完成。",
                 completed_units=3,
+                progress_percent=100,
             )
         except ASRSetupError as error:
             status = ASRSetupStatus(
@@ -347,12 +380,27 @@ class ASRSetupManager:
         with self._lock:
             self._status = status
 
-    def _set_progress(self, phase: str, message: str, completed: int) -> None:
+    def _set_progress(
+        self,
+        phase: str,
+        message: str,
+        completed: int,
+        *,
+        progress_percent: int = 0,
+        detail_completed_bytes: int = 0,
+        detail_total_bytes: int = 0,
+    ) -> None:
         if self._cancel.is_set():
             raise ASRSetupError("cancelled")
         with self._lock:
             self._status = ASRSetupStatus(
-                ASRSetupState.INSTALLING, phase, message, completed_units=completed
+                ASRSetupState.INSTALLING,
+                phase,
+                message,
+                completed_units=completed,
+                progress_percent=max(0, min(100, progress_percent)),
+                detail_completed_bytes=max(0, detail_completed_bytes),
+                detail_total_bytes=max(0, detail_total_bytes),
             )
 
     def _install_runtime(
@@ -366,6 +414,7 @@ class ASRSetupManager:
             "installing_dependencies",
             "正在下載並安裝語音辨識套件…",
             0,
+            progress_percent=5,
         )
         python = destination / "bin" / "python"
         command = (
@@ -376,14 +425,131 @@ class ASRSetupManager:
             "--disable-pip-version-check",
             "--no-input",
             "--only-binary=:all:",
+            f"--progress-bar={'raw' if self._supports_raw_progress(python) else 'off'}",
             "--no-cache-dir",
             "-r",
             str(requirements),
         )
-        self._run(command, cancel)
+        package_names = self._requirement_names(requirements)
+        seen_packages: set[str] = set()
+
+        def report(line: str) -> None:
+            collected = re.match(r"Collecting\s+([A-Za-z0-9_.-]+)", line)
+            if collected:
+                seen_packages.add(re.sub(r"[-_.]+", "-", collected.group(1)).lower())
+                self._set_dependency_progress(len(seen_packages) - 1, len(package_names))
+                return
+            raw = re.fullmatch(r"Progress\s+(\d+)\s+of\s+(\d+)", line)
+            if raw:
+                self._set_dependency_progress(
+                    max(0, len(seen_packages) - 1),
+                    len(package_names),
+                    int(raw.group(1)),
+                    int(raw.group(2)),
+                )
+                return
+            if line.startswith("Installing collected packages:"):
+                self._set_progress(
+                    "installing_dependencies",
+                    "正在安裝已下載的語音辨識套件…",
+                    0,
+                    progress_percent=39,
+                )
+
+        self._run(command, cancel, report)
+        self._set_progress(
+            "installing_dependencies",
+            "語音辨識套件安裝完成。",
+            1,
+            progress_percent=40,
+        )
 
     @staticmethod
+    def _supports_raw_progress(python: Path) -> bool:
+        probe = python.parent.parent / ".pip-progress-probe.txt"
+        try:
+            probe.write_text("", encoding="utf-8")
+            probe.chmod(0o600)
+            completed = subprocess.run(
+                (
+                    str(python),
+                    "-m",
+                    "pip",
+                    "install",
+                    "--disable-pip-version-check",
+                    "--no-input",
+                    "--no-index",
+                    "--progress-bar=raw",
+                    "-r",
+                    str(probe),
+                ),
+                cwd="/",
+                env={
+                    "LANG": "C.UTF-8",
+                    "LC_ALL": "C.UTF-8",
+                    "PIP_NO_INPUT": "1",
+                    "PYTHONNOUSERSITE": "1",
+                },
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+                timeout=15,
+            )
+            return completed.returncode == 0
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+        finally:
+            probe.unlink(missing_ok=True)
+
+    @staticmethod
+    def _requirement_names(requirements: Path) -> set[str]:
+        names: set[str] = set()
+        for raw_line in requirements.read_text(encoding="utf-8").splitlines():
+            line = raw_line.partition("#")[0].strip()
+            if not line or line.startswith("-"):
+                continue
+            name = re.split(r"[<>=!~\[\s]", line, maxsplit=1)[0]
+            if name:
+                names.add(re.sub(r"[-_.]+", "-", name).lower())
+        return names
+
+    def _set_dependency_progress(
+        self,
+        completed_packages: int,
+        total_packages: int,
+        detail_completed: int = 0,
+        detail_total: int = 0,
+    ) -> None:
+        total = max(1, total_packages)
+        package_fraction = min(total, max(0, completed_packages)) / total
+        if detail_total > 0:
+            package_fraction += min(detail_completed, detail_total) / detail_total / total
+        percent = 5 + int(package_fraction * 34)
+        with self._lock:
+            previous = self._status.progress_percent
+        self._set_progress(
+            "installing_dependencies",
+            f"正在下載並安裝語音辨識套件（{min(total, completed_packages + 1)}/{total}）…",
+            0,
+            progress_percent=max(previous, percent),
+            detail_completed_bytes=detail_completed,
+            detail_total_bytes=detail_total,
+        )
+
+    def _set_model_download_progress(self, completed: int, total: int) -> None:
+        percent = 40 + int(min(completed, total) / max(1, total) * 55)
+        self._set_progress(
+            "downloading_model",
+            "正在下載固定版本的語音辨識模型…",
+            1,
+            progress_percent=percent,
+            detail_completed_bytes=completed,
+            detail_total_bytes=total,
+        )
+
     def _download(
+        self,
         url: str,
         destination: Path,
         expected_size: int,
@@ -406,6 +572,10 @@ class ASRSetupManager:
                         raise ASRSetupError("asr_download_too_large")
                     digest.update(block)
                     output.write(block)
+                    base, model_total = getattr(
+                        self, "_active_model_download", (0, expected_size)
+                    )
+                    self._set_model_download_progress(base + total, model_total)
                 output.flush()
                 os.fsync(output.fileno())
         except ASRSetupError:
@@ -419,39 +589,89 @@ class ASRSetupManager:
             raise ASRSetupError("asr_download_verification_failed")
         os.chmod(destination, 0o600)
 
-    def _run(self, command: tuple[str, ...], cancel: threading.Event) -> None:
+    def _run(
+        self,
+        command: tuple[str, ...],
+        cancel: threading.Event,
+        output_handler: Callable[[str], None] | None = None,
+    ) -> None:
         deadline = time.monotonic() + _INSTALL_TIMEOUT_SECONDS
-        with tempfile.TemporaryFile() as output:
+        captured_bytes = 0
+        capture_exceeded = threading.Event()
+        output_tail: deque[str] = deque(maxlen=20)
+        reader_errors: list[BaseException] = []
+        try:
+            process = subprocess.Popen(
+                command,
+                cwd="/",
+                env={
+                    "LANG": "C.UTF-8",
+                    "LC_ALL": "C.UTF-8",
+                    "PIP_NO_INPUT": "1",
+                    "PYTHONNOUSERSITE": "1",
+                },
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                bufsize=1,
+                start_new_session=os.name == "posix",
+            )
+        except OSError as error:
+            raise ASRSetupError("asr_runtime_install_failed") from error
+
+        def consume_output() -> None:
+            nonlocal captured_bytes
             try:
-                process = subprocess.Popen(
-                    command,
-                    cwd="/",
-                    env={
-                        "LANG": "C.UTF-8",
-                        "LC_ALL": "C.UTF-8",
-                        "PIP_NO_INPUT": "1",
-                        "PYTHONNOUSERSITE": "1",
-                    },
-                    stdin=subprocess.DEVNULL,
-                    stdout=output,
-                    stderr=output,
-                    start_new_session=os.name == "posix",
-                )
-            except OSError as error:
-                raise ASRSetupError("asr_runtime_install_failed") from error
-            while process.poll() is None:
-                if cancel.is_set():
-                    self._terminate(process)
-                    raise ASRSetupError("cancelled")
-                if time.monotonic() >= deadline:
-                    self._terminate(process)
-                    raise ASRSetupError("asr_runtime_install_timeout")
-                if os.fstat(output.fileno()).st_size > _MAX_CAPTURE_BYTES:
-                    self._terminate(process)
-                    raise ASRSetupError("asr_runtime_install_output_too_large")
-                time.sleep(0.1)
-            if process.returncode != 0:
-                raise ASRSetupError("asr_runtime_install_failed")
+                assert process.stdout is not None
+                for line in process.stdout:
+                    captured_bytes += len(line.encode("utf-8"))
+                    if captured_bytes > _MAX_CAPTURE_BYTES:
+                        capture_exceeded.set()
+                        return
+                    stripped = line.strip()
+                    if stripped:
+                        output_tail.append(stripped[:1000])
+                    if output_handler is not None:
+                        try:
+                            output_handler(stripped)
+                        except ASRSetupError:
+                            if not cancel.is_set():
+                                raise
+            except BaseException as error:
+                reader_errors.append(error)
+
+        reader = threading.Thread(
+            target=consume_output,
+            name="clipen-pip-output",
+            daemon=True,
+        )
+        reader.start()
+        while process.poll() is None:
+            if cancel.is_set():
+                self._terminate(process)
+                reader.join(timeout=2)
+                raise ASRSetupError("cancelled")
+            if time.monotonic() >= deadline:
+                self._terminate(process)
+                reader.join(timeout=2)
+                raise ASRSetupError("asr_runtime_install_timeout")
+            if capture_exceeded.is_set():
+                self._terminate(process)
+                reader.join(timeout=2)
+                raise ASRSetupError("asr_runtime_install_output_too_large")
+            if reader_errors:
+                self._terminate(process)
+                reader.join(timeout=2)
+                raise ASRSetupError("asr_runtime_install_failed") from reader_errors[0]
+            time.sleep(0.1)
+        reader.join(timeout=2)
+        if process.returncode != 0:
+            with self._lock:
+                self._diagnostic_lines = tuple(output_tail)
+            raise ASRSetupError("asr_runtime_install_failed")
 
     def _read_release(self) -> tuple[Path, LocalModelSnapshot]:
         if self.release.is_symlink() or not self.release.is_dir():
