@@ -209,8 +209,8 @@ class BootstrapTests(unittest.TestCase):
         profile = (self.home / ".zshrc").read_text(encoding="utf-8")
         self.assertIn(str(self.data / "bin"), profile)
         self.assertEqual(output.getvalue().count("[Y/n]"), 1)
-        self.assertIn("1.2 GB", output.getvalue())
-        self.assertIn("1.7 GB", output.getvalue())
+        self.assertIn("0.7 GB", output.getvalue())
+        self.assertIn("1.1 GB", output.getvalue())
         self.assertIn("MIT", output.getvalue())
         self.assertIn("下次開啟 Terminal", output.getvalue())
 

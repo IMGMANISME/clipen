@@ -425,6 +425,7 @@ class ASRSetupManager:
             "--disable-pip-version-check",
             "--no-input",
             "--only-binary=:all:",
+            "--no-deps",
             f"--progress-bar={'raw' if self._supports_raw_progress(python) else 'off'}",
             "--no-cache-dir",
             "-r",
