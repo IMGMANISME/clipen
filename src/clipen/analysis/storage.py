@@ -530,6 +530,56 @@ class PreparationRepository:
             ).fetchone()
             return None if row is None else self._read_run(connection, row["run_id"])
 
+    def list_events(
+        self,
+        project_id: str,
+        run_id: str,
+        *,
+        after_sequence: int = 0,
+        limit: int = 100,
+    ) -> tuple[dict[str, object], ...]:
+        validate_project_id(project_id)
+        if (
+            isinstance(after_sequence, bool)
+            or not isinstance(after_sequence, int)
+            or after_sequence < 0
+            or isinstance(limit, bool)
+            or not isinstance(limit, int)
+            or not 1 <= limit <= 500
+        ):
+            raise ValueError("operation event bounds are invalid")
+        with self.projects.connect(project_id) as connection:
+            run = self._read_run(connection, run_id)
+            if run.project_id != project_id:
+                raise ProjectError(
+                    "preparation_not_found", "找不到這次素材分析。", status_code=404
+                )
+            rows = connection.execute(
+                "SELECT sequence, event_type, payload_json, created_at "
+                "FROM operation_events WHERE project_id = ? AND operation_id = ? "
+                "AND sequence > ? ORDER BY sequence LIMIT ?",
+                (project_id, run.operation_id, after_sequence, limit),
+            ).fetchall()
+        events = []
+        try:
+            for row in rows:
+                payload = json.loads(row["payload_json"])
+                if not isinstance(payload, dict):
+                    raise ValueError("event payload is not an object")
+                events.append(
+                    {
+                        "sequence": row["sequence"],
+                        "type": row["event_type"],
+                        "payload": payload,
+                        "created_at": row["created_at"],
+                    }
+                )
+        except (json.JSONDecodeError, TypeError, ValueError) as error:
+            raise ProjectError(
+                "storage_corrupt", "Clipen 無法讀取分析進度。", status_code=500
+            ) from error
+        return tuple(events)
+
     def list_work_items(
         self, project_id: str, run_id: str
     ) -> tuple[PreparationWorkItem, ...]:

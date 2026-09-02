@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+import asyncio
 import hashlib
 from http.cookies import SimpleCookie
 import json
@@ -17,11 +18,12 @@ from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import JSONResponse, Response, StreamingResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from clipen.analysis import PreparationCoordinator, PreparationRepository
 from clipen.media import InventoryCoordinator
 from clipen.projects import DirectoryRole, ProjectError, ProjectWorkspace
 from clipen.system_skills import SystemSkillSummary
@@ -261,6 +263,8 @@ def create_app(
     authority: LocalSessionAuthority,
     workspace: ProjectWorkspace | None = None,
     inventories: InventoryCoordinator | None = None,
+    preparations: PreparationCoordinator | None = None,
+    preparation_repository: PreparationRepository | None = None,
 ) -> ASGIApp:
     static_root = config.static_root.resolve(strict=True)
 
@@ -375,6 +379,27 @@ def create_app(
                 status_code=503,
             )
         return inventories
+
+    def require_preparation_repository() -> PreparationRepository:
+        repository = (
+            preparations.repository if preparations is not None else preparation_repository
+        )
+        if repository is None:
+            raise ProjectError(
+                "analysis_unavailable",
+                "Clipen 素材分析尚未準備完成。",
+                status_code=503,
+            )
+        return repository
+
+    def require_preparations() -> PreparationCoordinator:
+        if preparations is None:
+            raise ProjectError(
+                "asr_setup_required",
+                "本機語音辨識尚未安裝。",
+                status_code=409,
+            )
+        return preparations
 
     def require_fields(
         payload: dict[str, object], required: set[str], optional: set[str] | None = None
@@ -567,6 +592,143 @@ def create_app(
         except ProjectError as error:
             return await project_error_response(error)
 
+    async def analysis_status(request: Request) -> Response:
+        try:
+            repository = require_preparation_repository()
+            project_id = request.path_params["project_id"]
+
+            def read_status():
+                latest = repository.latest_run(project_id)
+                current = repository.current_run(project_id)
+                try:
+                    scope = repository.preflight(project_id).to_public()
+                    blocked_reason = None
+                except ProjectError as error:
+                    if error.code not in {"inventory_required", "preparation_empty"}:
+                        raise
+                    scope = None
+                    blocked_reason = error.code
+                return latest, current, scope, blocked_reason
+
+            latest, current, scope, blocked_reason = await run_in_threadpool(read_status)
+            return JSONResponse(
+                {
+                    "runtime": {
+                        "state": "ready" if preparations is not None else "setup_required",
+                        "message": (
+                            "本機語音辨識可用"
+                            if preparations is not None
+                            else "需要先安裝約 500 MB 的本機語音辨識模型"
+                        ),
+                    },
+                    "scope": scope,
+                    "blocked_reason": blocked_reason,
+                    "latest": None if latest is None else latest.to_public(),
+                    "current": None if current is None else current.to_public(),
+                }
+            )
+        except ProjectError as error:
+            return await project_error_response(error)
+
+    async def start_analysis(request: Request) -> Response:
+        try:
+            payload = await read_json(request)
+            require_fields(
+                payload, {"request_id", "expected_revision", "scope_id"}
+            )
+            run = await run_in_threadpool(
+                require_preparations().start,
+                request.path_params["project_id"],
+                payload["request_id"],
+                payload["expected_revision"],
+                payload["scope_id"],
+            )
+            return JSONResponse({"analysis": run.to_public()}, status_code=202)
+        except ProjectError as error:
+            return await project_error_response(error)
+
+    async def cancel_analysis(request: Request) -> Response:
+        try:
+            payload = await read_json(request)
+            require_fields(payload, set())
+            run = await run_in_threadpool(
+                require_preparations().cancel,
+                request.path_params["project_id"],
+                request.path_params["run_id"],
+            )
+            return JSONResponse({"analysis": run.to_public()})
+        except ProjectError as error:
+            return await project_error_response(error)
+
+    async def resume_analysis(request: Request) -> Response:
+        try:
+            payload = await read_json(request)
+            require_fields(payload, {"request_id"})
+            run = await run_in_threadpool(
+                require_preparations().resume,
+                request.path_params["project_id"],
+                request.path_params["run_id"],
+                payload["request_id"],
+            )
+            return JSONResponse({"analysis": run.to_public()}, status_code=202)
+        except ProjectError as error:
+            return await project_error_response(error)
+
+    async def analysis_events(request: Request) -> Response:
+        try:
+            repository = require_preparation_repository()
+            project_id = request.path_params["project_id"]
+            run_id = request.path_params["run_id"]
+            raw_last = request.headers.get("last-event-id", "0")
+            if not raw_last.isascii() or not raw_last.isdigit() or len(raw_last) > 20:
+                raise ProjectError(
+                    "event_cursor_invalid", "分析進度位置無效。", status_code=422
+                )
+            cursor = int(raw_last)
+            await run_in_threadpool(repository.get_run, project_id, run_id)
+
+            async def stream():
+                nonlocal cursor
+                idle = 0
+                while idle < 50 and not await request.is_disconnected():
+                    events = await run_in_threadpool(
+                        lambda: repository.list_events(
+                            project_id, run_id, after_sequence=cursor
+                        )
+                    )
+                    if events:
+                        idle = 0
+                        for event in events:
+                            cursor = int(event["sequence"])
+                            data = json.dumps(
+                                event,
+                                ensure_ascii=False,
+                                sort_keys=True,
+                                separators=(",", ":"),
+                            )
+                            yield f"id: {cursor}\ndata: {data}\n\n".encode("utf-8")
+                    else:
+                        idle += 1
+                        if idle % 20 == 0:
+                            yield b": keepalive\n\n"
+                    run = await run_in_threadpool(repository.get_run, project_id, run_id)
+                    if run.state.value in {
+                        "succeeded",
+                        "failed",
+                        "cancelled",
+                        "interrupted",
+                    } and not events:
+                        return
+                    await asyncio.sleep(0.5)
+
+            return StreamingResponse(
+                stream(),
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+            )
+        except ProjectError as error:
+            return await project_error_response(error)
+
     async def system_skills(_: Request) -> Response:
         return JSONResponse(
             {"skills": [summary.as_public_dict() for summary in config.system_skills]}
@@ -622,6 +784,31 @@ def create_app(
                 "/api/projects/{project_id}/inventories/{run_id}/commands/cancel",
                 cancel_inventory,
                 methods=["POST"],
+            ),
+            Route(
+                "/api/projects/{project_id}/analysis",
+                analysis_status,
+                methods=["GET"],
+            ),
+            Route(
+                "/api/projects/{project_id}/commands/start-analysis",
+                start_analysis,
+                methods=["POST"],
+            ),
+            Route(
+                "/api/projects/{project_id}/analyses/{run_id}/commands/cancel",
+                cancel_analysis,
+                methods=["POST"],
+            ),
+            Route(
+                "/api/projects/{project_id}/analyses/{run_id}/commands/resume",
+                resume_analysis,
+                methods=["POST"],
+            ),
+            Route(
+                "/api/projects/{project_id}/analyses/{run_id}/events",
+                analysis_events,
+                methods=["GET"],
             ),
             Mount("/", app=StaticFiles(directory=static_root, html=True), name="web"),
         ],

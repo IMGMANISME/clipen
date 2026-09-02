@@ -376,6 +376,18 @@ class PreparationStorageTests(unittest.TestCase):
         published = self.repository.publish(self.project.project_id, run.run_id)
         self.assertEqual(published.state, PreparationState.SUCCEEDED)
         self.assertEqual(self.repository.current_run(self.project.project_id), published)
+        events = self.repository.list_events(self.project.project_id, run.run_id)
+        self.assertEqual([event["type"] for event in events][0], "queued")
+        self.assertEqual([event["type"] for event in events][-1], "succeeded")
+        self.assertEqual(
+            self.repository.list_events(
+                self.project.project_id,
+                run.run_id,
+                after_sequence=events[-1]["sequence"],
+            ),
+            (),
+        )
+        self.assertNotIn(str(self.source), repr(events))
 
     def test_chunk_checkpoints_are_validated_and_replayable(self) -> None:
         scope = self.repository.preflight(self.project.project_id)
