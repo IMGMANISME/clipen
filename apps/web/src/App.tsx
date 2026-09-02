@@ -5,15 +5,19 @@ import {
   bootstrapSession,
   createProject,
   cancelInventory,
+  cancelAnalysis,
+  getAnalysis,
   getInventory,
   getInventoryItems,
   getProject,
   getStatus,
   listProjects,
   removeDirectory,
+  resumeAnalysis,
   saveDirectory,
   selectDirectory,
   startInventory,
+  startAnalysis,
   updateProjectDetails,
 } from './api'
 import type {
@@ -24,6 +28,8 @@ import type {
   InventoryItemsPage,
   InventoryRun,
   InventorySummary,
+  AnalysisRun,
+  AnalysisSummary,
   Project,
   ProviderState,
   StatusPayload,
@@ -72,6 +78,15 @@ const itemIssueCopy: Record<string, string> = {
   probe_changed: '檢查時檔案有變動',
   probe_entry_unreadable: '無法讀取檔案',
   probe_entry_not_regular: '檔案位置已改變',
+}
+
+const analysisErrorCopy: Record<string, string> = {
+  controller_restarted: 'Clipen 上次關閉時仍在分析。已保存的音訊與逐字稿切塊仍在，可以接續。',
+  controller_stopped: 'Clipen 關閉時已安全停止分析，可以從 checkpoint 接續。',
+  ffmpeg_unavailable: '找不到 FFmpeg，無法準備語音辨識需要的音訊。',
+  asr_runtime_unavailable: '本機語音辨識執行環境目前無法使用。',
+  asr_model_changed: '語音辨識模型內容已改變，為避免混用結果，這次分析已停止。',
+  scope_changed: '素材檢查結果已改變，請重新確認分析範圍。',
 }
 
 function formatBytes(value: number | null): string {
@@ -440,6 +455,135 @@ function InventorySection({
   )
 }
 
+function AnalysisSection({
+  summary,
+  loading,
+  actionBusy,
+  onStart,
+  onCancel,
+  onResume,
+}: {
+  summary: AnalysisSummary | null
+  loading: boolean
+  actionBusy: boolean
+  onStart: () => void
+  onCancel: (run: AnalysisRun) => void
+  onResume: (run: AnalysisRun) => void
+}) {
+  const latest = summary?.latest ?? null
+  const current = summary?.current ?? null
+  const scope = summary?.scope ?? null
+  const active = latest !== null && ['queued', 'running', 'cancelling'].includes(latest.state)
+  const interrupted = latest?.state === 'interrupted'
+  const canStart = Boolean(
+    summary?.runtime.state === 'ready' && scope && !active && !interrupted && !actionBusy,
+  )
+  const progress = latest && latest.counts.total > 0
+    ? Math.round(
+      ((latest.counts.transcribed
+        + latest.counts.no_audio
+        + latest.counts.no_speech
+        + latest.counts.issues) / latest.counts.total) * 100,
+    )
+    : 0
+
+  return (
+    <section className="analysis-section" aria-labelledby="analysis-title">
+      <div className="analysis-heading">
+        <div>
+          <p className="eyebrow">02 · 分析</p>
+          <h2 id="analysis-title">理解素材中的口語內容</h2>
+          <p>Clipen 會在本機抽取音訊並產生帶原始時間位置的華語逐字稿。這會建立可刪除的衍生成果，不會修改毛片。</p>
+        </div>
+        {!active && !interrupted && (
+          <button className="button primary" onClick={onStart} disabled={!canStart}>
+            {actionBusy ? '正在準備…' : current ? '重新分析' : '開始分析'}
+          </button>
+        )}
+      </div>
+
+      {loading && !summary && (
+        <div className="analysis-card" role="status">
+          <span className="small-spinner" aria-hidden="true" />
+          <div><strong>正在讀取分析狀態</strong><p>尚未開始新的素材處理。</p></div>
+        </div>
+      )}
+
+      {summary?.runtime.state === 'setup_required' && (
+        <div className="analysis-card setup-required">
+          <span className="outcome-symbol" aria-hidden="true">↓</span>
+          <div>
+            <strong>需要先準備本機語音辨識</strong>
+            <p>{summary.runtime.message}。Clipen 會在提供安裝動作前顯示大小、授權、位置與刪除方式，不會暗中下載。</p>
+          </div>
+        </div>
+      )}
+
+      {summary?.runtime.state === 'ready' && scope && !latest && (
+        <div className="analysis-card scope-preview">
+          <div>
+            <strong>分析範圍已準備好</strong>
+            <p>{scope.counts.audio_streams} 條音軌，共約 {scope.duration_seconds} 秒；預計使用 {formatBytes(scope.estimated_audio_bytes)} 暫存空間。</p>
+          </div>
+          {scope.counts.no_audio > 0 && <span>{scope.counts.no_audio} 個素材沒有音軌，會清楚標記並略過</span>}
+        </div>
+      )}
+
+      {latest && active && (
+        <div className="analysis-progress" role="status" aria-live="polite">
+          <div className="progress-main">
+            <span className="small-spinner" aria-hidden="true" />
+            <div>
+              <strong>{latest.state === 'cancelling' ? '正在保存 checkpoint 並停止…' : '正在本機分析素材…'}</strong>
+              <p>完成 {progress}% · 已轉錄 {latest.counts.transcribed} 個項目 · {latest.counts.issues} 個需要注意</p>
+            </div>
+          </div>
+          <button
+            className="button secondary"
+            onClick={() => onCancel(latest)}
+            disabled={actionBusy || latest.state === 'cancelling'}
+          >
+            {latest.state === 'cancelling' ? '停止中…' : '停止分析'}
+          </button>
+        </div>
+      )}
+
+      {latest && interrupted && (
+        <div className="analysis-outcome interrupted">
+          <span className="outcome-symbol" aria-hidden="true">↻</span>
+          <div>
+            <strong>上次分析安全中斷</strong>
+            <p>{latest.error_code ? analysisErrorCopy[latest.error_code] ?? '已完成的 checkpoint 仍保留。' : '已完成的 checkpoint 仍保留。'}</p>
+          </div>
+          <button className="button primary" onClick={() => onResume(latest)} disabled={actionBusy}>
+            {actionBusy ? '正在接續…' : '接續分析'}
+          </button>
+        </div>
+      )}
+
+      {latest && ['failed', 'cancelled'].includes(latest.state) && (
+        <div className={`analysis-outcome ${latest.state === 'failed' ? 'has-error' : ''}`}>
+          <span className="outcome-symbol" aria-hidden="true">{latest.state === 'failed' ? '!' : '×'}</span>
+          <div>
+            <strong>{latest.state === 'failed' ? '這次分析沒有完成' : '分析已取消'}</strong>
+            <p>{latest.error_code ? analysisErrorCopy[latest.error_code] ?? '請確認本機分析環境後再試一次。' : '毛片沒有被修改，可以重新開始分析。'}</p>
+          </div>
+        </div>
+      )}
+
+      {current && (
+        <div className="analysis-results">
+          <div>
+            <strong>{current.counts.issues ? '逐字稿已完成，部分素材需要注意' : '口語內容已準備好'}</strong>
+            <p>已轉錄 {current.counts.transcribed} 個項目，{current.counts.no_speech} 個沒有人聲，{current.counts.no_audio} 個沒有音軌。</p>
+          </div>
+          <span className="result-ready">分析完成</span>
+        </div>
+      )}
+    </section>
+  )
+}
+
 function MaterialsWorkspace({
   project,
   csrf,
@@ -462,6 +606,8 @@ function MaterialsWorkspace({
   const [inventoryPage, setInventoryPage] = useState<InventoryItemsPage | null>(null)
   const [inventoryLoading, setInventoryLoading] = useState(true)
   const [inventoryActionBusy, setInventoryActionBusy] = useState(false)
+  const [analysis, setAnalysis] = useState<AnalysisSummary | null>(null)
+  const [analysisActionBusy, setAnalysisActionBusy] = useState(false)
 
   const source = project.directories.find((directory) => directory.role === 'source')
   const reference = project.directories.find((directory) => directory.role === 'reference')
@@ -499,6 +645,47 @@ function MaterialsWorkspace({
   const visibleInventoryPage = inventoryPage?.inventory.run_id === currentInventoryId
     ? inventoryPage
     : null
+
+  useEffect(() => {
+    if (!currentInventoryId) return
+    let mounted = true
+    getAnalysis(project.project_id)
+      .then((result) => { if (mounted) setAnalysis(result) })
+      .catch((caught) => { if (mounted) setError(errorMessage(caught)) })
+    return () => { mounted = false }
+  }, [currentInventoryId, project.project_id])
+
+  const visibleAnalysis = analysis && (
+    analysis.scope?.inventory_run_id === currentInventoryId
+    || analysis.latest?.inventory_run_id === currentInventoryId
+    || analysis.current?.inventory_run_id === currentInventoryId
+  ) ? analysis : null
+
+  const latestAnalysisState = analysis?.latest?.state
+  useEffect(() => {
+    if (!latestAnalysisState || !['queued', 'running', 'cancelling'].includes(latestAnalysisState)) return
+    let mounted = true
+    let refreshing = false
+    const refresh = () => {
+      if (refreshing) return
+      refreshing = true
+      getAnalysis(project.project_id)
+        .then((result) => { if (mounted) setAnalysis(result) })
+        .catch(() => { /* A later poll can recover transient local UI errors. */ })
+        .finally(() => { refreshing = false })
+    }
+    const runId = analysis?.latest?.run_id
+    const stream = runId
+      ? new EventSource(`/api/projects/${project.project_id}/analyses/${runId}/events`)
+      : null
+    if (stream) stream.onmessage = refresh
+    const fallback = window.setInterval(refresh, 5_000)
+    return () => {
+      mounted = false
+      stream?.close()
+      window.clearInterval(fallback)
+    }
+  }, [analysis?.latest?.run_id, latestAnalysisState, project.project_id])
 
   async function recoverConflict(caught: unknown) {
     if (caught instanceof ApiError && caught.code === 'revision_conflict') {
@@ -574,6 +761,55 @@ function MaterialsWorkspace({
     }
   }
 
+  async function analyzeMedia() {
+    if (
+      analysisActionBusy
+      || !visibleAnalysis?.scope
+      || visibleAnalysis.runtime.state !== 'ready'
+    ) return
+    setAnalysisActionBusy(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const run = await startAnalysis(csrf, project, visibleAnalysis.scope.scope_id)
+      setAnalysis((previous) => previous && { ...previous, latest: run })
+      setNotice('本機素材分析已開始；關閉瀏覽器不會中止 Terminal 裡的 Clipen')
+    } catch (caught) {
+      setError(errorMessage(caught))
+    } finally {
+      setAnalysisActionBusy(false)
+    }
+  }
+
+  async function stopAnalysis(run: AnalysisRun) {
+    if (analysisActionBusy) return
+    setAnalysisActionBusy(true)
+    setError(null)
+    try {
+      const updated = await cancelAnalysis(csrf, project.project_id, run.run_id)
+      setAnalysis((previous) => previous && { ...previous, latest: updated })
+    } catch (caught) {
+      setError(errorMessage(caught))
+    } finally {
+      setAnalysisActionBusy(false)
+    }
+  }
+
+  async function continueAnalysis(run: AnalysisRun) {
+    if (analysisActionBusy) return
+    setAnalysisActionBusy(true)
+    setError(null)
+    try {
+      const updated = await resumeAnalysis(csrf, project.project_id, run.run_id)
+      setAnalysis((previous) => previous && { ...previous, latest: updated })
+      setNotice('已從上次保存的 checkpoint 接續分析')
+    } catch (caught) {
+      setError(errorMessage(caught))
+    } finally {
+      setAnalysisActionBusy(false)
+    }
+  }
+
   async function choose(role: DirectoryRole) {
     if (busyRole) return
     setBusyRole(role)
@@ -623,9 +859,20 @@ function MaterialsWorkspace({
           </div>
           <ol>
             {stages.map((stage, index) => (
-              <li key={stage} className={index === 0 ? 'active' : 'locked'}>
+              <li
+                key={stage}
+                className={
+                  index === 0
+                    ? currentInventoryId ? 'completed' : 'active'
+                    : index === 1 && currentInventoryId ? 'active' : 'locked'
+                }
+              >
                 <span>{String(index + 1).padStart(2, '0')}</span>
-                <div><strong>{stage}</strong>{index > 0 && <small>尚未開放</small>}</div>
+                <div>
+                  <strong>{stage}</strong>
+                  {index === 0 && currentInventoryId && <small>已檢查</small>}
+                  {index > 1 && <small>尚未開放</small>}
+                </div>
               </li>
             ))}
           </ol>
@@ -708,6 +955,16 @@ function MaterialsWorkspace({
             onStart={() => void inspectMedia()}
             onCancel={(run) => void stopInventory(run)}
           />
+          {currentInventoryId && (
+            <AnalysisSection
+              summary={visibleAnalysis}
+              loading={!visibleAnalysis}
+              actionBusy={analysisActionBusy}
+              onStart={() => void analyzeMedia()}
+              onCancel={(run) => void stopAnalysis(run)}
+              onResume={(run) => void continueAnalysis(run)}
+            />
+          )}
         </section>
       </div>
     </main>

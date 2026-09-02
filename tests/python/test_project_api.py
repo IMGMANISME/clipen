@@ -12,6 +12,7 @@ from clipen.controller import (
     ProviderStatus,
     create_app,
 )
+from clipen.analysis import PreparationRepository
 from clipen.media import (
     InventoryCoordinator,
     InventoryRepository,
@@ -45,6 +46,27 @@ class ApiProbe:
             {"duration_seconds": "1.0", "format_names": ["mov"]},
             (MediaStream(0, "video", "h264", {"width": 320, "height": 180}),),
         )
+
+
+class ApiPreparationCoordinator:
+    def __init__(self, repository: PreparationRepository) -> None:
+        self.repository = repository
+
+    def start(self, project_id, request_id, expected_revision, scope_id):
+        return self.repository.create_run_with_status(
+            project_id,
+            request_id,
+            expected_revision,
+            scope_id,
+            recipe={"id": "test"},
+            model={"id": "test"},
+        )[0]
+
+    def cancel(self, project_id, run_id):
+        return self.repository.request_cancel(project_id, run_id)
+
+    def resume(self, project_id, run_id, request_id):
+        return self.repository.resume_interrupted(project_id, run_id, request_id)[0]
 
 
 async def request_app(
@@ -125,12 +147,15 @@ class ProjectApiTests(unittest.TestCase):
             self.inventory_repository,
             probe_factory=lambda: ApiProbe(),
         )
+        self.preparation_repository = PreparationRepository(self.workspace.repository)
+        self.preparations = ApiPreparationCoordinator(self.preparation_repository)
         self.app = create_app(
             ControllerConfig(self.static),
             ProviderStatus("Codex", ProviderState.READY, "AI 已連接"),
             self.authority,
             self.workspace,
             self.inventories,
+            self.preparations,
         )
         self.cookie, self.csrf = self._connect()
 
@@ -442,6 +467,92 @@ class ProjectApiTests(unittest.TestCase):
             self.json_body(first[2])["inventory"]["state"],
             InventoryState.CANCELLED.value,
         )
+
+    def test_analysis_preflight_start_and_cancel_are_sanitized(self) -> None:
+        project = self.save_source(self.create_project())
+        started = self._request(
+            "POST",
+            f"/api/projects/{project['project_id']}/commands/start-inventory",
+            {
+                "request_id": "request-api-analysis-inventory",
+                "expected_revision": project["revision"],
+            },
+            headers=self.mutation_headers(),
+        )
+        self.assertEqual(started[0], 202)
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            status, _, _ = self._request(
+                "GET",
+                f"/api/projects/{project['project_id']}/inventory",
+                headers={"cookie": self.cookie},
+            )
+            self.assertEqual(status, 200)
+            current = self.inventory_repository.current_run(project["project_id"])
+            if current is not None:
+                break
+            time.sleep(0.01)
+        else:
+            self.fail("inventory did not finish before analysis preflight")
+
+        status, _, body = self._request(
+            "GET",
+            f"/api/projects/{project['project_id']}/analysis",
+            headers={"cookie": self.cookie},
+        )
+        self.assertEqual(status, 200)
+        analysis = self.json_body(body)
+        self.assertEqual(analysis["runtime"]["state"], "ready")
+        self.assertEqual(analysis["scope"]["counts"]["no_audio"], 1)
+        self.assertNotIn(str(self.source), body.decode("utf-8"))
+
+        status, _, body = self._request(
+            "POST",
+            f"/api/projects/{project['project_id']}/commands/start-analysis",
+            {
+                "request_id": "request-api-analysis-start",
+                "expected_revision": project["revision"],
+                "scope_id": analysis["scope"]["scope_id"],
+            },
+            headers=self.mutation_headers(),
+        )
+        self.assertEqual(status, 202)
+        run = self.json_body(body)["analysis"]
+        self.assertEqual(run["state"], "queued")
+        event_status, event_headers, _ = self._request(
+            "GET",
+            f"/api/projects/{project['project_id']}/analyses/{run['run_id']}/events",
+            headers={"cookie": self.cookie},
+        )
+        self.assertEqual(event_status, 200)
+        self.assertTrue(event_headers["content-type"].startswith("text/event-stream"))
+        status, _, body = self._request(
+            "POST",
+            f"/api/projects/{project['project_id']}/analyses/"
+            f"{run['run_id']}/commands/cancel",
+            {},
+            headers=self.mutation_headers(),
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(self.json_body(body)["analysis"]["state"], "cancelled")
+
+    def test_analysis_status_explains_optional_runtime_setup(self) -> None:
+        app = create_app(
+            ControllerConfig(self.static),
+            ProviderStatus("Codex", ProviderState.READY, "AI 已連接"),
+            self.authority,
+            self.workspace,
+            self.inventories,
+            preparation_repository=self.preparation_repository,
+        )
+        self.app = app
+        status, _, body = self._request(
+            "GET",
+            f"/api/projects/{self.create_project()['project_id']}/analysis",
+            headers={"cookie": self.cookie},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(self.json_body(body)["runtime"]["state"], "setup_required")
 
 
 if __name__ == "__main__":

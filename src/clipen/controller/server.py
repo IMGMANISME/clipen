@@ -26,6 +26,7 @@ except ImportError:  # Windows does not provide POSIX advisory file locks.
 
 import uvicorn
 
+from clipen.analysis import PreparationRepository
 from clipen.media import InventoryCoordinator, InventoryRepository
 from clipen.providers import CodexExecAdapter, ProviderUnavailable
 from clipen.projects import ProjectWorkspace
@@ -299,6 +300,7 @@ async def _serve(
     public_url = f"http://localhost:{port}"
     lease.publish(port)
     inventories = None
+    preparation_repository = None
     try:
         workspace = (
             ProjectWorkspace(paths.projects_root)
@@ -311,6 +313,9 @@ async def _serve(
             inventories.recover_incomplete(
                 project.project_id for project in workspace.repository.list_projects()
             )
+            preparation_repository = PreparationRepository(workspace.repository)
+            for project in workspace.repository.list_projects():
+                preparation_repository.interrupt_incomplete(project.project_id)
         app = create_app(
             ControllerConfig(
                 paths.static_root,
@@ -323,6 +328,7 @@ async def _serve(
             authority,
             workspace,
             inventories,
+            preparation_repository=preparation_repository,
         )
         config = uvicorn.Config(
             app,

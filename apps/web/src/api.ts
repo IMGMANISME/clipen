@@ -105,6 +105,64 @@ export type InventoryItemsPage = {
   next_offset: number | null
 }
 
+export type AnalysisState =
+  | 'queued'
+  | 'running'
+  | 'cancelling'
+  | 'succeeded'
+  | 'failed'
+  | 'cancelled'
+  | 'interrupted'
+
+export type AnalysisRun = {
+  run_id: string
+  project_revision: number
+  inventory_run_id: string
+  scope_id: string
+  state: AnalysisState
+  phase: string
+  counts: {
+    total: number
+    prepared: number
+    transcribed: number
+    no_audio: number
+    no_speech: number
+    issues: number
+  }
+  error_code: string | null
+  created_at: string
+  started_at: string | null
+  completed_at: string | null
+}
+
+export type AnalysisScope = {
+  scope_id: string
+  inventory_run_id: string
+  project_revision: number
+  counts: { audio_streams: number; no_audio: number; issues: number }
+  duration_seconds: string
+  estimated_audio_bytes: number
+  items: Array<{
+    version_id: string
+    role: DirectoryRole
+    display_name: string
+    stream_index: number | null
+    status: 'pending' | 'no_audio' | 'failed'
+    issue_code: string | null
+  }>
+}
+
+export type AnalysisSummary = {
+  runtime: {
+    state: 'ready' | 'setup_required'
+    message: string
+  }
+  scope: AnalysisScope | null
+  blocked_reason: string | null
+  latest: AnalysisRun | null
+  current: AnalysisRun | null
+}
+
 export class ApiError extends Error {
   code: string
   status: number
@@ -291,4 +349,54 @@ export async function cancelInventory(
       {},
     )
   ).inventory
+}
+
+export async function getAnalysis(projectId: string): Promise<AnalysisSummary> {
+  return request<AnalysisSummary>(`/api/projects/${projectId}/analysis`)
+}
+
+export async function startAnalysis(
+  csrf: string,
+  project: Project,
+  scopeId: string,
+): Promise<AnalysisRun> {
+  return (
+    await command<{ analysis: AnalysisRun }>(
+      `/api/projects/${project.project_id}/commands/start-analysis`,
+      csrf,
+      {
+        request_id: crypto.randomUUID(),
+        expected_revision: project.revision,
+        scope_id: scopeId,
+      },
+    )
+  ).analysis
+}
+
+export async function cancelAnalysis(
+  csrf: string,
+  projectId: string,
+  runId: string,
+): Promise<AnalysisRun> {
+  return (
+    await command<{ analysis: AnalysisRun }>(
+      `/api/projects/${projectId}/analyses/${runId}/commands/cancel`,
+      csrf,
+      {},
+    )
+  ).analysis
+}
+
+export async function resumeAnalysis(
+  csrf: string,
+  projectId: string,
+  runId: string,
+): Promise<AnalysisRun> {
+  return (
+    await command<{ analysis: AnalysisRun }>(
+      `/api/projects/${projectId}/analyses/${runId}/commands/resume`,
+      csrf,
+      { request_id: crypto.randomUUID() },
+    )
+  ).analysis
 }
