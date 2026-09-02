@@ -123,6 +123,82 @@ class TranscriptionResult:
     def no_speech_detected(self) -> bool:
         return not self.segments and not self.text.strip()
 
+    def to_storage(self) -> dict[str, object]:
+        return {
+            "language": self.language,
+            "text": self.text,
+            "segments": [
+                {
+                    "start_sample": segment.start_sample,
+                    "end_sample": segment.end_sample,
+                    "text": segment.text,
+                    "no_speech_probability": segment.no_speech_probability,
+                    "words": [
+                        {
+                            "start_sample": word.start_sample,
+                            "end_sample": word.end_sample,
+                            "text": word.text,
+                            "probability": word.probability,
+                        }
+                        for word in segment.words
+                    ],
+                }
+                for segment in self.segments
+            ],
+        }
+
+    @classmethod
+    def from_storage(cls, value: object) -> "TranscriptionResult":
+        if not isinstance(value, dict) or set(value) != {"language", "text", "segments"}:
+            raise ValueError("stored transcript shape is invalid")
+        raw_segments = value["segments"]
+        if not isinstance(raw_segments, list) or len(raw_segments) > _MAX_SEGMENTS:
+            raise ValueError("stored transcript segments are invalid")
+        segments: list[TranscriptSegment] = []
+        word_count = 0
+        for raw_segment in raw_segments:
+            if not isinstance(raw_segment, dict) or set(raw_segment) != {
+                "start_sample",
+                "end_sample",
+                "text",
+                "no_speech_probability",
+                "words",
+            }:
+                raise ValueError("stored transcript segment is invalid")
+            raw_words = raw_segment["words"]
+            if not isinstance(raw_words, list):
+                raise ValueError("stored transcript words are invalid")
+            word_count += len(raw_words)
+            if word_count > _MAX_WORDS:
+                raise ValueError("stored transcript has too many words")
+            words = []
+            for raw_word in raw_words:
+                if not isinstance(raw_word, dict) or set(raw_word) != {
+                    "start_sample",
+                    "end_sample",
+                    "text",
+                    "probability",
+                }:
+                    raise ValueError("stored transcript word is invalid")
+                words.append(
+                    TranscriptWord(
+                        raw_word["start_sample"],
+                        raw_word["end_sample"],
+                        raw_word["text"],
+                        raw_word["probability"],
+                    )
+                )
+            segments.append(
+                TranscriptSegment(
+                    raw_segment["start_sample"],
+                    raw_segment["end_sample"],
+                    raw_segment["text"],
+                    raw_segment["no_speech_probability"],
+                    tuple(words),
+                )
+            )
+        return cls(value["language"], value["text"], tuple(segments))
+
 
 class MLXWhisperAdapter:
     def __init__(

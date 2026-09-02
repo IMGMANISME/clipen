@@ -20,15 +20,18 @@ from clipen.projects.models import (
 )
 from clipen.projects.storage import ProjectRepository, command_digest, utc_now
 
-from .audio import AudioPreparationInput
+from .audio import AudioPreparationInput, PreparedAudioChunk
 from .models import (
+    PreparationChunkStatus,
     PreparationCounts,
     PreparationItemStatus,
     PreparationRun,
     PreparationState,
     Rational,
     SourceSpan,
+    TimelineSegment,
 )
+from .transcription import TranscriptionResult
 
 
 _TERMINAL_STATES = frozenset(
@@ -140,6 +143,36 @@ class PreparationScope:
             "estimated_audio_bytes": self.estimated_audio_bytes,
             "items": [target.to_public() for target in self.targets],
         }
+
+
+@dataclass(frozen=True)
+class PreparationWorkItem:
+    target: PreparationTarget
+    status: PreparationItemStatus
+    audio_artifact_id: str | None
+    transcript_revision_id: str | None
+    error_code: str | None
+
+
+@dataclass(frozen=True)
+class PreparationChunk:
+    ordinal: int
+    start_sample: int
+    end_sample: int
+    source_span: SourceSpan
+    status: PreparationChunkStatus
+    transcript_artifact_id: str | None
+    result: TranscriptionResult | None
+
+    def __post_init__(self) -> None:
+        if self.ordinal < 0 or self.start_sample < 0 or self.end_sample <= self.start_sample:
+            raise ValueError("stored preparation chunk range is invalid")
+        completed = self.status in {
+            PreparationChunkStatus.TRANSCRIBED,
+            PreparationChunkStatus.NO_SPEECH,
+        }
+        if completed != (self.transcript_artifact_id is not None and self.result is not None):
+            raise ValueError("stored preparation chunk result is inconsistent")
 
 
 class PreparationRepository:
@@ -374,6 +407,22 @@ class PreparationRepository:
                     replay = self._read_run(connection, receipt["run_id"])
                     connection.rollback()
                     return replay, False
+                live = connection.execute(
+                    "SELECT p.revision, c.run_id AS inventory_run_id FROM project p "
+                    "LEFT JOIN current_inventory c ON c.slot = 1 "
+                    "WHERE p.project_id = ?",
+                    (project_id,),
+                ).fetchone()
+                if (
+                    live is None
+                    or live["revision"] != scope.project_revision
+                    or live["inventory_run_id"] != scope.inventory_run_id
+                ):
+                    raise ProjectError(
+                        "scope_changed",
+                        "素材或作品內容已改變，請重新確認分析範圍。",
+                        status_code=409,
+                    )
                 busy = connection.execute(
                     "SELECT run_id FROM preparation_runs "
                     "WHERE state IN ('queued', 'running', 'cancelling') LIMIT 1"
@@ -481,6 +530,405 @@ class PreparationRepository:
             ).fetchone()
             return None if row is None else self._read_run(connection, row["run_id"])
 
+    def list_work_items(
+        self, project_id: str, run_id: str
+    ) -> tuple[PreparationWorkItem, ...]:
+        run = self.get_run(project_id, run_id)
+        scope = self.preflight(project_id)
+        if scope.scope_id != run.scope_id or scope.inventory_run_id != run.inventory_run_id:
+            raise ProjectError(
+                "scope_changed",
+                "素材或作品內容已改變，無法繼續這次分析。",
+                status_code=409,
+            )
+        targets = {
+            (target.version_id, target.stream_index): target for target in scope.targets
+        }
+        with self.projects.connect(project_id) as connection:
+            rows = connection.execute(
+                "SELECT version_id, stream_index, status, audio_artifact_id, "
+                "transcript_revision_id, error_code FROM preparation_items "
+                "WHERE run_id = ? ORDER BY version_id, stream_index",
+                (run_id,),
+            ).fetchall()
+        try:
+            return tuple(
+                PreparationWorkItem(
+                    targets[(row["version_id"], row["stream_index"])],
+                    PreparationItemStatus(row["status"]),
+                    row["audio_artifact_id"],
+                    row["transcript_revision_id"],
+                    row["error_code"],
+                )
+                for row in rows
+            )
+        except (KeyError, TypeError, ValueError) as error:
+            raise ProjectError(
+                "storage_corrupt", "Clipen 無法讀取分析項目。", status_code=500
+            ) from error
+
+    def register_chunks(
+        self,
+        project_id: str,
+        run_id: str,
+        version_id: str,
+        stream_index: int,
+        chunks: tuple[PreparedAudioChunk, ...],
+    ) -> tuple[PreparationChunk, ...]:
+        if not chunks:
+            raise ValueError("preparation requires at least one audio chunk")
+        with self.projects.connect(project_id) as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                run = self._read_run(connection, run_id)
+                if run.project_id != project_id or run.state is not PreparationState.RUNNING:
+                    raise ProjectError(
+                        "preparation_state_conflict",
+                        "這次素材分析目前不能保存切塊。",
+                        status_code=409,
+                    )
+                item = connection.execute(
+                    "SELECT status FROM preparation_items WHERE run_id = ? "
+                    "AND version_id = ? AND stream_index = ?",
+                    (run_id, version_id, stream_index),
+                ).fetchone()
+                if item is None or item["status"] != PreparationItemStatus.PREPARED.value:
+                    raise ProjectError(
+                        "preparation_item_conflict",
+                        "這個分析項目尚未準備好。",
+                        status_code=409,
+                    )
+                existing = connection.execute(
+                    "SELECT ordinal, start_sample, end_sample, source_span_json, status, "
+                    "transcript_artifact_id, result_json FROM preparation_chunks "
+                    "WHERE run_id = ? AND version_id = ? AND stream_index = ? "
+                    "ORDER BY ordinal",
+                    (run_id, version_id, stream_index),
+                ).fetchall()
+                if existing:
+                    observed = tuple(
+                        (row["start_sample"], row["end_sample"], row["source_span_json"])
+                        for row in existing
+                    )
+                    requested = tuple(
+                        (
+                            chunk.start_sample,
+                            chunk.end_sample,
+                            json.dumps(
+                                chunk.source_span.to_storage(),
+                                sort_keys=True,
+                                separators=(",", ":"),
+                            ),
+                        )
+                        for chunk in chunks
+                    )
+                    if observed != requested:
+                        raise ProjectError(
+                            "chunk_recipe_changed",
+                            "音訊切塊方式已改變，無法沿用先前進度。",
+                            status_code=409,
+                        )
+                else:
+                    for ordinal, chunk in enumerate(chunks):
+                        connection.execute(
+                            "INSERT INTO preparation_chunks "
+                            "(run_id, version_id, stream_index, ordinal, start_sample, "
+                            "end_sample, source_span_json, status) "
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')",
+                            (
+                                run_id,
+                                version_id,
+                                stream_index,
+                                ordinal,
+                                chunk.start_sample,
+                                chunk.end_sample,
+                                json.dumps(
+                                    chunk.source_span.to_storage(),
+                                    sort_keys=True,
+                                    separators=(",", ":"),
+                                ),
+                            ),
+                        )
+                    existing = connection.execute(
+                        "SELECT ordinal, start_sample, end_sample, source_span_json, status, "
+                        "transcript_artifact_id, result_json FROM preparation_chunks "
+                        "WHERE run_id = ? AND version_id = ? AND stream_index = ? "
+                        "ORDER BY ordinal",
+                        (run_id, version_id, stream_index),
+                    ).fetchall()
+                result = tuple(self._read_chunk(row) for row in existing)
+                connection.commit()
+                return result
+            except ProjectError:
+                connection.rollback()
+                raise
+            except sqlite3.Error as error:
+                connection.rollback()
+                raise ProjectError(
+                    "storage_failed", "Clipen 無法保存音訊切塊。", status_code=500
+                ) from error
+
+    def settle_chunk(
+        self,
+        project_id: str,
+        run_id: str,
+        version_id: str,
+        stream_index: int,
+        ordinal: int,
+        artifact_id: str,
+        result: TranscriptionResult,
+    ) -> PreparationChunk:
+        status = (
+            PreparationChunkStatus.NO_SPEECH
+            if result.no_speech_detected
+            else PreparationChunkStatus.TRANSCRIBED
+        )
+        result_json = _encoded_json(result.to_storage(), "transcript result", 32 * 1024 * 1024)
+        with self.projects.connect(project_id) as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                run = self._read_run(connection, run_id)
+                if run.project_id != project_id or run.state is not PreparationState.RUNNING:
+                    raise ProjectError(
+                        "preparation_state_conflict",
+                        "這次素材分析目前不能保存逐字稿。",
+                        status_code=409,
+                    )
+                row = connection.execute(
+                    "SELECT ordinal, start_sample, end_sample, source_span_json, status, "
+                    "transcript_artifact_id, result_json FROM preparation_chunks "
+                    "WHERE run_id = ? AND version_id = ? AND stream_index = ? AND ordinal = ?",
+                    (run_id, version_id, stream_index, ordinal),
+                ).fetchone()
+                if row is None:
+                    raise ProjectError(
+                        "preparation_chunk_not_found", "找不到這個音訊切塊。", status_code=404
+                    )
+                if row["status"] != PreparationChunkStatus.PENDING.value:
+                    completed = self._read_chunk(row)
+                    if completed.transcript_artifact_id != artifact_id or completed.result != result:
+                        raise ProjectError(
+                            "preparation_chunk_conflict",
+                            "這個音訊切塊已保存不同結果。",
+                            status_code=409,
+                        )
+                    connection.rollback()
+                    return completed
+                connection.execute(
+                    "UPDATE preparation_chunks SET status = ?, transcript_artifact_id = ?, "
+                    "result_json = ? WHERE run_id = ? AND version_id = ? "
+                    "AND stream_index = ? AND ordinal = ?",
+                    (
+                        status.value,
+                        artifact_id,
+                        result_json,
+                        run_id,
+                        version_id,
+                        stream_index,
+                        ordinal,
+                    ),
+                )
+                stored = connection.execute(
+                    "SELECT ordinal, start_sample, end_sample, source_span_json, status, "
+                    "transcript_artifact_id, result_json FROM preparation_chunks "
+                    "WHERE run_id = ? AND version_id = ? AND stream_index = ? AND ordinal = ?",
+                    (run_id, version_id, stream_index, ordinal),
+                ).fetchone()
+                chunk = self._read_chunk(stored)
+                connection.commit()
+                return chunk
+            except ProjectError:
+                connection.rollback()
+                raise
+            except sqlite3.Error as error:
+                connection.rollback()
+                raise ProjectError(
+                    "storage_failed", "Clipen 無法保存逐字稿切塊。", status_code=500
+                ) from error
+
+    def publish_transcript_revision(
+        self,
+        project_id: str,
+        run_id: str,
+        version_id: str,
+        stream_index: int,
+        *,
+        artifact_id: str,
+        language: str,
+        model: Mapping[str, object],
+        recipe_id: str,
+        source_span: SourceSpan,
+        segments: tuple[TimelineSegment, ...],
+    ) -> str:
+        if not re.fullmatch(r"[a-z]{2,3}(?:-[A-Z]{2})?", language):
+            raise ValueError("transcript language is invalid")
+        if not re.fullmatch(r"[a-z][a-z0-9_.-]{0,127}", recipe_id):
+            raise ValueError("transcript recipe is invalid")
+        if any(
+            segment.source_span.version_id != version_id
+            or segment.source_span.stream_index != stream_index
+            for segment in segments
+        ):
+            raise ValueError("timeline segment belongs to another source")
+        model_json = _bounded_json(model, "ASR model")
+        source_json = json.dumps(
+            source_span.to_storage(), sort_keys=True, separators=(",", ":")
+        )
+        identity = {
+            "run_id": run_id,
+            "version_id": version_id,
+            "stream_index": stream_index,
+            "artifact_id": artifact_id,
+            "language": language,
+            "recipe_id": recipe_id,
+        }
+        revision_id = "trn_" + hashlib.sha256(
+            json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()[:32]
+        with self.projects.connect(project_id) as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                run = self._read_run(connection, run_id)
+                if run.project_id != project_id or run.state is not PreparationState.RUNNING:
+                    raise ProjectError(
+                        "preparation_state_conflict",
+                        "這次素材分析目前不能發布逐字稿。",
+                        status_code=409,
+                    )
+                item = connection.execute(
+                    "SELECT status, transcript_revision_id FROM preparation_items "
+                    "WHERE run_id = ? AND version_id = ? AND stream_index = ?",
+                    (run_id, version_id, stream_index),
+                ).fetchone()
+                if item is None:
+                    raise ProjectError(
+                        "preparation_item_not_found", "找不到這個分析項目。", status_code=404
+                    )
+                if item["transcript_revision_id"] is not None:
+                    if item["transcript_revision_id"] != revision_id:
+                        raise ProjectError(
+                            "preparation_item_conflict",
+                            "這個分析項目已發布不同逐字稿。",
+                            status_code=409,
+                        )
+                    connection.rollback()
+                    return revision_id
+                if item["status"] != PreparationItemStatus.PREPARED.value:
+                    raise ProjectError(
+                        "preparation_item_conflict",
+                        "這個分析項目尚未準備好。",
+                        status_code=409,
+                    )
+                chunk_counts = connection.execute(
+                    "SELECT COUNT(*) AS total, SUM(CASE WHEN status != 'pending' "
+                    "THEN 1 ELSE 0 END) AS complete FROM preparation_chunks "
+                    "WHERE run_id = ? AND version_id = ? AND stream_index = ?",
+                    (run_id, version_id, stream_index),
+                ).fetchone()
+                if chunk_counts["total"] < 1 or chunk_counts["complete"] != chunk_counts["total"]:
+                    raise ProjectError(
+                        "preparation_incomplete",
+                        "逐字稿仍有尚未完成的音訊切塊。",
+                        status_code=409,
+                    )
+                artifact = connection.execute(
+                    "SELECT project_id, kind, producer_operation_id FROM artifacts "
+                    "WHERE artifact_id = ?",
+                    (artifact_id,),
+                ).fetchone()
+                if (
+                    artifact is None
+                    or artifact["project_id"] != project_id
+                    or artifact["kind"] != "transcript"
+                    or artifact["producer_operation_id"] != run.operation_id
+                ):
+                    raise ProjectError(
+                        "artifact_not_found", "找不到完整逐字稿成果。", status_code=409
+                    )
+                status = "no_speech_detected" if not segments else "transcribed"
+                now = utc_now()
+                connection.execute(
+                    "INSERT INTO transcription_revisions "
+                    "(revision_id, project_id, run_id, version_id, stream_index, "
+                    "artifact_id, status, language, model_json, recipe_id, "
+                    "source_span_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        revision_id,
+                        project_id,
+                        run_id,
+                        version_id,
+                        stream_index,
+                        artifact_id,
+                        status,
+                        language,
+                        model_json,
+                        recipe_id,
+                        source_json,
+                        now,
+                    ),
+                )
+                for ordinal, segment in enumerate(segments):
+                    segment_identity = (
+                        f"{revision_id}\0{ordinal}\0{segment.source_span.start_pts}\0"
+                        f"{segment.source_span.end_pts}\0{segment.text}"
+                    )
+                    segment_id = "seg_" + hashlib.sha256(
+                        segment_identity.encode("utf-8")
+                    ).hexdigest()[:32]
+                    connection.execute(
+                        "INSERT INTO transcript_segments "
+                        "(revision_id, segment_id, start_pts, end_pts, text, confidence, ordinal) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        (
+                            revision_id,
+                            segment_id,
+                            segment.source_span.start_pts,
+                            segment.source_span.end_pts,
+                            segment.text,
+                            segment.confidence,
+                            ordinal,
+                        ),
+                    )
+                item_status = (
+                    PreparationItemStatus.NO_SPEECH
+                    if not segments
+                    else PreparationItemStatus.TRANSCRIBED
+                )
+                connection.execute(
+                    "UPDATE preparation_items SET status = ?, transcript_revision_id = ?, "
+                    "error_code = NULL WHERE run_id = ? AND version_id = ? AND stream_index = ?",
+                    (
+                        item_status.value,
+                        revision_id,
+                        run_id,
+                        version_id,
+                        stream_index,
+                    ),
+                )
+                self._refresh_counts(connection, run_id)
+                self._append_event(
+                    connection,
+                    project_id,
+                    run.operation_id,
+                    "progress",
+                    {
+                        "version_id": version_id,
+                        "stream_index": stream_index,
+                        "status": item_status.value,
+                    },
+                    now,
+                )
+                connection.commit()
+                return revision_id
+            except ProjectError:
+                connection.rollback()
+                raise
+            except sqlite3.Error as error:
+                connection.rollback()
+                raise ProjectError(
+                    "storage_failed", "Clipen 無法發布逐字稿。", status_code=500
+                ) from error
+
     def transition(
         self,
         project_id: str,
@@ -587,6 +1035,128 @@ class PreparationRepository:
                 connection.rollback()
                 raise ProjectError(
                     "storage_failed", "Clipen 無法取消素材分析。", status_code=500
+                ) from error
+
+    def resume_interrupted(
+        self, project_id: str, run_id: str, request_id: object
+    ) -> tuple[PreparationRun, bool]:
+        validate_project_id(project_id)
+        normalized_request = validate_request_id(request_id)
+        request_hash = command_digest({"run_id": run_id})
+        with self.projects.connect(project_id) as connection:
+            receipt = connection.execute(
+                "SELECT command_type, request_hash, run_id "
+                "FROM preparation_command_receipts WHERE request_id = ?",
+                (normalized_request,),
+            ).fetchone()
+            if receipt is not None:
+                if (
+                    receipt["command_type"] != "resume_preparation"
+                    or receipt["request_hash"] != request_hash
+                ):
+                    raise ProjectError(
+                        "request_reused",
+                        "這次操作的識別資訊已用於不同內容。",
+                        status_code=409,
+                    )
+                return self._read_run(connection, receipt["run_id"]), False
+        scope = self.preflight(project_id)
+        with self.projects.connect(project_id) as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                receipt = connection.execute(
+                    "SELECT command_type, request_hash, run_id "
+                    "FROM preparation_command_receipts WHERE request_id = ?",
+                    (normalized_request,),
+                ).fetchone()
+                if receipt is not None:
+                    if (
+                        receipt["command_type"] != "resume_preparation"
+                        or receipt["request_hash"] != request_hash
+                    ):
+                        raise ProjectError(
+                            "request_reused",
+                            "這次操作的識別資訊已用於不同內容。",
+                            status_code=409,
+                        )
+                    replay = self._read_run(connection, receipt["run_id"])
+                    connection.rollback()
+                    return replay, False
+                current = self._read_run(connection, run_id)
+                if current.project_id != project_id:
+                    raise ProjectError(
+                        "preparation_not_found", "找不到這次素材分析。", status_code=404
+                    )
+                if current.state is not PreparationState.INTERRUPTED:
+                    raise ProjectError(
+                        "preparation_state_conflict",
+                        "只有被中斷的素材分析可以接續。",
+                        status_code=409,
+                    )
+                live = connection.execute(
+                    "SELECT p.revision, c.run_id AS inventory_run_id FROM project p "
+                    "LEFT JOIN current_inventory c ON c.slot = 1 "
+                    "WHERE p.project_id = ?",
+                    (project_id,),
+                ).fetchone()
+                if (
+                    scope.scope_id != current.scope_id
+                    or scope.inventory_run_id != current.inventory_run_id
+                    or live is None
+                    or live["revision"] != scope.project_revision
+                    or live["inventory_run_id"] != scope.inventory_run_id
+                ):
+                    raise ProjectError(
+                        "scope_changed",
+                        "素材或作品內容已改變，無法接續這次分析。",
+                        status_code=409,
+                    )
+                busy = connection.execute(
+                    "SELECT run_id FROM preparation_runs WHERE run_id != ? "
+                    "AND state IN ('queued', 'running', 'cancelling') LIMIT 1",
+                    (run_id,),
+                ).fetchone()
+                if busy is not None:
+                    raise ProjectError(
+                        "preparation_busy",
+                        "已有一個素材分析正在進行。",
+                        status_code=409,
+                    )
+                attempt_number = current.attempt_number + 1
+                attempt_id = _derived_id(
+                    "att", current.operation_id, str(attempt_number)
+                )
+                now = utc_now()
+                connection.execute(
+                    "UPDATE preparation_runs SET attempt_id = ?, attempt_number = ?, "
+                    "state = 'queued', phase = 'preparing', error_code = NULL, "
+                    "started_at = NULL, completed_at = NULL WHERE run_id = ?",
+                    (attempt_id, attempt_number, run_id),
+                )
+                connection.execute(
+                    "INSERT INTO preparation_command_receipts "
+                    "(request_id, command_type, request_hash, run_id, created_at) "
+                    "VALUES (?, 'resume_preparation', ?, ?, ?)",
+                    (normalized_request, request_hash, run_id, now),
+                )
+                self._append_event(
+                    connection,
+                    project_id,
+                    current.operation_id,
+                    "queued",
+                    {"phase": "preparing", "attempt_number": attempt_number},
+                    now,
+                )
+                resumed = self._read_run(connection, run_id)
+                connection.commit()
+                return resumed, True
+            except ProjectError:
+                connection.rollback()
+                raise
+            except sqlite3.Error as error:
+                connection.rollback()
+                raise ProjectError(
+                    "storage_failed", "Clipen 無法接續素材分析。", status_code=500
                 ) from error
 
     def settle_item(
@@ -896,6 +1466,29 @@ class PreparationRepository:
                 "storage_corrupt", "Clipen 無法讀取素材分析。", status_code=500
             ) from error
 
+    @staticmethod
+    def _read_chunk(row: sqlite3.Row) -> PreparationChunk:
+        try:
+            raw_span = json.loads(row["source_span_json"])
+            raw_result = (
+                None if row["result_json"] is None else json.loads(row["result_json"])
+            )
+            return PreparationChunk(
+                row["ordinal"],
+                row["start_sample"],
+                row["end_sample"],
+                SourceSpan.from_storage(raw_span),
+                PreparationChunkStatus(row["status"]),
+                row["transcript_artifact_id"],
+                None
+                if raw_result is None
+                else TranscriptionResult.from_storage(raw_result),
+            )
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
+            raise ProjectError(
+                "storage_corrupt", "Clipen 無法讀取逐字稿切塊。", status_code=500
+            ) from error
+
 
 def _source_span(version_id: str, stream_index: int, details: Mapping[str, Any]) -> SourceSpan:
     time_base = details["time_base"]
@@ -923,6 +1516,10 @@ def _derived_id(prefix: str, *values: str) -> str:
 def _bounded_json(value: Mapping[str, object], label: str) -> str:
     if not isinstance(value, Mapping):
         raise ValueError(f"{label} must be an object")
+    return _encoded_json(value, label, 64 * 1024)
+
+
+def _encoded_json(value: object, label: str, maximum_bytes: int) -> str:
     try:
         encoded = json.dumps(
             value,
@@ -932,7 +1529,7 @@ def _bounded_json(value: Mapping[str, object], label: str) -> str:
         )
     except (TypeError, ValueError) as error:
         raise ValueError(f"{label} is invalid") from error
-    if len(encoded.encode("utf-8")) > 64 * 1024:
+    if len(encoded.encode("utf-8")) > maximum_bytes:
         raise ValueError(f"{label} is too large")
     return encoded
 

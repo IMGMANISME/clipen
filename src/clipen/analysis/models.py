@@ -47,6 +47,12 @@ class PreparationItemStatus(str, Enum):
     FAILED = "failed"
 
 
+class PreparationChunkStatus(str, Enum):
+    PENDING = "pending"
+    TRANSCRIBED = "transcribed"
+    NO_SPEECH = "no_speech"
+
+
 @dataclass(frozen=True)
 class PreparationCounts:
     total: int = 0
@@ -217,6 +223,25 @@ class SourceSpan:
             str(value["end_pts"]),
             Rational.from_storage(raw_time_base),
         )
+
+
+@dataclass(frozen=True)
+class TimelineSegment:
+    source_span: SourceSpan
+    text: str
+    confidence: str | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.text, str) or "\x00" in self.text:
+            raise ValueError("timeline segment text is invalid")
+        if len(self.text.encode("utf-8")) > 64 * 1024:
+            raise ValueError("timeline segment text is too large")
+        if self.confidence is not None and (
+            not isinstance(self.confidence, str)
+            or len(self.confidence) > 64
+            or re.fullmatch(r"(?:0(?:\.[0-9]+)?|1(?:\.0+)?)", self.confidence) is None
+        ):
+            raise ValueError("timeline segment confidence is invalid")
 
 
 @dataclass(frozen=True)
