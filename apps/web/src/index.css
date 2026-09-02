@@ -438,6 +438,24 @@ input:focus, textarea:focus { border-color: #6c8b73; box-shadow: 0 0 0 3px rgba(
 .analysis-card strong { display: block; margin-bottom: 5px; font-size: 14px; }
 .analysis-card p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
 .analysis-card.setup-required { align-items: flex-start; border-color: #d5c8ad; background: #f4ecda; }
+.runtime-setup-content { flex: 1; min-width: 0; }
+.runtime-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; overflow: hidden; margin: 16px 0 12px; border: 1px solid rgba(119, 93, 39, .18); border-radius: 10px; background: rgba(119, 93, 39, .14); }
+.runtime-facts > div { min-width: 0; padding: 10px 12px; background: rgba(255, 253, 247, .82); }
+.runtime-facts dt { margin-bottom: 3px; color: #81745b; font-size: 10px; font-weight: 720; }
+.runtime-facts dd { overflow: hidden; margin: 0; color: #514936; font-size: 11px; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
+.analysis-card p.runtime-license { margin: 0 0 13px; color: #6b6048; font-size: 10px; }
+.runtime-license a { color: #506b54; font-weight: 720; }
+.runtime-consent { display: flex; align-items: flex-start; gap: 8px; margin: 0 0 13px; color: #514936; font-size: 11px; line-height: 1.45; cursor: pointer; }
+.runtime-consent input { flex: 0 0 auto; width: 15px; height: 15px; margin: 0; accent-color: var(--green); }
+.runtime-setup .button { min-height: 38px; padding: 0 15px; font-size: 11px; }
+.runtime-progress .progress-main > div { min-width: min(420px, 55vw); }
+.runtime-progress-track { display: block; overflow: hidden; height: 4px; margin-top: 9px; border-radius: 999px; background: #d3dfd1; }
+.runtime-progress-track i { display: block; height: 100%; border-radius: inherit; background: var(--green); transition: width .2s ease; }
+.runtime-failed { align-items: center; }
+.runtime-settings { margin-top: 14px; color: #777c74; font-size: 11px; }
+.runtime-settings summary { width: max-content; cursor: pointer; font-weight: 680; }
+.runtime-settings > div { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-top: 9px; padding: 12px 14px; border: 1px solid #daddd6; border-radius: 10px; background: rgba(247, 247, 242, .74); }
+.runtime-settings p { margin: 0; line-height: 1.5; }
 .analysis-card.scope-preview { justify-content: space-between; border-color: #b9c9bb; background: #edf3e9; }
 .analysis-card.scope-preview > span { max-width: 240px; color: #5d6d60; font-size: 11px; line-height: 1.5; text-align: right; }
 .analysis-progress { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 20px; border-color: #b9c9bb; background: #edf3e9; }

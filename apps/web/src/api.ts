@@ -152,11 +152,35 @@ export type AnalysisScope = {
   }>
 }
 
-export type AnalysisSummary = {
-  runtime: {
-    state: 'ready' | 'setup_required'
-    message: string
+export type ASRRuntimeStatus = {
+  state: 'setup_required' | 'installing' | 'ready' | 'failed' | 'removing'
+  phase: string
+  message: string
+  error_code: string | null
+  completed_units: number
+  total_units: number
+  notice?: {
+    version: string
+    download_bytes: number
+    installed_bytes: number
+    install_location: string
+    model: {
+      name: string
+      source: string
+      revision: string
+      model_bytes: number
+    }
+    license: {
+      whisper_software: string
+      whisper_license_url: string
+      conversion_notice: string
+    }
+    removable: boolean
   }
+}
+
+export type AnalysisSummary = {
+  runtime: ASRRuntimeStatus
   scope: AnalysisScope | null
   blocked_reason: string | null
   latest: AnalysisRun | null
@@ -353,6 +377,39 @@ export async function cancelInventory(
 
 export async function getAnalysis(projectId: string): Promise<AnalysisSummary> {
   return request<AnalysisSummary>(`/api/projects/${projectId}/analysis`)
+}
+
+export async function installASR(
+  csrf: string,
+  acceptedNotice: string,
+): Promise<ASRRuntimeStatus> {
+  return (
+    await command<{ runtime: ASRRuntimeStatus }>(
+      '/api/system/commands/install-asr',
+      csrf,
+      { accepted_notice: acceptedNotice },
+    )
+  ).runtime
+}
+
+export async function cancelASRInstall(csrf: string): Promise<ASRRuntimeStatus> {
+  return (
+    await command<{ runtime: ASRRuntimeStatus }>(
+      '/api/system/commands/cancel-asr-install',
+      csrf,
+      {},
+    )
+  ).runtime
+}
+
+export async function removeASR(csrf: string): Promise<ASRRuntimeStatus> {
+  return (
+    await command<{ runtime: ASRRuntimeStatus }>(
+      '/api/system/commands/remove-asr',
+      csrf,
+      {},
+    )
+  ).runtime
 }
 
 export async function startAnalysis(
