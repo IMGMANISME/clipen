@@ -25,6 +25,7 @@ from clipen.asr_release import (
     INSTALLED_BYTES,
     MODEL_REPOSITORY,
     MODEL_REVISION,
+    PROGRESS_RECORD_PREFIX,
     WHISPER_LICENSE,
     WHISPER_LICENSE_URL,
     quick_release_is_ready,
@@ -427,6 +428,8 @@ def _install_asr_bundle(
     )
     captured = 0
     process: subprocess.Popen[str] | None = None
+    progress_active = False
+    progress_width = 0
     try:
         with log_path.open("w", encoding="utf-8") as log:
             process = subprocess.Popen(
@@ -451,12 +454,35 @@ def _install_asr_bundle(
                 if captured > 4 * 1024 * 1024:
                     process.terminate()
                     raise BootstrapError("語音辨識設定輸出超過安全上限")
-                log.write(line)
+                is_progress = line.startswith(PROGRESS_RECORD_PREFIX)
+                visible_line = (
+                    line[len(PROGRESS_RECORD_PREFIX) :].rstrip("\r\n")
+                    if is_progress
+                    else line
+                )
+                log.write(f"{visible_line}\n" if is_progress else visible_line)
                 log.flush()
-                stdout.write(line)
+                if is_progress and stdout.isatty():
+                    padding = " " * max(0, progress_width - len(visible_line))
+                    stdout.write(f"\r{visible_line}{padding}")
+                    progress_active = True
+                    progress_width = len(visible_line)
+                else:
+                    if progress_active:
+                        stdout.write("\n")
+                        progress_active = False
+                        progress_width = 0
+                    stdout.write(f"{visible_line}\n" if is_progress else visible_line)
                 stdout.flush()
             returncode = process.wait()
+            if progress_active:
+                stdout.write("\n")
+                stdout.flush()
+                progress_active = False
     except BaseException:
+        if progress_active:
+            stdout.write("\n")
+            stdout.flush()
         if process is not None and process.poll() is None:
             process.terminate()
             try:

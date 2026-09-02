@@ -14,6 +14,11 @@ class TTYInput(io.StringIO):
         return True
 
 
+class TTYOutput(io.StringIO):
+    def isatty(self) -> bool:
+        return True
+
+
 class BootstrapTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
@@ -314,6 +319,36 @@ class BootstrapTests(unittest.TestCase):
         self.assertIn("clipen.analysis.setup_cli", command)
         self.assertEqual(output.getvalue(), "正在建立…\n下載完成\n")
         self.assertEqual(log.read_text(encoding="utf-8"), output.getvalue())
+
+    def test_asr_progress_refreshes_one_terminal_line_but_keeps_log_history(self) -> None:
+        runtime = self.root / "runtime-progress"
+        python = bootstrap.runtime_python(runtime)
+        python.parent.mkdir(parents=True)
+        python.write_text("python", encoding="utf-8")
+        output = TTYOutput()
+        log = self.root / "asr-progress.log"
+        prefix = bootstrap.PROGRESS_RECORD_PREFIX
+        process = mock.Mock()
+        process.stdout = iter(
+            (
+                f"{prefix}[░░░] 1% 建立環境\n",
+                f"{prefix}[█░░] 5% 下載套件\n",
+                "✓ 安裝完成\n",
+            )
+        )
+        process.wait.return_value = 0
+
+        with mock.patch("clipen.bootstrap.subprocess.Popen", return_value=process):
+            bootstrap._install_asr_bundle(runtime, self.repo, self.data, log, output)
+
+        self.assertEqual(
+            output.getvalue(),
+            "\r[░░░] 1% 建立環境\r[█░░] 5% 下載套件\n✓ 安裝完成\n",
+        )
+        self.assertEqual(
+            log.read_text(encoding="utf-8"),
+            "[░░░] 1% 建立環境\n[█░░] 5% 下載套件\n✓ 安裝完成\n",
+        )
 
     def test_keyboard_interrupt_during_setup_returns_130_without_exec(self) -> None:
         errors = io.StringIO()
