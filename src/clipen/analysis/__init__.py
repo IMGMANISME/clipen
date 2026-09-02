@@ -31,6 +31,8 @@ from .storage import (
     PreparationWorkItem,
 )
 from .service import PreparationCoordinator, PreparationRecipe
+from .runtime import ManagedAnalysisRuntime
+from .setup import ASRSetupError, ASRSetupManager, ASRSetupState, ASRSetupStatus
 from .transcription import (
     LocalModelSnapshot,
     MLXWhisperAdapter,
@@ -47,6 +49,10 @@ __all__ = [
     "PreparationChunk",
     "PreparationChunkStatus",
     "ArtifactStore",
+    "ASRSetupError",
+    "ASRSetupManager",
+    "ASRSetupState",
+    "ASRSetupStatus",
     "AudioPreparationError",
     "AudioPreparationInput",
     "FFmpegAudioAdapter",
@@ -69,6 +75,7 @@ __all__ = [
     "SourceSpan",
     "TimelineSegment",
     "LocalModelSnapshot",
+    "ManagedAnalysisRuntime",
     "MLXWhisperAdapter",
     "TranscriptSegment",
     "TranscriptWord",
