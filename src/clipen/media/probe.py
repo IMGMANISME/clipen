@@ -106,7 +106,7 @@ class FFprobeAdapter:
                 raise MediaProbeError("entry_not_regular")
             if before.st_size != asset.size_bytes or before.st_mtime_ns != asset.mtime_ns:
                 raise MediaProbeError("changed")
-            fingerprint = _bounded_fingerprint(descriptor, before.st_size)
+            fingerprint = bounded_file_fingerprint(descriptor, before.st_size)
             command = (
                 self.executable,
                 "-v",
@@ -144,7 +144,7 @@ class FFprobeAdapter:
                     size_bytes=before.st_size,
                     mtime_ns=before.st_mtime_ns,
                 )
-            if fingerprint != _bounded_fingerprint(descriptor, after.st_size):
+            if fingerprint != bounded_file_fingerprint(descriptor, after.st_size):
                 raise MediaProbeError(
                     "changed",
                     fingerprint=fingerprint,
@@ -223,7 +223,7 @@ class FFprobeAdapter:
             return stdout_file.read(), stderr_file.read(), process.returncode
 
 
-def _bounded_fingerprint(descriptor: int, size: int) -> str:
+def bounded_file_fingerprint(descriptor: int, size: int) -> str:
     chunk_size = 64 * 1024
     first = os.pread(descriptor, min(size, chunk_size), 0)
     last_offset = max(0, size - chunk_size)

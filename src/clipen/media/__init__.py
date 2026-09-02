@@ -15,7 +15,12 @@ from .models import (
 )
 from .storage import InventoryRepository
 from .discovery import DiscoveredAsset, DiscoveryError, MediaDiscovery
-from .probe import FFprobeAdapter, MediaProbeError, MediaProbeResult
+from .probe import (
+    FFprobeAdapter,
+    MediaProbeError,
+    MediaProbeResult,
+    bounded_file_fingerprint,
+)
 from .service import InventoryCoordinator
 
 __all__ = [
@@ -38,4 +43,5 @@ __all__ = [
     "MediaProbeError",
     "MediaProbeResult",
     "ProbeStatus",
+    "bounded_file_fingerprint",
 ]
