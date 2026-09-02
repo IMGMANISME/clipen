@@ -10,6 +10,15 @@ from .audio import (
     PreparedAudioChunk,
 )
 from .models import ArtifactKind, ArtifactRecord, Rational, SourceSpan
+from .transcription import (
+    LocalModelSnapshot,
+    MLXWhisperAdapter,
+    TranscriptSegment,
+    TranscriptWord,
+    TranscriptionError,
+    TranscriptionResult,
+    hash_model_directory,
+)
 
 __all__ = [
     "ArtifactKind",
@@ -23,4 +32,11 @@ __all__ = [
     "PreparedAudioChunk",
     "Rational",
     "SourceSpan",
+    "LocalModelSnapshot",
+    "MLXWhisperAdapter",
+    "TranscriptSegment",
+    "TranscriptWord",
+    "TranscriptionError",
+    "TranscriptionResult",
+    "hash_model_directory",
 ]
