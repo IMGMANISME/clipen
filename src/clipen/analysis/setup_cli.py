@@ -38,11 +38,19 @@ def main(arguments: list[str] | None = None) -> int:
                 return 1
         manager.start_install(NOTICE_VERSION)
         last_phase = None
+        started_at = time.monotonic()
+        last_reported_at = 0.0
         while True:
             status = manager.status()
-            if status.phase != last_phase:
-                print(status.message, flush=True)
+            now = time.monotonic()
+            if status.state is ASRSetupState.INSTALLING and (
+                status.phase != last_phase or now - last_reported_at >= 10
+            ):
+                elapsed = max(0, int(now - started_at))
+                suffix = f"（已進行 {elapsed // 60} 分 {elapsed % 60} 秒）" if elapsed else ""
+                print(f"{status.message}{suffix}", flush=True)
                 last_phase = status.phase
+                last_reported_at = now
             if status.state is ASRSetupState.READY:
                 print("✓ 本機語音辨識與固定模型安裝完成", flush=True)
                 return 0

@@ -1,4 +1,5 @@
 import hashlib
+import io
 import os
 from pathlib import Path
 import tempfile
@@ -232,6 +233,37 @@ class ASRSetupManagerTests(unittest.TestCase):
         self.assertEqual(result, 0)
         manager.start_install.assert_called_once_with("asr-mlx-whisper-small-v1")
         manager.close.assert_called_once_with(timeout=10)
+
+    def test_blocking_setup_reports_heartbeat_while_phase_is_unchanged(self) -> None:
+        manager = mock.Mock()
+        manager.status.side_effect = (
+            ASRSetupStatus(ASRSetupState.SETUP_REQUIRED, "not_installed", "尚未安裝"),
+            ASRSetupStatus(ASRSetupState.INSTALLING, "installing", "正在下載套件…"),
+            ASRSetupStatus(ASRSetupState.INSTALLING, "installing", "正在下載套件…"),
+            ASRSetupStatus(ASRSetupState.READY, "ready", "完成", completed_units=3),
+        )
+        output = io.StringIO()
+        with (
+            mock.patch("clipen.analysis.setup_cli.ASRSetupManager", return_value=manager),
+            mock.patch("clipen.analysis.setup_cli.time.sleep"),
+            mock.patch(
+                "clipen.analysis.setup_cli.time.monotonic",
+                side_effect=(0.0, 0.0, 11.0, 12.0),
+            ),
+            mock.patch("sys.stdout", output),
+        ):
+            result = setup_cli.main(
+                [
+                    "--data-root",
+                    str(self.root / "data"),
+                    "--requirements",
+                    str(self.requirements),
+                ]
+            )
+
+        self.assertEqual(result, 0)
+        self.assertEqual(output.getvalue().count("正在下載套件"), 2)
+        self.assertIn("已進行 0 分 11 秒", output.getvalue())
 
 
 if __name__ == "__main__":
