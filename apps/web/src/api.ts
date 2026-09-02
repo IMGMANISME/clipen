@@ -379,29 +379,6 @@ export async function getAnalysis(projectId: string): Promise<AnalysisSummary> {
   return request<AnalysisSummary>(`/api/projects/${projectId}/analysis`)
 }
 
-export async function installASR(
-  csrf: string,
-  acceptedNotice: string,
-): Promise<ASRRuntimeStatus> {
-  return (
-    await command<{ runtime: ASRRuntimeStatus }>(
-      '/api/system/commands/install-asr',
-      csrf,
-      { accepted_notice: acceptedNotice },
-    )
-  ).runtime
-}
-
-export async function cancelASRInstall(csrf: string): Promise<ASRRuntimeStatus> {
-  return (
-    await command<{ runtime: ASRRuntimeStatus }>(
-      '/api/system/commands/cancel-asr-install',
-      csrf,
-      {},
-    )
-  ).runtime
-}
-
 export async function removeASR(csrf: string): Promise<ASRRuntimeStatus> {
   return (
     await command<{ runtime: ASRRuntimeStatus }>(

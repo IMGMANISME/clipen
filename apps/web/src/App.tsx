@@ -11,7 +11,6 @@ import {
   getInventoryItems,
   getProject,
   getStatus,
-  installASR,
   listProjects,
   removeDirectory,
   removeASR,
@@ -20,7 +19,6 @@ import {
   selectDirectory,
   startInventory,
   startAnalysis,
-  cancelASRInstall,
   updateProjectDetails,
 } from './api'
 import type {
@@ -476,8 +474,6 @@ function AnalysisSection({
   onStart,
   onCancel,
   onResume,
-  onInstallRuntime,
-  onCancelRuntimeInstall,
   onRemoveRuntime,
 }: {
   summary: AnalysisSummary | null
@@ -486,11 +482,8 @@ function AnalysisSection({
   onStart: () => void
   onCancel: (run: AnalysisRun) => void
   onResume: (run: AnalysisRun) => void
-  onInstallRuntime: (noticeVersion: string) => void
-  onCancelRuntimeInstall: () => void
   onRemoveRuntime: () => void
 }) {
-  const [setupAccepted, setSetupAccepted] = useState(false)
   const latest = summary?.latest ?? null
   const current = summary?.current ?? null
   const scope = summary?.scope ?? null
@@ -508,9 +501,6 @@ function AnalysisSection({
     )
     : 0
   const runtime = summary?.runtime
-  const setupProgress = runtime && runtime.total_units > 0
-    ? Math.round((runtime.completed_units / runtime.total_units) * 100)
-    : 0
 
   return (
     <section className="analysis-section" aria-labelledby="analysis-title">
@@ -538,49 +528,16 @@ function AnalysisSection({
         <div className="analysis-card setup-required runtime-setup">
           <span className="outcome-symbol" aria-hidden="true">↓</span>
           <div className="runtime-setup-content">
-            <strong>需要先準備本機語音辨識</strong>
-            <p>只需設定一次。模型與執行環境只放在這台 Mac，不會收進作品或 Repo。</p>
+            <strong>Clipen 完整設定尚未完成</strong>
+            <p>請關閉 Clipen，回到 Terminal 再執行一次 <code>clipen codex</code>。第一次設定會取得同意後一次完成語音辨識環境與模型下載。</p>
             <dl className="runtime-facts">
               <div><dt>下載</dt><dd>約 {formatBytes(runtime.notice.download_bytes)}</dd></div>
               <div><dt>安裝後</dt><dd>約 {formatBytes(runtime.notice.installed_bytes)}</dd></div>
               <div><dt>模型</dt><dd>{runtime.notice.model.name} · 固定版本 {runtime.notice.model.revision.slice(0, 8)}</dd></div>
               <div><dt>位置</dt><dd title={runtime.notice.install_location}>{runtime.notice.install_location}</dd></div>
             </dl>
-            <p className="runtime-license">
-              原始 Whisper 軟體採用 <a href={runtime.notice.license.whisper_license_url} target="_blank" rel="noreferrer">{runtime.notice.license.whisper_software} 授權</a>。{runtime.notice.license.conversion_notice}
-            </p>
-            <label className="runtime-consent">
-              <input
-                type="checkbox"
-                checked={setupAccepted}
-                onChange={(event) => setSetupAccepted(event.target.checked)}
-              />
-              <span>我了解下載容量、安裝位置與授權說明</span>
-            </label>
-            <button
-              className="button primary"
-              disabled={!setupAccepted || actionBusy}
-              onClick={() => onInstallRuntime(runtime.notice!.version)}
-            >
-              {actionBusy ? '正在開始…' : '安裝本機語音辨識'}
-            </button>
+            <p className="runtime-license">原始 Whisper 軟體採用 <a href={runtime.notice.license.whisper_license_url} target="_blank" rel="noreferrer">{runtime.notice.license.whisper_software} 授權</a>。{runtime.notice.license.conversion_notice}</p>
           </div>
-        </div>
-      )}
-
-      {runtime?.state === 'installing' && (
-        <div className="analysis-progress runtime-progress" role="status" aria-live="polite">
-          <div className="progress-main">
-            <span className="small-spinner" aria-hidden="true" />
-            <div>
-              <strong>{runtime.message}</strong>
-              <p>步驟 {runtime.completed_units + 1} / {runtime.total_units} · 約 {setupProgress}%</p>
-              <span className="runtime-progress-track"><i style={{ width: `${setupProgress}%` }} /></span>
-            </div>
-          </div>
-          <button className="button secondary" onClick={onCancelRuntimeInstall} disabled={actionBusy}>
-            {actionBusy ? '取消中…' : '取消安裝'}
-          </button>
         </div>
       )}
 
@@ -779,7 +736,7 @@ function MaterialsWorkspace({
 
   const runtimeState = analysis?.runtime.state
   useEffect(() => {
-    if (!runtimeState || !['installing', 'removing'].includes(runtimeState)) return
+    if (runtimeState !== 'removing') return
     let mounted = true
     let refreshing = false
     const timer = window.setInterval(() => {
@@ -916,36 +873,6 @@ function MaterialsWorkspace({
     }
   }
 
-  async function setupLocalASR(noticeVersion: string) {
-    if (analysisActionBusy) return
-    setAnalysisActionBusy(true)
-    setError(null)
-    setNotice(null)
-    try {
-      const runtime = await installASR(csrf, noticeVersion)
-      setAnalysis((previous) => previous && { ...previous, runtime })
-      setNotice('語音辨識已開始安裝，可以在分析區查看進度')
-    } catch (caught) {
-      setError(errorMessage(caught))
-    } finally {
-      setAnalysisActionBusy(false)
-    }
-  }
-
-  async function stopLocalASRSetup() {
-    if (analysisActionBusy) return
-    setAnalysisActionBusy(true)
-    setError(null)
-    try {
-      const runtime = await cancelASRInstall(csrf)
-      setAnalysis((previous) => previous && { ...previous, runtime })
-    } catch (caught) {
-      setError(errorMessage(caught))
-    } finally {
-      setAnalysisActionBusy(false)
-    }
-  }
-
   async function removeLocalASR() {
     if (analysisActionBusy) return
     const confirmed = window.confirm(
@@ -966,7 +893,7 @@ function MaterialsWorkspace({
     try {
       const runtime = await removeASR(csrf)
       setAnalysis((previous) => previous && { ...previous, runtime })
-      setNotice('本機語音辨識已移除，毛片與分析成果沒有變動')
+      setNotice('本機語音辨識已移除；毛片與分析成果沒有變動，下次啟動會在 Terminal 重新設定')
     } catch (caught) {
       setError(errorMessage(caught))
     } finally {
@@ -1127,8 +1054,6 @@ function MaterialsWorkspace({
               onStart={() => void analyzeMedia()}
               onCancel={(run) => void stopAnalysis(run)}
               onResume={(run) => void continueAnalysis(run)}
-              onInstallRuntime={(version) => void setupLocalASR(version)}
-              onCancelRuntimeInstall={() => void stopLocalASRSetup()}
               onRemoveRuntime={() => void removeLocalASR()}
             />
           )}
