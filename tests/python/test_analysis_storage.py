@@ -1,13 +1,26 @@
 from pathlib import Path
+import sqlite3
 import tempfile
+import threading
+import time
 import unittest
+import wave
 
 from clipen.analysis import (
     ArtifactKind,
     ArtifactStore,
+    PreparedAudioChunk,
+    PreparationCoordinator,
     PreparationItemStatus,
     PreparationRepository,
+    PreparationRecipe,
     PreparationState,
+    TranscriptSegment,
+    TranscriptWord,
+    TranscriptionError,
+    TranscriptionResult,
+    TimelineSegment,
+    project_samples_to_source,
 )
 from clipen.media import (
     AssetCandidate,
@@ -19,6 +32,61 @@ from clipen.media import (
     ProbeStatus,
 )
 from clipen.projects import DirectoryReference, DirectoryRole, ProjectError, ProjectRepository
+
+
+class FakeAudioAdapter:
+    def version(self) -> str:
+        return "ffmpeg version test"
+
+    def extract(self, source, output, cancel=None):
+        del source, cancel
+        with wave.open(str(output), "wb") as audio:
+            audio.setnchannels(1)
+            audio.setsampwidth(2)
+            audio.setframerate(16_000)
+            audio.writeframes(b"\0\0" * 16_000)
+        from clipen.analysis import inspect_normalized_audio
+
+        return inspect_normalized_audio(output)
+
+
+class FakeTranscriber:
+    def probe(self) -> str:
+        return "mlx-whisper test"
+
+    def transcribe(self, audio, output, *, language="zh", cancel=None):
+        del audio, cancel
+        output.write_text('{"test":true}', encoding="utf-8")
+        return TranscriptionResult(
+            language,
+            "手沖咖啡",
+            (
+                TranscriptSegment(
+                    0,
+                    16_000,
+                    "手沖咖啡",
+                    "0.01",
+                    (TranscriptWord(0, 16_000, "手沖咖啡", "0.99"),),
+                ),
+            ),
+        )
+
+
+class FailingTranscriber(FakeTranscriber):
+    def transcribe(self, audio, output, *, language="zh", cancel=None):
+        del audio, output, language, cancel
+        raise TranscriptionError("asr_failed")
+
+
+class BlockingTranscriber(FakeTranscriber):
+    entered = threading.Event()
+
+    def transcribe(self, audio, output, *, language="zh", cancel=None):
+        del audio, output, language
+        self.entered.set()
+        assert cancel is not None
+        cancel.wait(2)
+        raise TranscriptionError("cancelled")
 
 
 class PreparationStorageTests(unittest.TestCase):
@@ -309,6 +377,169 @@ class PreparationStorageTests(unittest.TestCase):
         self.assertEqual(published.state, PreparationState.SUCCEEDED)
         self.assertEqual(self.repository.current_run(self.project.project_id), published)
 
+    def test_chunk_checkpoints_are_validated_and_replayable(self) -> None:
+        scope = self.repository.preflight(self.project.project_id)
+        run, _ = self.repository.create_run_with_status(
+            self.project.project_id,
+            "request-analysis-chunks",
+            self.project.revision,
+            scope.scope_id,
+            recipe={"id": "audio.pcm16.v1"},
+            model={"id": "small"},
+        )
+        run = self.repository.transition(
+            self.project.project_id,
+            run.run_id,
+            PreparationState.RUNNING,
+            phase="extracting_audio",
+        )
+        target = next(item for item in scope.targets if item.audio is not None)
+        store = ArtifactStore(self.projects)
+        audio_staging = store.create_staging_file(self.project.project_id, suffix=".wav")
+        audio_staging.write_bytes(b"normalized")
+        audio = store.publish(
+            self.project.project_id,
+            audio_staging,
+            kind=ArtifactKind.ANALYSIS_AUDIO,
+            producer_operation_id=run.operation_id,
+            producer_attempt_id=run.attempt_id,
+            recipe_id="audio.pcm16.v1",
+            lineage={"version_id": target.version_id},
+            source_span=target.audio.source_span,
+        )
+        self.repository.settle_item(
+            self.project.project_id,
+            run.run_id,
+            target.version_id,
+            target.stream_index,
+            PreparationItemStatus.PREPARED,
+            audio_artifact_id=audio.artifact_id,
+        )
+        source_span = project_samples_to_source(
+            target.audio.source_span, 0, 80_000, 16_000
+        )
+        chunk_path = self.root / "chunk.wav"
+        chunks = (
+            PreparedAudioChunk(chunk_path, source_span, 0, 80_000),
+        )
+        registered = self.repository.register_chunks(
+            self.project.project_id,
+            run.run_id,
+            target.version_id,
+            target.stream_index,
+            chunks,
+        )
+        self.assertEqual(registered[0].status.value, "pending")
+        self.assertEqual(
+            self.repository.register_chunks(
+                self.project.project_id,
+                run.run_id,
+                target.version_id,
+                target.stream_index,
+                chunks,
+            ),
+            registered,
+        )
+
+        result = TranscriptionResult(
+            "zh",
+            "手沖咖啡",
+            (
+                TranscriptSegment(
+                    0,
+                    16_000,
+                    "手沖咖啡",
+                    "0.01",
+                    (TranscriptWord(0, 16_000, "手沖咖啡", "0.99"),),
+                ),
+            ),
+        )
+        transcript_staging = store.create_staging_file(
+            self.project.project_id, suffix=".json"
+        )
+        transcript_staging.write_text("{}", encoding="utf-8")
+        transcript = store.publish(
+            self.project.project_id,
+            transcript_staging,
+            kind=ArtifactKind.TRANSCRIPT,
+            producer_operation_id=run.operation_id,
+            producer_attempt_id=run.attempt_id,
+            recipe_id="asr.mlx-whisper.v1",
+            lineage={"audio_artifact_id": audio.artifact_id, "chunk": 0},
+            source_span=source_span,
+        )
+        completed = self.repository.settle_chunk(
+            self.project.project_id,
+            run.run_id,
+            target.version_id,
+            target.stream_index,
+            0,
+            transcript.artifact_id,
+            result,
+        )
+        self.assertEqual(completed.result, result)
+        self.assertEqual(
+            self.repository.settle_chunk(
+                self.project.project_id,
+                run.run_id,
+                target.version_id,
+                target.stream_index,
+                0,
+                transcript.artifact_id,
+                result,
+            ),
+            completed,
+        )
+        final_staging = store.create_staging_file(
+            self.project.project_id, suffix=".json"
+        )
+        final_staging.write_text('{"text":"手沖咖啡"}', encoding="utf-8")
+        final_artifact = store.publish(
+            self.project.project_id,
+            final_staging,
+            kind=ArtifactKind.TRANSCRIPT,
+            producer_operation_id=run.operation_id,
+            producer_attempt_id=run.attempt_id,
+            recipe_id="asr.mlx-whisper.v1",
+            lineage={"chunks": [transcript.artifact_id]},
+            source_span=target.audio.source_span,
+        )
+        segment_span = project_samples_to_source(source_span, 0, 16_000, 16_000)
+        revision_id = self.repository.publish_transcript_revision(
+            self.project.project_id,
+            run.run_id,
+            target.version_id,
+            target.stream_index,
+            artifact_id=final_artifact.artifact_id,
+            language="zh",
+            model={"id": "small"},
+            recipe_id="asr.mlx-whisper.v1",
+            source_span=target.audio.source_span,
+            segments=(TimelineSegment(segment_span, "手沖咖啡", "0.99"),),
+        )
+        self.assertTrue(revision_id.startswith("trn_"))
+        self.assertEqual(
+            self.repository.publish_transcript_revision(
+                self.project.project_id,
+                run.run_id,
+                target.version_id,
+                target.stream_index,
+                artifact_id=final_artifact.artifact_id,
+                language="zh",
+                model={"id": "small"},
+                recipe_id="asr.mlx-whisper.v1",
+                source_span=target.audio.source_span,
+                segments=(TimelineSegment(segment_span, "手沖咖啡", "0.99"),),
+            ),
+            revision_id,
+        )
+        work = self.repository.list_work_items(self.project.project_id, run.run_id)
+        self.assertEqual(len(work), 2)
+        transcribed = next(item for item in work if item.target.audio is not None)
+        self.assertEqual(transcribed.status, PreparationItemStatus.TRANSCRIBED)
+        self.assertEqual(transcribed.transcript_revision_id, revision_id)
+        self.assertNotIn(str(self.source), repr(work[0].target.to_public()))
+
     def test_cancel_and_restart_recovery_are_idempotent(self) -> None:
         scope = self.repository.preflight(self.project.project_id)
         queued, _ = self.repository.create_run_with_status(
@@ -344,12 +575,210 @@ class PreparationStorageTests(unittest.TestCase):
         interrupted = self.repository.get_run(self.project.project_id, active.run_id)
         self.assertEqual(interrupted.state, PreparationState.INTERRUPTED)
         self.assertEqual(self.repository.interrupt_incomplete(self.project.project_id), 0)
+        resumed, created = self.repository.resume_interrupted(
+            self.project.project_id,
+            active.run_id,
+            "request-analysis-resume",
+        )
+        replay, replay_created = self.repository.resume_interrupted(
+            self.project.project_id,
+            active.run_id,
+            "request-analysis-resume",
+        )
+        self.assertTrue(created)
+        self.assertFalse(replay_created)
+        self.assertEqual(replay, resumed)
+        self.assertEqual(resumed.state, PreparationState.QUEUED)
+        self.assertEqual(resumed.attempt_number, 2)
+        self.assertNotEqual(resumed.attempt_id, active.attempt_id)
+        self.repository.request_cancel(self.project.project_id, active.run_id)
 
     def test_preflight_requires_a_successful_inventory(self) -> None:
         other = self.projects.create_project("request-analysis-empty", "空作品")
         with self.assertRaises(ProjectError) as context:
             self.repository.preflight(other.project_id)
         self.assertEqual(context.exception.code, "inventory_required")
+
+    def test_v3_analysis_skeleton_migrates_to_checkpoint_schema(self) -> None:
+        database = (
+            self.root
+            / "projects"
+            / self.project.project_id
+            / "project.sqlite3"
+        )
+        run_id = "prep_" + "7" * 32
+        with sqlite3.connect(database) as connection:
+            version_id = connection.execute(
+                "SELECT version_id FROM inventory_items WHERE run_id = ? "
+                "AND display_name = 'clip.mov'",
+                (self.inventory.run_id,),
+            ).fetchone()[0]
+            connection.execute("PRAGMA foreign_keys = OFF")
+            connection.executescript(
+                """
+                DROP TABLE preparation_chunks;
+                DROP INDEX preparation_runs_operation;
+                DROP INDEX preparation_runs_attempt;
+                DROP TABLE preparation_items;
+                CREATE TABLE preparation_items (
+                    run_id TEXT NOT NULL REFERENCES preparation_runs(run_id)
+                        ON DELETE CASCADE,
+                    version_id TEXT NOT NULL REFERENCES asset_versions(version_id),
+                    stream_index INTEGER,
+                    status TEXT NOT NULL,
+                    error_code TEXT,
+                    checkpoint_json TEXT,
+                    PRIMARY KEY(run_id, version_id)
+                );
+                CREATE INDEX preparation_items_run_status
+                    ON preparation_items(run_id, status, version_id);
+                ALTER TABLE preparation_runs DROP COLUMN attempt_number;
+                ALTER TABLE preparation_runs DROP COLUMN attempt_id;
+                ALTER TABLE preparation_runs DROP COLUMN operation_id;
+                ALTER TABLE preparation_runs DROP COLUMN scope_id;
+                ALTER TABLE preparation_runs DROP COLUMN project_revision;
+                PRAGMA user_version = 3;
+                """
+            )
+            connection.execute(
+                "INSERT INTO preparation_runs "
+                "(run_id, project_id, request_id, inventory_run_id, input_fingerprint, "
+                "recipe_json, model_json, state, phase, created_at) "
+                "VALUES (?, ?, 'legacy-request', ?, ?, '{}', '{}', 'queued', "
+                "'preparing', '2026-09-02T00:00:00+00:00')",
+                (run_id, self.project.project_id, self.inventory.run_id, "d" * 64),
+            )
+            connection.execute(
+                "INSERT INTO preparation_items "
+                "(run_id, version_id, stream_index, status) VALUES (?, ?, 1, 'pending')",
+                (run_id, version_id),
+            )
+
+        migrated = ProjectRepository(self.root / "projects")
+        with migrated.connect(self.project.project_id) as connection:
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 4)
+            run = connection.execute(
+                "SELECT project_revision, scope_id, operation_id, attempt_id, "
+                "attempt_number FROM preparation_runs WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+            item = connection.execute(
+                "SELECT stream_index, audio_artifact_id FROM preparation_items "
+                "WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+            chunks_exists = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' "
+                "AND name = 'preparation_chunks'"
+            ).fetchone()
+        self.assertEqual(run["project_revision"], self.project.revision)
+        self.assertTrue(run["scope_id"].startswith("scope_"))
+        self.assertTrue(run["operation_id"].startswith("op_"))
+        self.assertTrue(run["attempt_id"].startswith("att_"))
+        self.assertEqual(run["attempt_number"], 1)
+        self.assertEqual(item["stream_index"], 1)
+        self.assertIsNone(item["audio_artifact_id"])
+        self.assertIsNotNone(chunks_exists)
+
+    def test_coordinator_runs_audio_to_source_timed_transcript(self) -> None:
+        repository = PreparationRepository(self.projects)
+        coordinator = PreparationCoordinator(
+            repository,
+            ArtifactStore(self.projects),
+            transcriber_factory=FakeTranscriber,
+            model={"id": "mlx-whisper-small", "revision": "test"},
+            audio_factory=FakeAudioAdapter,
+            recipe=PreparationRecipe(chunk_seconds=10),
+        )
+        scope = coordinator.preflight(self.project.project_id)
+        before = self.clip.read_bytes()
+        run = coordinator.start(
+            self.project.project_id,
+            "request-analysis-coordinator",
+            self.project.revision,
+            scope.scope_id,
+        )
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            run = repository.get_run(self.project.project_id, run.run_id)
+            if run.state in {
+                PreparationState.SUCCEEDED,
+                PreparationState.FAILED,
+                PreparationState.CANCELLED,
+                PreparationState.INTERRUPTED,
+            }:
+                break
+            time.sleep(0.01)
+        coordinator.close()
+
+        self.assertEqual(run.state, PreparationState.SUCCEEDED)
+        self.assertEqual(run.counts.transcribed, 1)
+        self.assertEqual(run.counts.no_audio, 1)
+        self.assertEqual(self.clip.read_bytes(), before)
+        with self.projects.connect(self.project.project_id) as connection:
+            segment = connection.execute(
+                "SELECT start_pts, end_pts, text FROM transcript_segments"
+            ).fetchone()
+        self.assertEqual(segment["start_pts"], "48000")
+        self.assertEqual(segment["end_pts"], "96000")
+        self.assertEqual(segment["text"], "手沖咖啡")
+
+    def test_coordinator_isolates_asr_failure_to_one_item(self) -> None:
+        repository = PreparationRepository(self.projects)
+        coordinator = PreparationCoordinator(
+            repository,
+            ArtifactStore(self.projects),
+            transcriber_factory=FailingTranscriber,
+            model={"id": "mlx-whisper-small", "revision": "test"},
+            audio_factory=FakeAudioAdapter,
+            recipe=PreparationRecipe(chunk_seconds=10),
+        )
+        scope = coordinator.preflight(self.project.project_id)
+        run = coordinator.start(
+            self.project.project_id,
+            "request-analysis-failure",
+            self.project.revision,
+            scope.scope_id,
+        )
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            run = repository.get_run(self.project.project_id, run.run_id)
+            if run.state is PreparationState.SUCCEEDED:
+                break
+            time.sleep(0.01)
+        coordinator.close()
+        self.assertEqual(run.state, PreparationState.SUCCEEDED)
+        self.assertEqual(run.counts.issues, 1)
+        self.assertEqual(run.counts.no_audio, 1)
+
+    def test_coordinator_cancellation_reaches_adapter_and_settles(self) -> None:
+        BlockingTranscriber.entered.clear()
+        repository = PreparationRepository(self.projects)
+        coordinator = PreparationCoordinator(
+            repository,
+            ArtifactStore(self.projects),
+            transcriber_factory=BlockingTranscriber,
+            model={"id": "mlx-whisper-small", "revision": "test"},
+            audio_factory=FakeAudioAdapter,
+            recipe=PreparationRecipe(chunk_seconds=10),
+        )
+        scope = coordinator.preflight(self.project.project_id)
+        run = coordinator.start(
+            self.project.project_id,
+            "request-analysis-cancel-running",
+            self.project.revision,
+            scope.scope_id,
+        )
+        self.assertTrue(BlockingTranscriber.entered.wait(2))
+        coordinator.cancel(self.project.project_id, run.run_id)
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            run = repository.get_run(self.project.project_id, run.run_id)
+            if run.state is PreparationState.CANCELLED:
+                break
+            time.sleep(0.01)
+        coordinator.close()
+        self.assertEqual(run.state, PreparationState.CANCELLED)
 
 
 if __name__ == "__main__":

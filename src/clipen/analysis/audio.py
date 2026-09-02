@@ -183,7 +183,7 @@ class FFmpegAudioAdapter:
                 bounded_file_fingerprint(descriptor, after.st_size),
             ):
                 raise AudioPreparationError("source_changed")
-            return _inspect_normalized_audio(output_path)
+            return inspect_normalized_audio(output_path)
         except Exception:
             output_path.unlink(missing_ok=True)
             raise
@@ -299,7 +299,7 @@ class PCMChunker:
                 chunks.append(
                     PreparedAudioChunk(
                         output,
-                        _project_samples_to_source(source_span, start, end, prepared.sample_rate),
+                        project_samples_to_source(source_span, start, end, prepared.sample_rate),
                         start,
                         end,
                     )
@@ -310,7 +310,7 @@ class PCMChunker:
         return tuple(chunks)
 
 
-def _inspect_normalized_audio(path: Path) -> PreparedAudio:
+def inspect_normalized_audio(path: Path) -> PreparedAudio:
     try:
         with wave.open(str(path), "rb") as audio:
             prepared = PreparedAudio(
@@ -343,7 +343,7 @@ def _write_pcm_wav(path: Path, frames: bytes, frame_count: int) -> None:
         output.writeframes(frames)
 
 
-def _project_samples_to_source(
+def project_samples_to_source(
     source: SourceSpan,
     start_sample: int,
     end_sample: int,

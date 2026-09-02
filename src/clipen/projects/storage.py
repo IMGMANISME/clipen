@@ -26,7 +26,7 @@ from .models import (
 )
 
 
-_SCHEMA_VERSION = 3
+_SCHEMA_VERSION = 4
 _PROJECT_DIRECTORY = re.compile(r"prj_[0-9a-f]{32}\Z")
 
 _INVENTORY_SCHEMA = """
@@ -116,8 +116,8 @@ CREATE TABLE preparation_runs (
     project_revision INTEGER NOT NULL CHECK (project_revision >= 1),
     inventory_run_id TEXT NOT NULL REFERENCES inventory_runs(run_id),
     scope_id TEXT NOT NULL,
-    operation_id TEXT NOT NULL UNIQUE,
-    attempt_id TEXT NOT NULL UNIQUE,
+    operation_id TEXT NOT NULL,
+    attempt_id TEXT NOT NULL,
     attempt_number INTEGER NOT NULL DEFAULT 1 CHECK (attempt_number >= 1),
     input_fingerprint TEXT NOT NULL,
     recipe_json TEXT NOT NULL,
@@ -185,6 +185,22 @@ CREATE TABLE artifacts (
     created_at TEXT NOT NULL,
     UNIQUE(project_id, relative_path, artifact_id)
 );
+CREATE TABLE preparation_chunks (
+    run_id TEXT NOT NULL,
+    version_id TEXT NOT NULL,
+    stream_index INTEGER NOT NULL CHECK (stream_index >= 0),
+    ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+    start_sample INTEGER NOT NULL CHECK (start_sample >= 0),
+    end_sample INTEGER NOT NULL CHECK (end_sample > start_sample),
+    source_span_json TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('pending', 'transcribed', 'no_speech')),
+    transcript_artifact_id TEXT REFERENCES artifacts(artifact_id),
+    result_json TEXT,
+    PRIMARY KEY(run_id, version_id, stream_index, ordinal),
+    FOREIGN KEY(run_id, version_id, stream_index)
+        REFERENCES preparation_items(run_id, version_id, stream_index)
+        ON DELETE CASCADE
+);
 CREATE TABLE transcription_revisions (
     revision_id TEXT PRIMARY KEY,
     project_id TEXT NOT NULL REFERENCES project(project_id),
@@ -221,12 +237,18 @@ CREATE TABLE current_preparation (
 );
 CREATE INDEX preparation_runs_project_created
     ON preparation_runs(project_id, created_at DESC);
+CREATE UNIQUE INDEX preparation_runs_operation
+    ON preparation_runs(operation_id);
+CREATE UNIQUE INDEX preparation_runs_attempt
+    ON preparation_runs(attempt_id);
 CREATE INDEX preparation_items_run_status
     ON preparation_items(run_id, status, version_id);
 CREATE INDEX operation_events_project_sequence
     ON operation_events(project_id, sequence);
 CREATE INDEX artifacts_project_kind
     ON artifacts(project_id, kind, created_at);
+CREATE INDEX preparation_chunks_run_status
+    ON preparation_chunks(run_id, status, version_id, stream_index, ordinal);
 CREATE INDEX transcription_revisions_version_created
     ON transcription_revisions(version_id, created_at DESC);
 """
@@ -590,7 +612,7 @@ class ProjectRepository:
                 + _INVENTORY_SCHEMA
                 + _ANALYSIS_SCHEMA
                 + """
-                PRAGMA user_version = 3;
+                PRAGMA user_version = 4;
                 """
             )
             connection.execute(
@@ -643,6 +665,9 @@ class ProjectRepository:
             if version == 2:
                 self._migrate_v2_to_v3(connection)
                 version = connection.execute("PRAGMA user_version").fetchone()[0]
+            if version == 3:
+                self._migrate_v3_to_v4(connection)
+                version = connection.execute("PRAGMA user_version").fetchone()[0]
             if version != _SCHEMA_VERSION:
                 connection.close()
                 raise ProjectError(
@@ -677,7 +702,90 @@ class ProjectRepository:
             connection.executescript(
                 "BEGIN IMMEDIATE;\n"
                 + _ANALYSIS_SCHEMA
-                + "\nPRAGMA user_version = 3;\nCOMMIT;"
+                + "\nPRAGMA user_version = 4;\nCOMMIT;"
+            )
+        except sqlite3.Error:
+            connection.rollback()
+            raise
+
+    @staticmethod
+    def _migrate_v3_to_v4(connection: sqlite3.Connection) -> None:
+        """Upgrade the unreleased v3 analysis skeleton without losing its rows."""
+        try:
+            connection.executescript(
+                """
+                BEGIN IMMEDIATE;
+                ALTER TABLE preparation_runs ADD COLUMN project_revision INTEGER;
+                ALTER TABLE preparation_runs ADD COLUMN scope_id TEXT;
+                ALTER TABLE preparation_runs ADD COLUMN operation_id TEXT;
+                ALTER TABLE preparation_runs ADD COLUMN attempt_id TEXT;
+                ALTER TABLE preparation_runs ADD COLUMN attempt_number INTEGER DEFAULT 1;
+                UPDATE preparation_runs SET
+                    project_revision = COALESCE(
+                        (SELECT project_revision FROM inventory_runs
+                         WHERE inventory_runs.run_id = preparation_runs.inventory_run_id),
+                        1
+                    ),
+                    scope_id = 'scope_' || substr(run_id, 6, 32),
+                    operation_id = 'op_' || substr(run_id, 6, 32),
+                    attempt_id = 'att_' || substr(run_id, 6, 32),
+                    attempt_number = 1;
+                CREATE UNIQUE INDEX preparation_runs_operation
+                    ON preparation_runs(operation_id);
+                CREATE UNIQUE INDEX preparation_runs_attempt
+                    ON preparation_runs(attempt_id);
+
+                CREATE TABLE preparation_items_v4 (
+                    run_id TEXT NOT NULL REFERENCES preparation_runs(run_id)
+                        ON DELETE CASCADE,
+                    version_id TEXT NOT NULL REFERENCES asset_versions(version_id),
+                    stream_index INTEGER NOT NULL CHECK (stream_index >= -1),
+                    status TEXT NOT NULL CHECK (
+                        status IN ('pending', 'prepared', 'transcribed', 'no_audio',
+                                   'no_speech', 'failed')
+                    ),
+                    error_code TEXT,
+                    checkpoint_json TEXT,
+                    audio_artifact_id TEXT REFERENCES artifacts(artifact_id),
+                    transcript_revision_id TEXT
+                        REFERENCES transcription_revisions(revision_id),
+                    PRIMARY KEY(run_id, version_id, stream_index)
+                );
+                INSERT INTO preparation_items_v4
+                    (run_id, version_id, stream_index, status, error_code, checkpoint_json)
+                SELECT run_id, version_id, COALESCE(stream_index, -1), status,
+                       error_code, checkpoint_json
+                FROM preparation_items;
+                DROP TABLE preparation_items;
+                ALTER TABLE preparation_items_v4 RENAME TO preparation_items;
+
+                CREATE TABLE preparation_chunks (
+                    run_id TEXT NOT NULL,
+                    version_id TEXT NOT NULL,
+                    stream_index INTEGER NOT NULL CHECK (stream_index >= 0),
+                    ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+                    start_sample INTEGER NOT NULL CHECK (start_sample >= 0),
+                    end_sample INTEGER NOT NULL CHECK (end_sample > start_sample),
+                    source_span_json TEXT NOT NULL,
+                    status TEXT NOT NULL CHECK (
+                        status IN ('pending', 'transcribed', 'no_speech')
+                    ),
+                    transcript_artifact_id TEXT REFERENCES artifacts(artifact_id),
+                    result_json TEXT,
+                    PRIMARY KEY(run_id, version_id, stream_index, ordinal),
+                    FOREIGN KEY(run_id, version_id, stream_index)
+                        REFERENCES preparation_items(run_id, version_id, stream_index)
+                        ON DELETE CASCADE
+                );
+                CREATE INDEX preparation_items_run_status
+                    ON preparation_items(run_id, status, version_id);
+                CREATE INDEX preparation_chunks_run_status
+                    ON preparation_chunks(
+                        run_id, status, version_id, stream_index, ordinal
+                    );
+                PRAGMA user_version = 4;
+                COMMIT;
+                """
             )
         except sqlite3.Error:
             connection.rollback()
