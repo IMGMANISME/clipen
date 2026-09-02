@@ -9,7 +9,17 @@ from .audio import (
     PreparedAudio,
     PreparedAudioChunk,
 )
-from .models import ArtifactKind, ArtifactRecord, Rational, SourceSpan
+from .models import (
+    ArtifactKind,
+    ArtifactRecord,
+    PreparationCounts,
+    PreparationItemStatus,
+    PreparationRun,
+    PreparationState,
+    Rational,
+    SourceSpan,
+)
+from .storage import PreparationRepository, PreparationScope, PreparationTarget
 from .transcription import (
     LocalModelSnapshot,
     MLXWhisperAdapter,
@@ -30,6 +40,13 @@ __all__ = [
     "PCMChunker",
     "PreparedAudio",
     "PreparedAudioChunk",
+    "PreparationCounts",
+    "PreparationItemStatus",
+    "PreparationRepository",
+    "PreparationRun",
+    "PreparationScope",
+    "PreparationState",
+    "PreparationTarget",
     "Rational",
     "SourceSpan",
     "LocalModelSnapshot",

@@ -12,6 +12,7 @@ from clipen.projects.models import validate_project_id
 
 
 _ARTIFACT_ID = re.compile(r"art_[0-9a-f]{32}\Z")
+_PREPARATION_ID = re.compile(r"prep_[0-9a-f]{32}\Z")
 _OPERATION_ID = re.compile(r"op_[0-9a-f]{32}\Z")
 _ATTEMPT_ID = re.compile(r"att_[0-9a-f]{32}\Z")
 _VERSION_ID = re.compile(r"av_[0-9a-f]{32}\Z")
@@ -25,6 +26,127 @@ class ArtifactKind(str, Enum):
     TRANSCRIPT = "transcript"
     COVERAGE_MANIFEST = "coverage_manifest"
     CHECKPOINT = "checkpoint"
+
+
+class PreparationState(str, Enum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    CANCELLING = "cancelling"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    INTERRUPTED = "interrupted"
+
+
+class PreparationItemStatus(str, Enum):
+    PENDING = "pending"
+    PREPARED = "prepared"
+    TRANSCRIBED = "transcribed"
+    NO_AUDIO = "no_audio"
+    NO_SPEECH = "no_speech"
+    FAILED = "failed"
+
+
+@dataclass(frozen=True)
+class PreparationCounts:
+    total: int = 0
+    prepared: int = 0
+    transcribed: int = 0
+    no_audio: int = 0
+    no_speech: int = 0
+    issues: int = 0
+
+    def __post_init__(self) -> None:
+        values = (
+            self.total,
+            self.prepared,
+            self.transcribed,
+            self.no_audio,
+            self.no_speech,
+            self.issues,
+        )
+        if any(isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in values):
+            raise ValueError("preparation counts must be non-negative integers")
+        if self.transcribed + self.no_audio + self.no_speech + self.issues > self.total:
+            raise ValueError("terminal preparation counts exceed total inputs")
+        if self.prepared > self.total:
+            raise ValueError("prepared count exceeds total inputs")
+
+    def to_public(self) -> dict[str, int]:
+        return {
+            "total": self.total,
+            "prepared": self.prepared,
+            "transcribed": self.transcribed,
+            "no_audio": self.no_audio,
+            "no_speech": self.no_speech,
+            "issues": self.issues,
+        }
+
+
+@dataclass(frozen=True)
+class PreparationRun:
+    run_id: str
+    project_id: str
+    project_revision: int
+    inventory_run_id: str
+    scope_id: str
+    operation_id: str
+    attempt_id: str
+    attempt_number: int
+    input_fingerprint: str
+    state: PreparationState
+    phase: str
+    counts: PreparationCounts
+    error_code: str | None
+    created_at: str
+    started_at: str | None = None
+    completed_at: str | None = None
+
+    def __post_init__(self) -> None:
+        if _PREPARATION_ID.fullmatch(self.run_id) is None:
+            raise ValueError("preparation run ID is invalid")
+        validate_project_id(self.project_id)
+        if self.project_revision < 1:
+            raise ValueError("preparation project revision is invalid")
+        if re.fullmatch(r"inv_[0-9a-f]{32}", self.inventory_run_id) is None:
+            raise ValueError("preparation inventory ID is invalid")
+        if re.fullmatch(r"scope_[0-9a-f]{32}", self.scope_id) is None:
+            raise ValueError("preparation scope ID is invalid")
+        validate_operation_id(self.operation_id)
+        validate_attempt_id(self.attempt_id)
+        if self.attempt_number < 1 or _SHA256.fullmatch(self.input_fingerprint) is None:
+            raise ValueError("preparation input identity is invalid")
+        if not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", self.phase):
+            raise ValueError("preparation phase is invalid")
+        if self.error_code is not None and not re.fullmatch(
+            r"[a-z][a-z0-9_]{0,63}", self.error_code
+        ):
+            raise ValueError("preparation error code is invalid")
+        terminal = self.state in {
+            PreparationState.SUCCEEDED,
+            PreparationState.FAILED,
+            PreparationState.CANCELLED,
+            PreparationState.INTERRUPTED,
+        }
+        if terminal != (self.completed_at is not None):
+            raise ValueError("preparation completion timestamp does not match state")
+        if self.state is not PreparationState.QUEUED and self.started_at is None:
+            raise ValueError("started preparation state requires timestamp")
+
+    def to_public(self) -> dict[str, object]:
+        return {
+            "run_id": self.run_id,
+            "project_revision": self.project_revision,
+            "inventory_run_id": self.inventory_run_id,
+            "scope_id": self.scope_id,
+            "state": self.state.value,
+            "phase": self.phase,
+            "counts": self.counts.to_public(),
+            "error_code": self.error_code,
+            "created_at": self.created_at,
+            "started_at": self.started_at,
+            "completed_at": self.completed_at,
+        }
 
 
 @dataclass(frozen=True)
