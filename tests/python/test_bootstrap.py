@@ -38,6 +38,17 @@ class BootstrapTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
+    def test_source_installer_help_does_not_start_setup(self) -> None:
+        installer = Path(__file__).resolve().parents[2] / "install"
+        completed = subprocess.run(
+            [str(installer), "--help"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(completed.stdout.strip(), "用法：./install")
+
     def test_fingerprint_changes_with_runtime_contract(self) -> None:
         first = bootstrap.runtime_fingerprint(self.repo)
         (self.repo / "requirements" / "runtime.txt").write_text(
@@ -74,7 +85,7 @@ class BootstrapTests(unittest.TestCase):
             mock.patch("clipen.bootstrap.ensure_installation") as install,
             mock.patch("sys.stderr", errors),
         ):
-            result = bootstrap.main(self.repo, ["codex"])
+            result = bootstrap.main(self.repo, ["install"])
 
         self.assertEqual(result, 1)
         self.assertIn("尚不支援 Windows", errors.getvalue())
@@ -302,10 +313,57 @@ class BootstrapTests(unittest.TestCase):
             mock.patch("clipen.bootstrap.os.execve") as execute,
             mock.patch("sys.stderr", errors),
         ):
-            result = bootstrap.main(self.repo, ["codex"])
+            result = bootstrap.main(self.repo, ["install"])
         self.assertEqual(result, 130)
         self.assertIn("設定已取消", errors.getvalue())
         execute.assert_not_called()
+
+    def test_install_command_only_sets_up_and_never_launches_ui(self) -> None:
+        runtime = self.root / "runtime"
+        with (
+            mock.patch("clipen.bootstrap.ensure_installation", return_value=runtime) as setup,
+            mock.patch("clipen.bootstrap.os.execve") as execute,
+        ):
+            result = bootstrap.main(self.repo, ["install"])
+
+        self.assertEqual(result, 0)
+        setup.assert_called_once_with(self.repo)
+        execute.assert_not_called()
+
+    def test_codex_command_requires_completed_install_without_running_setup(self) -> None:
+        errors = io.StringIO()
+        with (
+            mock.patch(
+                "clipen.bootstrap.completed_runtime",
+                side_effect=bootstrap.BootstrapError("請先執行 ./install"),
+            ),
+            mock.patch("clipen.bootstrap.ensure_installation") as setup,
+            mock.patch("clipen.bootstrap.os.execve") as execute,
+            mock.patch("sys.stderr", errors),
+        ):
+            result = bootstrap.main(self.repo, ["codex"])
+
+        self.assertEqual(result, 1)
+        self.assertIn("./install", errors.getvalue())
+        setup.assert_not_called()
+        execute.assert_not_called()
+
+    def test_codex_command_launches_from_completed_runtime(self) -> None:
+        runtime = self.root / "runtime"
+        python = bootstrap.runtime_python(runtime)
+        with (
+            mock.patch("clipen.bootstrap.completed_runtime", return_value=runtime),
+            mock.patch("clipen.bootstrap.os.execve") as execute,
+        ):
+            result = bootstrap.main(self.repo, ["codex"])
+
+        self.assertEqual(result, 1)
+        execute.assert_called_once()
+        self.assertEqual(execute.call_args.args[0], python)
+        self.assertEqual(
+            execute.call_args.args[1],
+            [str(python), "-m", "clipen.cli", "codex"],
+        )
 
     def test_command_setup_is_idempotent_and_preserves_shell_settings(self) -> None:
         profile = self.home / ".zshrc"
