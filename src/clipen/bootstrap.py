@@ -44,6 +44,21 @@ _WHEEL_VERSION = "0.48.0"
 _PROFILE_START = "# >>> Clipen managed PATH >>>"
 _PROFILE_END = "# <<< Clipen managed PATH <<<"
 _COMMAND_MARKER = "# Managed by Clipen; rerun ./install or clipen install to update."
+_MANAGED_COMMAND_PREFIX = "# Managed by Clipen;"
+_REMOVABLE_DIRECTORIES = (
+    "runtime",  # Legacy source runtime.
+    "runtimes",
+    "asr",
+    "models",
+    "cache",
+    "logs",
+)
+_REMOVABLE_FILES = (
+    "setup.json",  # Legacy setup receipt.
+    "install-receipt.json",
+    ".controller.json",
+    ".controller.lock",
+)
 
 
 class BootstrapError(RuntimeError):
@@ -206,6 +221,23 @@ def _replace_profile_block(contents: str, block: str) -> str:
         separator = "" if not contents or contents.endswith("\n") else "\n"
         updated = f"{contents}{separator}{block}\n"
     return updated
+
+
+def _remove_profile_block(contents: str) -> str:
+    if contents.count(_PROFILE_START) > 1 or contents.count(_PROFILE_END) > 1:
+        raise BootstrapError("shell 設定中有重複的 Clipen PATH 區塊，未進行移除")
+    start = contents.find(_PROFILE_START)
+    end = contents.find(_PROFILE_END)
+    if (start < 0) != (end < 0) or (start >= 0 and end < start):
+        raise BootstrapError("shell 設定中的 Clipen PATH 區塊不完整，未進行移除")
+    if start < 0:
+        return contents
+    end += len(_PROFILE_END)
+    if end < len(contents) and contents[end] == "\n":
+        end += 1
+    elif start > 0 and contents[start - 1] == "\n":
+        start -= 1
+    return contents[:start] + contents[end:]
 
 
 def _atomic_write(path: Path, contents: str, mode: int) -> None:
@@ -596,16 +628,152 @@ def completed_runtime(repo_root: Path, *, data_root: Path | None = None) -> Path
     return runtime
 
 
+def _controller_is_running(data_root: Path) -> bool:
+    locking = _require_posix_file_locking()
+    lock_path = data_root / ".controller.lock"
+    if not lock_path.exists() and not lock_path.is_symlink():
+        return False
+    flags = os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(lock_path, flags)
+    except OSError as error:
+        raise BootstrapError("無法安全檢查 Clipen 是否仍在執行") from error
+    try:
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode):
+            raise BootstrapError("Clipen 執行鎖不是安全的實體檔案")
+        try:
+            locking.flock(descriptor, locking.LOCK_EX | locking.LOCK_NB)
+        except BlockingIOError:
+            return True
+        locking.flock(descriptor, locking.LOCK_UN)
+        return False
+    finally:
+        os.close(descriptor)
+
+
+def _validate_removable_path(path: Path, data_root: Path, *, directory: bool) -> None:
+    if not path.exists() and not path.is_symlink():
+        return
+    if path.is_symlink() or path.parent.resolve(strict=True) != data_root:
+        raise BootstrapError(f"拒絕移除不安全的 Clipen 路徑：{path}")
+    if directory:
+        if not path.is_dir() or path.is_mount():
+            raise BootstrapError(f"拒絕移除非一般目錄：{path}")
+        for current, directories, _files in os.walk(path, followlinks=False):
+            for name in directories:
+                candidate = Path(current) / name
+                if not candidate.is_symlink() and candidate.is_mount():
+                    raise BootstrapError(f"拒絕移除包含 mount point 的目錄：{candidate}")
+    elif not path.is_file():
+        raise BootstrapError(f"拒絕移除非一般檔案：{path}")
+
+
+def uninstall_installation(
+    *,
+    data_root: Path | None = None,
+    home: Path | None = None,
+    environment: Mapping[str, str] | None = None,
+    stdin: TextIO = sys.stdin,
+    stdout: TextIO = sys.stdout,
+) -> bool:
+    """Remove Clipen-managed installation files while preserving all projects."""
+
+    selected_data_root = data_root or clipen_data_root()
+    selected_home = home or Path.home()
+    selected_environment = environment if environment is not None else os.environ
+    profile_path = _shell_profile(selected_home, selected_environment)
+    bin_root = selected_data_root / "bin"
+    command_path = bin_root / "clipen"
+
+    print("移除 Clipen", file=stdout)
+    print("將會移除：", file=stdout)
+    print("  • Clipen runtime 與本機語音辨識模型", file=stdout)
+    print(f"  • `clipen` 指令：{command_path}", file=stdout)
+    print(f"  • PATH 設定：{profile_path}", file=stdout)
+    print("會保留 Clipen 作品資料、毛片、參考作品與匯出檔案。", file=stdout)
+    if not stdin.isatty():
+        raise BootstrapError("移除 Clipen 需要在互動式 Terminal 中確認")
+    stdout.write("確定移除？[y/N] ")
+    stdout.flush()
+    if stdin.readline().strip().lower() not in {"y", "yes"}:
+        print("已取消，沒有移除任何內容。", file=stdout)
+        return False
+
+    if selected_data_root.exists() or selected_data_root.is_symlink():
+        if selected_data_root.is_symlink() or not selected_data_root.is_dir():
+            raise BootstrapError("Clipen 資料根目錄不安全，未進行移除")
+        resolved_data_root = selected_data_root.resolve(strict=True)
+        if _controller_is_running(resolved_data_root):
+            raise BootstrapError("Clipen 仍在執行；請先在啟動它的 Terminal 按 Ctrl+C")
+    else:
+        resolved_data_root = selected_data_root
+
+    profile = ""
+    updated_profile = ""
+    profile_mode = 0o600
+    if profile_path.exists() or profile_path.is_symlink():
+        if profile_path.is_symlink() or not profile_path.is_file():
+            raise BootstrapError("shell 設定檔不是安全的實體檔案，未進行移除")
+        profile = profile_path.read_text(encoding="utf-8")
+        updated_profile = _remove_profile_block(profile)
+        profile_mode = stat.S_IMODE(profile_path.stat().st_mode)
+
+    if bin_root.exists() or bin_root.is_symlink():
+        if bin_root.is_symlink() or not bin_root.is_dir():
+            raise BootstrapError("Clipen bin 目錄不安全，未進行移除")
+    if command_path.exists() or command_path.is_symlink():
+        if command_path.is_symlink() or not command_path.is_file():
+            raise BootstrapError("clipen 指令位置不是安全的實體檔案，未進行移除")
+        command = command_path.read_text(encoding="utf-8")
+        if not any(
+            line.startswith(_MANAGED_COMMAND_PREFIX)
+            for line in command.splitlines()[:3]
+        ):
+            raise BootstrapError("clipen 指令不是由 Clipen 管理，未進行移除")
+
+    if selected_data_root.exists():
+        for name in _REMOVABLE_DIRECTORIES:
+            _validate_removable_path(
+                resolved_data_root / name, resolved_data_root, directory=True
+            )
+        for name in _REMOVABLE_FILES:
+            _validate_removable_path(
+                resolved_data_root / name, resolved_data_root, directory=False
+            )
+
+    if selected_data_root.exists():
+        for name in _REMOVABLE_DIRECTORIES:
+            path = resolved_data_root / name
+            if path.exists():
+                shutil.rmtree(path)
+        for name in _REMOVABLE_FILES:
+            path = resolved_data_root / name
+            if path.exists():
+                path.unlink()
+        bin_root = resolved_data_root / "bin"
+        if command_path.exists():
+            command_path.unlink()
+        if bin_root.is_dir() and not bin_root.is_symlink() and not any(bin_root.iterdir()):
+            bin_root.rmdir()
+    if updated_profile != profile:
+        _atomic_write(profile_path, updated_profile, profile_mode)
+    print("✓ Clipen 已移除", file=stdout)
+    print("作品資料與所有毛片均已保留。", file=stdout)
+    return True
+
+
 def _print_usage(stream: TextIO) -> None:
     print("第一次安裝：./install", file=stream)
     print("啟動 Clipen：clipen codex", file=stream)
+    print("移除 Clipen：./uninstall", file=stream)
 
 
 def main(repo_root: Path, arguments: Sequence[str]) -> int:
     if list(arguments) in (["--help"], ["-h"]):
         _print_usage(sys.stdout)
         return 0
-    if list(arguments) not in (["install"], ["codex"]):
+    if list(arguments) not in (["install"], ["uninstall"], ["codex"]):
         _print_usage(sys.stderr)
         return 2
     try:
@@ -616,12 +784,21 @@ def main(repo_root: Path, arguments: Sequence[str]) -> int:
                 print("✓ Clipen 已安裝完成")
                 print("開啟新的 Terminal 後執行：clipen codex")
             return 0
+        if list(arguments) == ["uninstall"]:
+            uninstall_installation()
+            return 0
         runtime = completed_runtime(repo_root)
     except KeyboardInterrupt:
-        print("\nClipen 設定已取消", file=sys.stderr)
+        action = "移除" if list(arguments) == ["uninstall"] else "設定"
+        print(f"\nClipen {action}已取消", file=sys.stderr)
         return 130
     except (BootstrapError, OSError, subprocess.SubprocessError) as error:
-        print(f"Clipen 設定失敗：{error}", file=sys.stderr)
+        action = {
+            "install": "安裝",
+            "uninstall": "移除",
+            "codex": "啟動",
+        }[list(arguments)[0]]
+        print(f"Clipen {action}失敗：{error}", file=sys.stderr)
         return 1
     if runtime is None:
         return 0
