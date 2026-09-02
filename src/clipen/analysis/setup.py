@@ -362,6 +362,11 @@ class ASRSetupManager:
             venv.EnvBuilder(with_pip=True, clear=False, symlinks=False).create(destination)
         except Exception as error:
             raise ASRSetupError("asr_runtime_create_failed") from error
+        self._set_progress(
+            "installing_dependencies",
+            "正在下載並安裝語音辨識套件…",
+            0,
+        )
         python = destination / "bin" / "python"
         command = (
             str(python),

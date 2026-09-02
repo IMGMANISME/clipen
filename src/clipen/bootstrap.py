@@ -171,6 +171,7 @@ def _confirm_setup(
             file=stdout,
         )
         print(CONVERSION_NOTICE, file=stdout)
+        print("依網路速度可能需要數分鐘；安裝期間會持續顯示目前階段與經過時間。", file=stdout)
     print("不會修改系統 Python，也不會使用 sudo。", file=stdout)
     print("Codex 登入與 AI 模型呼叫不會在設定階段執行。", file=stdout)
     if not stdin.isatty():
