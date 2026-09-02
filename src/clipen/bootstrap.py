@@ -611,7 +611,10 @@ def main(repo_root: Path, arguments: Sequence[str]) -> int:
     try:
         _require_posix_file_locking()
         if list(arguments) == ["install"]:
-            ensure_installation(repo_root)
+            runtime = ensure_installation(repo_root)
+            if runtime is not None:
+                print("✓ Clipen 已安裝完成")
+                print("開啟新的 Terminal 後執行：clipen codex")
             return 0
         runtime = completed_runtime(repo_root)
     except KeyboardInterrupt:

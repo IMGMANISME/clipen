@@ -320,15 +320,19 @@ class BootstrapTests(unittest.TestCase):
 
     def test_install_command_only_sets_up_and_never_launches_ui(self) -> None:
         runtime = self.root / "runtime"
+        output = io.StringIO()
         with (
             mock.patch("clipen.bootstrap.ensure_installation", return_value=runtime) as setup,
             mock.patch("clipen.bootstrap.os.execve") as execute,
+            mock.patch("sys.stdout", output),
         ):
             result = bootstrap.main(self.repo, ["install"])
 
         self.assertEqual(result, 0)
         setup.assert_called_once_with(self.repo)
         execute.assert_not_called()
+        self.assertIn("Clipen 已安裝完成", output.getvalue())
+        self.assertIn("clipen codex", output.getvalue())
 
     def test_codex_command_requires_completed_install_without_running_setup(self) -> None:
         errors = io.StringIO()
