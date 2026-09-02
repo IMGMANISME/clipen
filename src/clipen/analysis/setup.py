@@ -23,25 +23,22 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 import venv
 
+from clipen.asr_release import (
+    CONVERSION_NOTICE,
+    DOWNLOAD_BYTES,
+    INSTALLED_BYTES,
+    MODEL_FILES,
+    MODEL_REPOSITORY,
+    MODEL_REVISION,
+    NOTICE_VERSION,
+    RELEASE_ID,
+    WHISPER_LICENSE,
+    WHISPER_LICENSE_URL,
+)
+
 from .transcription import LocalModelSnapshot, MLXWhisperAdapter
 
 
-_NOTICE_VERSION = "asr-mlx-whisper-small-v1"
-_RELEASE_ID = "mlx-whisper-small-v1"
-_MODEL_REVISION = "eb52dbc58f50f19eb8c87b54b7c621633c67b7e0"
-_MODEL_REPOSITORY = "mlx-community/whisper-small-mlx"
-_MODEL_FILES = (
-    (
-        "config.json",
-        266,
-        "e8f58e638208af66d5d5d67801259dc7a12d199e971967a9f9d33a8e3635668e",
-    ),
-    (
-        "weights.npz",
-        481_307_592,
-        "55b6674c9b339702d486e2b1573839a66f8ec8f821ed2886993ef717a86b09f5",
-    ),
-)
 _MAX_DOWNLOAD_BYTES = 512 * 1024 * 1024
 _INSTALL_TIMEOUT_SECONDS = 60 * 60
 _MAX_CAPTURE_BYTES = 4 * 1024 * 1024
@@ -70,9 +67,9 @@ class ASRSetupStatus:
         self,
         install_root: Path,
         *,
-        model_repository: str = _MODEL_REPOSITORY,
-        model_revision: str = _MODEL_REVISION,
-        model_files: tuple[tuple[str, int, str], ...] = _MODEL_FILES,
+        model_repository: str = MODEL_REPOSITORY,
+        model_revision: str = MODEL_REVISION,
+        model_files: tuple[tuple[str, int, str], ...] = MODEL_FILES,
     ) -> dict[str, object]:
         return {
             "state": self.state.value,
@@ -82,9 +79,9 @@ class ASRSetupStatus:
             "completed_units": self.completed_units,
             "total_units": self.total_units,
             "notice": {
-                "version": _NOTICE_VERSION,
-                "download_bytes": 1_200_000_000,
-                "installed_bytes": 1_700_000_000,
+                "version": NOTICE_VERSION,
+                "download_bytes": DOWNLOAD_BYTES,
+                "installed_bytes": INSTALLED_BYTES,
                 "install_location": str(install_root),
                 "model": {
                     "name": "Whisper Small MLX",
@@ -93,12 +90,9 @@ class ASRSetupStatus:
                     "model_bytes": sum(item[1] for item in model_files),
                 },
                 "license": {
-                    "whisper_software": "MIT",
-                    "whisper_license_url": "https://github.com/openai/whisper/blob/main/LICENSE",
-                    "conversion_notice": (
-                        "MLX 轉換模型頁未另外標示 license；Clipen 會從固定來源下載，"
-                        "不會把模型檔收進 Repo。"
-                    ),
+                    "whisper_software": WHISPER_LICENSE,
+                    "whisper_license_url": WHISPER_LICENSE_URL,
+                    "conversion_notice": CONVERSION_NOTICE,
                 },
                 "removable": True,
             },
@@ -121,13 +115,13 @@ class ASRSetupManager:
         runtime_installer: Callable[[Path, Path, threading.Event], None] | None = None,
         system: str | None = None,
         machine: str | None = None,
-        model_repository: str = _MODEL_REPOSITORY,
-        model_revision: str = _MODEL_REVISION,
-        model_files: tuple[tuple[str, int, str], ...] = _MODEL_FILES,
+        model_repository: str = MODEL_REPOSITORY,
+        model_revision: str = MODEL_REVISION,
+        model_files: tuple[tuple[str, int, str], ...] = MODEL_FILES,
     ) -> None:
         self.data_root = self._secure_directory(Path(data_root))
         self.root = self._secure_directory(self.data_root / "asr")
-        self.release = self.root / _RELEASE_ID
+        self.release = self.root / RELEASE_ID
         self.requirements = Path(requirements).resolve(strict=True)
         self._downloader = downloader or self._download
         self._runtime_installer = runtime_installer or self._install_runtime
@@ -168,7 +162,7 @@ class ASRSetupManager:
         )
 
     def start_install(self, accepted_notice: object) -> ASRSetupStatus:
-        if accepted_notice != _NOTICE_VERSION:
+        if accepted_notice != NOTICE_VERSION:
             raise ASRSetupError("asr_notice_required")
         if self._system != "Darwin" or self._machine != "arm64":
             raise ASRSetupError("asr_platform_unsupported")
@@ -308,8 +302,8 @@ class ASRSetupManager:
             manifest = self._hash_model(model)
             receipt = {
                 "schema": 1,
-                "release_id": _RELEASE_ID,
-                "notice_version": _NOTICE_VERSION,
+                "release_id": RELEASE_ID,
+                "notice_version": NOTICE_VERSION,
                 "model_id": "mlx-whisper-small",
                 "model_revision": self._model_revision,
                 "model_manifest_sha256": manifest,
@@ -466,8 +460,8 @@ class ASRSetupManager:
             raise ASRSetupError("asr_receipt_invalid") from error
         required = {
             "schema": 1,
-            "release_id": _RELEASE_ID,
-            "notice_version": _NOTICE_VERSION,
+            "release_id": RELEASE_ID,
+            "notice_version": NOTICE_VERSION,
             "model_id": "mlx-whisper-small",
             "model_revision": self._model_revision,
             "runtime_python": "runtime/bin/python",
@@ -479,9 +473,19 @@ class ASRSetupManager:
         manifest = receipt.get("model_manifest_sha256")
         if not isinstance(manifest, str) or len(manifest) != 64:
             raise ASRSetupError("asr_receipt_invalid")
-        runtime_python = self.release / "runtime" / "bin" / "python"
+        runtime_root = self.release / "runtime"
+        runtime_bin = runtime_root / "bin"
+        runtime_python = runtime_bin / "python"
         model = self.release / "model"
-        if not runtime_python.is_file() or not os.access(runtime_python, os.X_OK):
+        if (
+            runtime_root.is_symlink()
+            or not runtime_root.is_dir()
+            or runtime_bin.is_symlink()
+            or not runtime_bin.is_dir()
+            or runtime_python.is_symlink()
+            or not runtime_python.is_file()
+            or not os.access(runtime_python, os.X_OK)
+        ):
             raise ASRSetupError("asr_runtime_invalid")
         observed = self._hash_model(model)
         if observed != manifest:

@@ -19,6 +19,18 @@ import uuid
 import venv
 from typing import Iterator, Mapping, Sequence, TextIO
 
+from clipen.asr_release import (
+    CONVERSION_NOTICE,
+    DOWNLOAD_BYTES,
+    INSTALLED_BYTES,
+    MODEL_REPOSITORY,
+    MODEL_REVISION,
+    WHISPER_LICENSE,
+    WHISPER_LICENSE_URL,
+    quick_release_is_ready,
+    release_root,
+)
+
 try:
     import fcntl as _fcntl
 except ImportError:  # Windows does not provide POSIX advisory file locks.
@@ -62,7 +74,11 @@ def runtime_fingerprint(repo_root: Path) -> str:
     digest.update(
         f"bootstrap-tools={_PIP_VERSION},{_SETUPTOOLS_VERSION},{_WHEEL_VERSION}\n".encode()
     )
-    for relative in ("pyproject.toml", "requirements/runtime.txt"):
+    for relative in (
+        "pyproject.toml",
+        "requirements/runtime.txt",
+        "requirements/asr-runtime.txt",
+    ):
         path = repo_root / relative
         if not path.is_file() or path.is_symlink():
             raise BootstrapError(f"缺少必要的 runtime 定義：{relative}")
@@ -107,20 +123,44 @@ def _confirm_setup(
     *,
     command_path: Path | None = None,
     profile_path: Path | None = None,
+    asr_root: Path | None = None,
+    include_runtime: bool = True,
 ) -> bool:
-    print("Clipen 第一次設定", file=stdout)
+    print("Clipen 第一次設定" if include_runtime else "Clipen 需要完成設定", file=stdout)
     print("將會建立：", file=stdout)
-    print("  • Clipen 專用 Python 虛擬環境", file=stdout)
-    print("  • 鎖定版本的本機 Controller 與安全驗證套件", file=stdout)
+    if include_runtime:
+        print("  • Clipen 專用 Python 虛擬環境", file=stdout)
+        print("  • 鎖定版本的本機 Controller 與安全驗證套件", file=stdout)
+    if asr_root is not None:
+        print("  • 隔離的本機語音辨識執行環境", file=stdout)
+        print("  • 固定版本 Whisper Small MLX 模型", file=stdout)
     if command_path is not None and profile_path is not None:
         print(f"  • `clipen` 指令：{command_path}", file=stdout)
         print(f"  • 將 Clipen 加入 PATH：{profile_path}", file=stdout)
-    print(f"安裝位置：{runtime}", file=stdout)
+    if include_runtime:
+        print(f"Clipen runtime：{runtime}", file=stdout)
+    if asr_root is not None:
+        print(f"語音辨識：{asr_root}", file=stdout)
+        print(
+            f"語音辨識部分需下載約 {DOWNLOAD_BYTES / 1_000_000_000:.1f} GB，"
+            f"安裝後約 {INSTALLED_BYTES / 1_000_000_000:.1f} GB。",
+            file=stdout,
+        )
+        print(
+            f"模型來源：{MODEL_REPOSITORY} @ {MODEL_REVISION[:8]}",
+            file=stdout,
+        )
+        print("語音辨識 Python 套件：PyPI 鎖定版本", file=stdout)
+        print(
+            f"原始 Whisper 軟體：{WHISPER_LICENSE}（{WHISPER_LICENSE_URL}）",
+            file=stdout,
+        )
+        print(CONVERSION_NOTICE, file=stdout)
     print("不會修改系統 Python，也不會使用 sudo。", file=stdout)
-    print("Codex 登入與模型呼叫不會在設定階段執行。", file=stdout)
+    print("Codex 登入與 AI 模型呼叫不會在設定階段執行。", file=stdout)
     if not stdin.isatty():
         raise BootstrapError("第一次設定需要在互動式 Terminal 中確認。")
-    stdout.write("開始建立環境？[Y/n] ")
+    stdout.write("開始完整設定？[Y/n] ")
     stdout.flush()
     answer = stdin.readline().strip().lower()
     return answer in {"", "y", "yes"}
@@ -336,6 +376,66 @@ def _install_runtime(staging: Path, repo_root: Path, fingerprint: str, log_path:
     receipt_path.chmod(0o600)
 
 
+def _install_asr_bundle(
+    runtime: Path,
+    repo_root: Path,
+    data_root: Path,
+    log_path: Path,
+    stdout: TextIO,
+) -> None:
+    command = (
+        str(runtime_python(runtime)),
+        "-m",
+        "clipen.analysis.setup_cli",
+        "--data-root",
+        str(data_root),
+        "--requirements",
+        str(repo_root / "requirements" / "asr-runtime.txt"),
+    )
+    captured = 0
+    process: subprocess.Popen[str] | None = None
+    try:
+        with log_path.open("w", encoding="utf-8") as log:
+            process = subprocess.Popen(
+                command,
+                cwd=repo_root,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                bufsize=1,
+                env={
+                    **os.environ,
+                    "PYTHONNOUSERSITE": "1",
+                    "CLIPEN_REPO_ROOT": str(repo_root),
+                },
+            )
+            assert process.stdout is not None
+            for line in process.stdout:
+                captured += len(line.encode("utf-8"))
+                if captured > 4 * 1024 * 1024:
+                    process.terminate()
+                    raise BootstrapError("語音辨識設定輸出超過安全上限")
+                log.write(line)
+                log.flush()
+                stdout.write(line)
+                stdout.flush()
+            returncode = process.wait()
+    except BaseException:
+        if process is not None and process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+        raise
+    if returncode != 0:
+        raise BootstrapError(f"本機語音辨識設定失敗；診斷紀錄：{log_path}")
+
+
 def ensure_runtime(
     repo_root: Path,
     *,
@@ -393,41 +493,67 @@ def ensure_installation(
     selected_data_root = data_root or clipen_data_root()
     selected_home = home or Path.home()
     selected_environment = environment if environment is not None else os.environ
+    if platform.system() != "Darwin" or platform.machine() != "arm64":
+        raise BootstrapError("目前完整設定只支援 Apple 晶片的 macOS")
     fingerprint = runtime_fingerprint(repo_root)
     runtime = selected_data_root / "runtimes" / fingerprint
+    asr_requirements = repo_root / "requirements" / "asr-runtime.txt"
     runtime_ready = runtime_is_ready(runtime, fingerprint, repo_root)
+    asr_ready = quick_release_is_ready(selected_data_root, asr_requirements)
     command_ready = _command_is_ready(
         repo_root, selected_data_root, selected_home, selected_environment
     )
 
-    if not runtime_ready:
+    if not runtime_ready or not asr_ready:
         command_path = selected_data_root / "bin" / "clipen"
         profile_path = _shell_profile(selected_home, selected_environment)
         if not _confirm_setup(
             runtime,
             stdin,
             stdout,
-            command_path=command_path,
-            profile_path=profile_path,
+            command_path=None if command_ready else command_path,
+            profile_path=None if command_ready else profile_path,
+            asr_root=None if asr_ready else release_root(selected_data_root),
+            include_runtime=not runtime_ready,
         ):
-            print("已取消，沒有建立 Clipen runtime。", file=stdout)
+            print("已取消，既有 Clipen 資料沒有變動。", file=stdout)
             return None
-        installed_runtime = ensure_runtime(
-            repo_root,
-            data_root=selected_data_root,
-            stdin=stdin,
-            stdout=stdout,
-            confirmed=True,
-        )
-        if installed_runtime is None:
-            return None
-        command_path, profile_path = _install_command(
-            repo_root, selected_data_root, selected_home, selected_environment
-        )
-        print(f"✓ 已建立指令：{command_path}", file=stdout)
-        print(f"✓ 已更新 PATH：{profile_path}", file=stdout)
-        print("下次開啟 Terminal 後可直接輸入：clipen codex", file=stdout)
-        return installed_runtime
+        if not runtime_ready:
+            installed_runtime = ensure_runtime(
+                repo_root,
+                data_root=selected_data_root,
+                stdin=stdin,
+                stdout=stdout,
+                confirmed=True,
+            )
+            if installed_runtime is None:
+                return None
+            runtime = installed_runtime
+        if not asr_ready:
+            log_root = selected_data_root / "logs"
+            log_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+            if log_root.is_symlink():
+                raise BootstrapError("Clipen log 目錄不能是 symbolic link")
+            asr_log = log_root / f"bootstrap-asr-{fingerprint}.log"
+            print("正在準備本機語音辨識與固定模型…", file=stdout)
+            _install_asr_bundle(
+                runtime,
+                repo_root,
+                selected_data_root,
+                asr_log,
+                stdout,
+            )
+            if not quick_release_is_ready(selected_data_root, asr_requirements):
+                raise BootstrapError(f"語音辨識安裝未通過啟動檢查；診斷紀錄：{asr_log}")
+        if not command_ready:
+            command_path, profile_path = _install_command(
+                repo_root, selected_data_root, selected_home, selected_environment
+            )
+            print(f"✓ 已建立指令：{command_path}", file=stdout)
+            print(f"✓ 已更新 PATH：{profile_path}", file=stdout)
+            print("下次開啟 Terminal 後可直接輸入：clipen codex", file=stdout)
+        print("✓ Clipen 完整設定完成", file=stdout)
+        return runtime
 
     if not command_ready:
         if not stdin.isatty():
@@ -460,6 +586,9 @@ def main(repo_root: Path, arguments: Sequence[str]) -> int:
     try:
         _require_posix_file_locking()
         runtime = ensure_installation(repo_root)
+    except KeyboardInterrupt:
+        print("\nClipen 設定已取消", file=sys.stderr)
+        return 130
     except (BootstrapError, OSError, subprocess.SubprocessError) as error:
         print(f"Clipen 設定失敗：{error}", file=sys.stderr)
         return 1
