@@ -618,7 +618,7 @@ def create_app(
                         "message": (
                             "本機語音辨識可用"
                             if preparations is not None
-                            else "需要先安裝約 500 MB 的本機語音辨識模型"
+                            else "需要約 1.6 GB 空間安裝隔離的本機語音辨識環境與模型"
                         ),
                     },
                     "scope": scope,
