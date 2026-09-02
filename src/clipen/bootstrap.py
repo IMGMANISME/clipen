@@ -43,7 +43,7 @@ _SETUPTOOLS_VERSION = "84.0.0"
 _WHEEL_VERSION = "0.48.0"
 _PROFILE_START = "# >>> Clipen managed PATH >>>"
 _PROFILE_END = "# <<< Clipen managed PATH <<<"
-_COMMAND_MARKER = "# Managed by Clipen; rerun ./clipen to update."
+_COMMAND_MARKER = "# Managed by Clipen; rerun ./install or clipen install to update."
 
 
 class BootstrapError(RuntimeError):
@@ -565,7 +565,7 @@ def ensure_installation(
         stdout.write("完成設定？[Y/n] ")
         stdout.flush()
         if stdin.readline().strip().lower() not in {"", "y", "yes"}:
-            print("已略過；目前仍可使用 ./clipen codex。", file=stdout)
+            print("已略過；可再次執行 ./install 完成指令設定。", file=stdout)
             return runtime
         command_path, profile_path = _install_command(
             repo_root, selected_data_root, selected_home, selected_environment
@@ -576,16 +576,44 @@ def ensure_installation(
     return runtime
 
 
+def completed_runtime(repo_root: Path, *, data_root: Path | None = None) -> Path:
+    """Return the installed runtime without performing setup or downloads."""
+
+    repo_root = repo_root.resolve(strict=True)
+    selected_data_root = data_root or clipen_data_root()
+    if platform.system() != "Darwin" or platform.machine() != "arm64":
+        raise BootstrapError("目前只支援 Apple 晶片的 macOS")
+    fingerprint = runtime_fingerprint(repo_root)
+    runtime = selected_data_root / "runtimes" / fingerprint
+    requirements = repo_root / "requirements" / "asr-runtime.txt"
+    if not runtime_is_ready(runtime, fingerprint, repo_root) or not quick_release_is_ready(
+        selected_data_root, requirements
+    ):
+        raise BootstrapError(
+            "Clipen 尚未完成安裝；第一次請在 Repo 執行 ./install，"
+            "已有 clipen 指令時可執行 clipen install 修復"
+        )
+    return runtime
+
+
+def _print_usage(stream: TextIO) -> None:
+    print("第一次安裝：./install", file=stream)
+    print("啟動 Clipen：clipen codex", file=stream)
+
+
 def main(repo_root: Path, arguments: Sequence[str]) -> int:
     if list(arguments) in (["--help"], ["-h"]):
-        print("用法：clipen codex")
+        _print_usage(sys.stdout)
         return 0
-    if list(arguments) != ["codex"]:
-        print("用法：clipen codex", file=sys.stderr)
+    if list(arguments) not in (["install"], ["codex"]):
+        _print_usage(sys.stderr)
         return 2
     try:
         _require_posix_file_locking()
-        runtime = ensure_installation(repo_root)
+        if list(arguments) == ["install"]:
+            ensure_installation(repo_root)
+            return 0
+        runtime = completed_runtime(repo_root)
     except KeyboardInterrupt:
         print("\nClipen 設定已取消", file=sys.stderr)
         return 130

@@ -21,7 +21,7 @@ Clipen 是由 terminal 啟動、在本機桌面瀏覽器操作的 AI 剪輯工�
 第一次從 source checkout 設定：
 
 ```sh
-./clipen codex
+./install
 ```
 
 設定完成後：
@@ -349,7 +349,7 @@ clipen reset --project <project-id>
 
 ## 12. 安裝、建置與更新
 
-Source checkout 的 `./clipen` 是 bootstrap launcher。第一次執行先顯示 runtime、
+Source checkout 的 `./install` 是首次設定入口。執行後先顯示 runtime、
 全域 `clipen` 指令、PATH 設定檔、安裝位置與會／不會執行的操作，取得一次同意後
 才安裝。設定完成後，新 Terminal 的入口統一為 `clipen codex`；正式發行仍可改由
 Homebrew 或簽章 installer 提供該指令。
@@ -362,8 +362,9 @@ Launcher 不使用 `sudo`、不修改系統 Python、不設定 MCP，也不把 r
 
 一般使用者不執行 `pip install`、`npm install` 或前端 build。React／TypeScript 原始碼
 由 Vite 建置；production assets 隨 repo／runtime 交付並有 hash manifest。CI 重新建置
-並確認 committed dist 與 source 一致。大型 ASR、本機 LLM 與語言模型延後下載，
-事前顯示大小、授權、位置與刪除方式。
+並確認 committed dist 與 source 一致。核心 ASR runtime 與固定語音模型在第一次設定
+時一併下載；其他可選本機模型才延後下載。任何大型下載都要事前顯示大小、授權、
+位置與刪除方式。
 
 ```text
 ~/Library/Application Support/Clipen/

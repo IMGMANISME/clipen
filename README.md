@@ -22,8 +22,9 @@ Clipen 是正在開發中的本機 AI 剪輯工作台。使用者將能提供毛
 > Clipen 尚未發布可供一般使用者安裝的版本。請勿將私人素材交給未標示為正式
 > release 的版本。
 
-Clipen 的目標入口是 `clipen codex`。它會啟動本機工作台，只有在使用者從 UI
-確認特定步驟後才呼叫 AI；不需要開啟 AI 對話或手動架設本機服務。
+從 source checkout 第一次設定時執行 `./install`；完成後以 `clipen codex` 啟動
+本機工作台。只有在使用者從 UI 確認特定步驟後才呼叫 AI；不需要開啟 AI 對話或
+手動架設本機服務。
 
 系統設計、資料權限、中斷恢復、`clean`／`reset` 與 Resolve 交付規則請見
 [產品架構基準](ARCHITECTURE.md)。

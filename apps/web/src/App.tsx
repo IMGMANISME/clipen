@@ -529,7 +529,7 @@ function AnalysisSection({
           <span className="outcome-symbol" aria-hidden="true">↓</span>
           <div className="runtime-setup-content">
             <strong>Clipen 完整設定尚未完成</strong>
-            <p>請關閉 Clipen，回到 Terminal 再執行一次 <code>clipen codex</code>。第一次設定會取得同意後一次完成語音辨識環境與模型下載。</p>
+            <p>請關閉 Clipen，回到 Terminal 執行 <code>clipen install</code>。設定會取得同意後一次完成語音辨識環境與模型下載。</p>
             <dl className="runtime-facts">
               <div><dt>下載</dt><dd>約 {formatBytes(runtime.notice.download_bytes)}</dd></div>
               <div><dt>安裝後</dt><dd>約 {formatBytes(runtime.notice.installed_bytes)}</dd></div>
@@ -893,7 +893,7 @@ function MaterialsWorkspace({
     try {
       const runtime = await removeASR(csrf)
       setAnalysis((previous) => previous && { ...previous, runtime })
-      setNotice('本機語音辨識已移除；毛片與分析成果沒有變動，下次啟動會在 Terminal 重新設定')
+      setNotice('本機語音辨識已移除；毛片與分析成果沒有變動，需要時請在 Terminal 執行 clipen install')
     } catch (caught) {
       setError(errorMessage(caught))
     } finally {
