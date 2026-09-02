@@ -49,6 +49,17 @@ class BootstrapTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertEqual(completed.stdout.strip(), "用法：./install")
 
+    def test_source_uninstaller_help_does_not_remove_anything(self) -> None:
+        uninstaller = Path(__file__).resolve().parents[2] / "uninstall"
+        completed = subprocess.run(
+            [str(uninstaller), "--help"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(completed.stdout.strip(), "用法：./uninstall")
+
     def test_fingerprint_changes_with_runtime_contract(self) -> None:
         first = bootstrap.runtime_fingerprint(self.repo)
         (self.repo / "requirements" / "runtime.txt").write_text(
@@ -426,6 +437,126 @@ class BootstrapTests(unittest.TestCase):
 
         self.assertEqual(target.read_text(encoding="utf-8"), "keep\n")
         self.assertFalse((self.data / "bin" / "clipen").exists())
+
+    def test_uninstall_removes_only_managed_installation_and_preserves_work(self) -> None:
+        command, profile = bootstrap._install_command(
+            self.repo, self.data, self.home, self.environment
+        )
+        for name in bootstrap._REMOVABLE_DIRECTORIES:
+            directory = self.data / name
+            directory.mkdir(parents=True, exist_ok=True)
+            (directory / "managed.txt").write_text("remove", encoding="utf-8")
+        for name in bootstrap._REMOVABLE_FILES:
+            (self.data / name).write_text("remove", encoding="utf-8")
+        project = self.data / "projects" / "project-1" / "state.sqlite3"
+        project.parent.mkdir(parents=True)
+        project.write_text("keep project", encoding="utf-8")
+        attempts = self.data / "provider-attempts" / "attempt-1" / "result.json"
+        attempts.parent.mkdir(parents=True)
+        attempts.write_text("keep attempt", encoding="utf-8")
+        raw = self.root / "external-drive" / "raw.mov"
+        raw.parent.mkdir()
+        raw.write_text("keep raw", encoding="utf-8")
+        output = io.StringIO()
+
+        removed = bootstrap.uninstall_installation(
+            data_root=self.data,
+            home=self.home,
+            environment=self.environment,
+            stdin=TTYInput("y\n"),
+            stdout=output,
+        )
+
+        self.assertTrue(removed)
+        self.assertFalse(command.exists())
+        self.assertNotIn("Clipen managed PATH", profile.read_text(encoding="utf-8"))
+        for name in bootstrap._REMOVABLE_DIRECTORIES:
+            self.assertFalse((self.data / name).exists())
+        for name in bootstrap._REMOVABLE_FILES:
+            self.assertFalse((self.data / name).exists())
+        self.assertEqual(project.read_text(encoding="utf-8"), "keep project")
+        self.assertEqual(attempts.read_text(encoding="utf-8"), "keep attempt")
+        self.assertEqual(raw.read_text(encoding="utf-8"), "keep raw")
+        self.assertIn("作品資料與所有毛片均已保留", output.getvalue())
+
+    def test_declining_uninstall_changes_nothing(self) -> None:
+        command, profile = bootstrap._install_command(
+            self.repo, self.data, self.home, self.environment
+        )
+        runtime = self.data / "runtimes" / "release"
+        runtime.mkdir(parents=True)
+
+        removed = bootstrap.uninstall_installation(
+            data_root=self.data,
+            home=self.home,
+            environment=self.environment,
+            stdin=TTYInput("n\n"),
+            stdout=io.StringIO(),
+        )
+
+        self.assertFalse(removed)
+        self.assertTrue(command.is_file())
+        self.assertTrue(runtime.is_dir())
+        self.assertIn("Clipen managed PATH", profile.read_text(encoding="utf-8"))
+
+    def test_uninstall_refuses_symlinked_runtime_before_changing_command(self) -> None:
+        command, profile = bootstrap._install_command(
+            self.repo, self.data, self.home, self.environment
+        )
+        outside = self.root / "outside-runtime"
+        outside.mkdir()
+        (outside / "sentinel").write_text("keep", encoding="utf-8")
+        (self.data / "runtimes").symlink_to(outside, target_is_directory=True)
+
+        with self.assertRaisesRegex(bootstrap.BootstrapError, "不安全"):
+            bootstrap.uninstall_installation(
+                data_root=self.data,
+                home=self.home,
+                environment=self.environment,
+                stdin=TTYInput("y\n"),
+                stdout=io.StringIO(),
+            )
+
+        self.assertTrue(command.is_file())
+        self.assertIn("Clipen managed PATH", profile.read_text(encoding="utf-8"))
+        self.assertEqual((outside / "sentinel").read_text(encoding="utf-8"), "keep")
+
+    def test_uninstall_refuses_while_controller_is_running(self) -> None:
+        self.data.mkdir()
+        project = self.data / "projects" / "project-1" / "state.sqlite3"
+        project.parent.mkdir(parents=True)
+        project.write_text("keep", encoding="utf-8")
+        with (
+            mock.patch("clipen.bootstrap._controller_is_running", return_value=True),
+            self.assertRaisesRegex(bootstrap.BootstrapError, "仍在執行"),
+        ):
+            bootstrap.uninstall_installation(
+                data_root=self.data,
+                home=self.home,
+                environment=self.environment,
+                stdin=TTYInput("y\n"),
+                stdout=io.StringIO(),
+            )
+        self.assertEqual(project.read_text(encoding="utf-8"), "keep")
+
+    def test_uninstall_never_removes_an_unmanaged_command(self) -> None:
+        command = self.data / "bin" / "clipen"
+        command.parent.mkdir(parents=True)
+        command.write_text("#!/bin/sh\necho other-tool\n", encoding="utf-8")
+        runtime = self.data / "runtimes" / "release"
+        runtime.mkdir(parents=True)
+
+        with self.assertRaisesRegex(bootstrap.BootstrapError, "不是由 Clipen 管理"):
+            bootstrap.uninstall_installation(
+                data_root=self.data,
+                home=self.home,
+                environment=self.environment,
+                stdin=TTYInput("y\n"),
+                stdout=io.StringIO(),
+            )
+
+        self.assertIn("other-tool", command.read_text(encoding="utf-8"))
+        self.assertTrue(runtime.is_dir())
 
 
 if __name__ == "__main__":

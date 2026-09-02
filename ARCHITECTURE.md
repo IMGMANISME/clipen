@@ -354,6 +354,11 @@ Source checkout 的 `./install` 是首次設定入口。執行後先顯示 runti
 才安裝。設定完成後，新 Terminal 的入口統一為 `clipen codex`；正式發行仍可改由
 Homebrew 或簽章 installer 提供該指令。
 
+Source checkout 的對稱移除入口是 `./uninstall`。它只移除 Clipen 管理的 runtime、
+本機模型、全域指令與 PATH 區塊，保留 `projects/`、provider Attempt 紀錄、毛片、
+參考作品與匯出檔案。若 Controller 尚未停止、管理路徑不安全或同名指令不屬於
+Clipen，uninstaller 必須拒絕執行；移除程式不等於刪除作品。
+
 Launcher 不使用 `sudo`、不修改系統 Python、不設定 MCP，也不把 runtime 或模型
 寫入 repo。Source bootstrap 只在使用者確認後，以有標記、可重複執行的區塊更新
 目前 zsh 或 bash 的 profile，將 Clipen 私有 `bin` 目錄加入 PATH；不覆寫 symlink、
