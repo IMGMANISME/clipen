@@ -402,6 +402,14 @@ class MediaInventoryStorageTests(unittest.TestCase):
         connection.execute("PRAGMA foreign_keys = OFF")
         connection.executescript(
             """
+            DROP TABLE current_preparation;
+            DROP TABLE transcript_segments;
+            DROP TABLE transcription_revisions;
+            DROP TABLE artifacts;
+            DROP TABLE operation_events;
+            DROP TABLE preparation_items;
+            DROP TABLE preparation_command_receipts;
+            DROP TABLE preparation_runs;
             DROP TABLE current_inventory;
             DROP TABLE media_streams;
             DROP TABLE inventory_items;
@@ -417,7 +425,7 @@ class MediaInventoryStorageTests(unittest.TestCase):
         migrated = ProjectRepository(self.projects_root)
         self.assertEqual(migrated.get_project(self.project.project_id), before)
         with migrated.connect(self.project.project_id) as checked:
-            self.assertEqual(checked.execute("PRAGMA user_version").fetchone()[0], 2)
+            self.assertEqual(checked.execute("PRAGMA user_version").fetchone()[0], 3)
             tables = {
                 row[0]
                 for row in checked.execute(
@@ -426,6 +434,8 @@ class MediaInventoryStorageTests(unittest.TestCase):
             }
         self.assertIn("inventory_runs", tables)
         self.assertIn("current_inventory", tables)
+        self.assertIn("preparation_runs", tables)
+        self.assertIn("artifacts", tables)
 
     def test_candidate_rejects_unsafe_relative_paths(self) -> None:
         for path in ("../outside.mov", "/absolute.mov", "folder\\file.mov"):
