@@ -113,7 +113,12 @@ CREATE TABLE preparation_runs (
     run_id TEXT PRIMARY KEY,
     project_id TEXT NOT NULL REFERENCES project(project_id),
     request_id TEXT NOT NULL UNIQUE,
+    project_revision INTEGER NOT NULL CHECK (project_revision >= 1),
     inventory_run_id TEXT NOT NULL REFERENCES inventory_runs(run_id),
+    scope_id TEXT NOT NULL,
+    operation_id TEXT NOT NULL UNIQUE,
+    attempt_id TEXT NOT NULL UNIQUE,
+    attempt_number INTEGER NOT NULL DEFAULT 1 CHECK (attempt_number >= 1),
     input_fingerprint TEXT NOT NULL,
     recipe_json TEXT NOT NULL,
     model_json TEXT,
@@ -143,14 +148,16 @@ CREATE TABLE preparation_command_receipts (
 CREATE TABLE preparation_items (
     run_id TEXT NOT NULL REFERENCES preparation_runs(run_id) ON DELETE CASCADE,
     version_id TEXT NOT NULL REFERENCES asset_versions(version_id),
-    stream_index INTEGER,
+    stream_index INTEGER NOT NULL CHECK (stream_index >= -1),
     status TEXT NOT NULL CHECK (
         status IN ('pending', 'prepared', 'transcribed', 'no_audio',
                    'no_speech', 'failed')
     ),
     error_code TEXT,
     checkpoint_json TEXT,
-    PRIMARY KEY(run_id, version_id)
+    audio_artifact_id TEXT REFERENCES artifacts(artifact_id),
+    transcript_revision_id TEXT REFERENCES transcription_revisions(revision_id),
+    PRIMARY KEY(run_id, version_id, stream_index)
 );
 CREATE TABLE operation_events (
     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
