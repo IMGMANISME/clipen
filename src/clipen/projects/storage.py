@@ -26,7 +26,7 @@ from .models import (
 )
 
 
-_SCHEMA_VERSION = 2
+_SCHEMA_VERSION = 3
 _PROJECT_DIRECTORY = re.compile(r"prj_[0-9a-f]{32}\Z")
 
 _INVENTORY_SCHEMA = """
@@ -106,6 +106,122 @@ CREATE INDEX inventory_runs_project_created
     ON inventory_runs(project_id, created_at DESC);
 CREATE INDEX inventory_items_run_status
     ON inventory_items(run_id, status, display_name);
+"""
+
+_ANALYSIS_SCHEMA = """
+CREATE TABLE preparation_runs (
+    run_id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES project(project_id),
+    request_id TEXT NOT NULL UNIQUE,
+    inventory_run_id TEXT NOT NULL REFERENCES inventory_runs(run_id),
+    input_fingerprint TEXT NOT NULL,
+    recipe_json TEXT NOT NULL,
+    model_json TEXT,
+    state TEXT NOT NULL CHECK (
+        state IN ('queued', 'running', 'cancelling', 'succeeded', 'failed',
+                  'cancelled', 'interrupted')
+    ),
+    phase TEXT NOT NULL,
+    total_count INTEGER NOT NULL DEFAULT 0 CHECK (total_count >= 0),
+    prepared_count INTEGER NOT NULL DEFAULT 0 CHECK (prepared_count >= 0),
+    transcribed_count INTEGER NOT NULL DEFAULT 0 CHECK (transcribed_count >= 0),
+    no_audio_count INTEGER NOT NULL DEFAULT 0 CHECK (no_audio_count >= 0),
+    no_speech_count INTEGER NOT NULL DEFAULT 0 CHECK (no_speech_count >= 0),
+    issue_count INTEGER NOT NULL DEFAULT 0 CHECK (issue_count >= 0),
+    error_code TEXT,
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    completed_at TEXT
+);
+CREATE TABLE preparation_command_receipts (
+    request_id TEXT PRIMARY KEY,
+    command_type TEXT NOT NULL,
+    request_hash TEXT NOT NULL,
+    run_id TEXT NOT NULL REFERENCES preparation_runs(run_id),
+    created_at TEXT NOT NULL
+);
+CREATE TABLE preparation_items (
+    run_id TEXT NOT NULL REFERENCES preparation_runs(run_id) ON DELETE CASCADE,
+    version_id TEXT NOT NULL REFERENCES asset_versions(version_id),
+    stream_index INTEGER,
+    status TEXT NOT NULL CHECK (
+        status IN ('pending', 'prepared', 'transcribed', 'no_audio',
+                   'no_speech', 'failed')
+    ),
+    error_code TEXT,
+    checkpoint_json TEXT,
+    PRIMARY KEY(run_id, version_id)
+);
+CREATE TABLE operation_events (
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id TEXT NOT NULL UNIQUE,
+    project_id TEXT NOT NULL REFERENCES project(project_id),
+    operation_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE artifacts (
+    artifact_id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES project(project_id),
+    kind TEXT NOT NULL CHECK (
+        kind IN ('analysis_audio', 'transcript', 'coverage_manifest', 'checkpoint')
+    ),
+    relative_path TEXT NOT NULL,
+    sha256 TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL CHECK (size_bytes >= 0),
+    producer_operation_id TEXT NOT NULL,
+    producer_attempt_id TEXT NOT NULL,
+    recipe_id TEXT NOT NULL,
+    source_span_json TEXT,
+    lineage_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(project_id, relative_path, artifact_id)
+);
+CREATE TABLE transcription_revisions (
+    revision_id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES project(project_id),
+    run_id TEXT NOT NULL REFERENCES preparation_runs(run_id),
+    version_id TEXT NOT NULL REFERENCES asset_versions(version_id),
+    stream_index INTEGER NOT NULL CHECK (stream_index >= 0),
+    artifact_id TEXT REFERENCES artifacts(artifact_id),
+    parent_revision_id TEXT REFERENCES transcription_revisions(revision_id),
+    status TEXT NOT NULL CHECK (
+        status IN ('transcribed', 'no_speech_detected', 'failed', 'needs_review')
+    ),
+    language TEXT,
+    model_json TEXT NOT NULL,
+    recipe_id TEXT NOT NULL,
+    source_span_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE transcript_segments (
+    revision_id TEXT NOT NULL REFERENCES transcription_revisions(revision_id)
+        ON DELETE CASCADE,
+    segment_id TEXT NOT NULL,
+    start_pts TEXT NOT NULL,
+    end_pts TEXT NOT NULL,
+    text TEXT NOT NULL,
+    speaker_id TEXT,
+    confidence TEXT,
+    ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+    PRIMARY KEY(revision_id, segment_id),
+    UNIQUE(revision_id, ordinal)
+);
+CREATE TABLE current_preparation (
+    slot INTEGER PRIMARY KEY CHECK (slot = 1),
+    run_id TEXT NOT NULL REFERENCES preparation_runs(run_id)
+);
+CREATE INDEX preparation_runs_project_created
+    ON preparation_runs(project_id, created_at DESC);
+CREATE INDEX preparation_items_run_status
+    ON preparation_items(run_id, status, version_id);
+CREATE INDEX operation_events_project_sequence
+    ON operation_events(project_id, sequence);
+CREATE INDEX artifacts_project_kind
+    ON artifacts(project_id, kind, created_at);
+CREATE INDEX transcription_revisions_version_created
+    ON transcription_revisions(version_id, created_at DESC);
 """
 
 
@@ -465,8 +581,9 @@ class ProjectRepository:
                 );
                 """
                 + _INVENTORY_SCHEMA
+                + _ANALYSIS_SCHEMA
                 + """
-                PRAGMA user_version = 2;
+                PRAGMA user_version = 3;
                 """
             )
             connection.execute(
@@ -516,6 +633,9 @@ class ProjectRepository:
             if version == 1:
                 self._migrate_v1_to_v2(connection)
                 version = connection.execute("PRAGMA user_version").fetchone()[0]
+            if version == 2:
+                self._migrate_v2_to_v3(connection)
+                version = connection.execute("PRAGMA user_version").fetchone()[0]
             if version != _SCHEMA_VERSION:
                 connection.close()
                 raise ProjectError(
@@ -539,6 +659,18 @@ class ProjectRepository:
                 "BEGIN IMMEDIATE;\n"
                 + _INVENTORY_SCHEMA
                 + "\nPRAGMA user_version = 2;\nCOMMIT;"
+            )
+        except sqlite3.Error:
+            connection.rollback()
+            raise
+
+    @staticmethod
+    def _migrate_v2_to_v3(connection: sqlite3.Connection) -> None:
+        try:
+            connection.executescript(
+                "BEGIN IMMEDIATE;\n"
+                + _ANALYSIS_SCHEMA
+                + "\nPRAGMA user_version = 3;\nCOMMIT;"
             )
         except sqlite3.Error:
             connection.rollback()
