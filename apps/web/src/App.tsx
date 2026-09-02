@@ -514,7 +514,7 @@ function AnalysisSection({
           <span className="outcome-symbol" aria-hidden="true">↓</span>
           <div>
             <strong>需要先準備本機語音辨識</strong>
-            <p>{summary.runtime.message}。Clipen 會在提供安裝動作前顯示大小、授權、位置與刪除方式，不會暗中下載。</p>
+            <p>{summary.runtime.message}。Clipen 會在提供安裝動作前列出授權、位置與刪除方式，不會暗中下載。</p>
           </div>
         </div>
       )}
