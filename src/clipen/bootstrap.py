@@ -20,14 +20,15 @@ import venv
 from typing import Iterator, Mapping, Sequence, TextIO
 
 from clipen.asr_release import (
-    CONVERSION_NOTICE,
+    ASR_SOFTWARE_LICENSE,
+    ASR_SOFTWARE_LICENSE_URL,
     DOWNLOAD_BYTES,
     INSTALLED_BYTES,
+    MODEL_NAME,
     MODEL_REPOSITORY,
     MODEL_REVISION,
     PROGRESS_RECORD_PREFIX,
-    WHISPER_LICENSE,
-    WHISPER_LICENSE_URL,
+    LICENSE_NOTICE,
     quick_release_is_ready,
     release_root,
 )
@@ -149,7 +150,7 @@ def _confirm_setup(
         print("  • 鎖定版本的本機 Controller 與安全驗證套件", file=stdout)
     if asr_root is not None:
         print("  • 隔離的本機語音辨識執行環境", file=stdout)
-        print("  • 固定版本 Whisper Small MLX 模型", file=stdout)
+        print(f"  • 固定版本 {MODEL_NAME} 模型", file=stdout)
     if command_path is not None and profile_path is not None:
         print(f"  • `clipen` 指令：{command_path}", file=stdout)
         print(f"  • 將 Clipen 加入 PATH：{profile_path}", file=stdout)
@@ -166,12 +167,12 @@ def _confirm_setup(
             f"模型來源：{MODEL_REPOSITORY} @ {MODEL_REVISION[:8]}",
             file=stdout,
         )
-        print("語音辨識 Python 套件：PyPI 鎖定版本", file=stdout)
+        print("繁體中文轉換套件：PyPI 鎖定版本", file=stdout)
         print(
-            f"原始 Whisper 軟體：{WHISPER_LICENSE}（{WHISPER_LICENSE_URL}）",
+            f"MLX Speech 本機執行程式：{ASR_SOFTWARE_LICENSE}（{ASR_SOFTWARE_LICENSE_URL}）",
             file=stdout,
         )
-        print(CONVERSION_NOTICE, file=stdout)
+        print(LICENSE_NOTICE, file=stdout)
         print("依網路速度可能需要數分鐘；安裝期間會持續顯示目前階段與經過時間。", file=stdout)
     print("不會修改系統 Python，也不會使用 sudo。", file=stdout)
     print("Codex 登入與 AI 模型呼叫不會在設定階段執行。", file=stdout)

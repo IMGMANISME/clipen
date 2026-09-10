@@ -34,8 +34,8 @@ from .service import PreparationCoordinator, PreparationRecipe
 from .runtime import ManagedAnalysisRuntime
 from .setup import ASRSetupError, ASRSetupManager, ASRSetupState, ASRSetupStatus
 from .transcription import (
+    Qwen3ASRAdapter,
     LocalModelSnapshot,
-    MLXWhisperAdapter,
     TranscriptSegment,
     TranscriptWord,
     TranscriptionError,
@@ -75,8 +75,8 @@ __all__ = [
     "SourceSpan",
     "TimelineSegment",
     "LocalModelSnapshot",
+    "Qwen3ASRAdapter",
     "ManagedAnalysisRuntime",
-    "MLXWhisperAdapter",
     "TranscriptSegment",
     "TranscriptWord",
     "TranscriptionError",

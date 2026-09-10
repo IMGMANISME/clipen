@@ -9,29 +9,45 @@ from pathlib import Path
 import stat
 
 
-NOTICE_VERSION = "asr-mlx-whisper-small-v1"
-RELEASE_ID = "mlx-whisper-small-v1"
-MODEL_REVISION = "eb52dbc58f50f19eb8c87b54b7c621633c67b7e0"
-MODEL_REPOSITORY = "mlx-community/whisper-small-mlx"
-MODEL_FILES = (
-    (
-        "config.json",
-        266,
-        "e8f58e638208af66d5d5d67801259dc7a12d199e971967a9f9d33a8e3635668e",
-    ),
-    (
-        "weights.npz",
-        481_307_592,
-        "55b6674c9b339702d486e2b1573839a66f8ec8f821ed2886993ef717a86b09f5",
-    ),
+NOTICE_VERSION = "asr-qwen3-1.7b-confidence-v1"
+RELEASE_ID = "qwen3-asr-1.7b-confidence-v1"
+SUPERSEDED_RELEASE_IDS = (
+    "mlx-whisper-small-v1",
+    "mlx-whisper-large-v3-turbo-v1",
+    "funasr-nano-consensus-v1",
 )
-DOWNLOAD_BYTES = 700_000_000
-INSTALLED_BYTES = 1_100_000_000
-WHISPER_LICENSE = "MIT"
-WHISPER_LICENSE_URL = "https://github.com/openai/whisper/blob/main/LICENSE"
-CONVERSION_NOTICE = (
-    "MLX 轉換模型頁未另外標示 license；Clipen 會從固定來源下載，"
-    "不會把模型檔收進 Repo。"
+MODEL_ID = "qwen3-asr-1.7b-int8"
+MODEL_NAME = "Qwen3-ASR 1.7B（Int8）"
+MODEL_REVISION = "a27b3ef0cd9c8115e13baa55b1be8992b3589756"
+MODEL_REPOSITORY = "appautomaton/qwen3-asr-1.7b-int8-mlx"
+MODEL_FILES = (
+    ("chat_template.json", 1_161, "75a8cfca24f00de72d796fbfed6858fc9614ef3dabd8696684cc3bc03a9c58ff"),
+    ("config.json", 5_849, "5e35ceadb80a954a4790152ab45a91366d2a5c84ae6e42a3d3efb810df3b3374"),
+    ("generation_config.json", 142, "1da527824d81e07118facff437e03f2e24a23311e3bdeb2368973fe77e5f275c"),
+    ("merges.txt", 1_671_853, "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5"),
+    ("model.safetensors", 2_506_670_749, "8a9aca31c5715d080f7d891dbac08146aeddf8c34cd53e46cf24d665dcd33786"),
+    ("preprocessor_config.json", 330, "45e120a4eda2c20c5d7f2ea9354e63536bf35e27aa573fb7cdf78017b378770d"),
+    ("tokenizer_config.json", 12_487, "4942d005604266809309cabc9f4e9cb89ce855d59b14681fdc0e1cc62ea26c4c"),
+    ("vocab.json", 2_776_833, "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"),
+)
+MODEL_DOWNLOADS = tuple(
+    (
+        filename,
+        f"https://huggingface.co/{MODEL_REPOSITORY}/resolve/{MODEL_REVISION}/{filename}",
+        size,
+        digest,
+    )
+    for filename, size, digest in MODEL_FILES
+)
+DOWNLOAD_BYTES = sum(item[1] for item in MODEL_FILES) + 260_000_000
+INSTALLED_BYTES = sum(item[1] for item in MODEL_FILES) + 420_000_000
+ASR_SOFTWARE_LICENSE = "MIT"
+ASR_SOFTWARE_LICENSE_URL = "https://github.com/appautomaton/mlx-speech/blob/main/LICENSE"
+MODEL_LICENSE = "Apache-2.0"
+MODEL_LICENSE_URL = f"https://huggingface.co/{MODEL_REPOSITORY}"
+LICENSE_NOTICE = (
+    "Qwen3-ASR 模型採 Apache-2.0，MLX Speech 執行程式採 MIT；"
+    "Clipen 只下載固定版本，不會把模型檔收進 Repo。"
 )
 PROGRESS_RECORD_PREFIX = "CLIPEN_PROGRESS\t"
 
@@ -60,10 +76,10 @@ def quick_release_is_ready(data_root: Path, requirements: Path) -> bool:
     try:
         receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
         required = {
-            "schema": 1,
+            "schema": 3,
             "release_id": RELEASE_ID,
             "notice_version": NOTICE_VERSION,
-            "model_id": "mlx-whisper-small",
+            "model_id": MODEL_ID,
             "model_revision": MODEL_REVISION,
             "requirements_sha256": requirements_digest(requirements),
             "runtime_python": "runtime/bin/python",
@@ -73,26 +89,24 @@ def quick_release_is_ready(data_root: Path, requirements: Path) -> bool:
             receipt.get(key) != value for key, value in required.items()
         ):
             return False
+        if set(receipt) != {*required, "model_manifest_sha256"}:
+            return False
         manifest = receipt.get("model_manifest_sha256")
         if not isinstance(manifest, str) or len(manifest) != 64:
             return False
         runtime_root = release / "runtime"
         runtime_bin = runtime_root / "bin"
         model_root = release / "model"
-        if (
-            runtime_root.is_symlink()
-            or not runtime_root.is_dir()
-            or runtime_bin.is_symlink()
-            or not runtime_bin.is_dir()
-            or model_root.is_symlink()
-            or not model_root.is_dir()
+        if any(
+            path.is_symlink() or not path.is_dir()
+            for path in (runtime_root, runtime_bin, model_root)
         ):
             return False
-        python = release / "runtime" / "bin" / "python"
+        python = runtime_bin / "python"
         if python.is_symlink() or not python.is_file() or not os.access(python, os.X_OK):
             return False
         for filename, size, _digest in MODEL_FILES:
-            path = release / "model" / filename
+            path = model_root / filename
             info = os.lstat(path)
             if path.is_symlink() or not stat.S_ISREG(info.st_mode) or info.st_size != size:
                 return False
@@ -102,17 +116,23 @@ def quick_release_is_ready(data_root: Path, requirements: Path) -> bool:
 
 
 __all__ = [
-    "CONVERSION_NOTICE",
+    "ASR_SOFTWARE_LICENSE",
+    "ASR_SOFTWARE_LICENSE_URL",
     "DOWNLOAD_BYTES",
     "INSTALLED_BYTES",
+    "LICENSE_NOTICE",
+    "MODEL_DOWNLOADS",
     "MODEL_FILES",
+    "MODEL_ID",
+    "MODEL_LICENSE",
+    "MODEL_LICENSE_URL",
+    "MODEL_NAME",
     "MODEL_REPOSITORY",
     "MODEL_REVISION",
     "NOTICE_VERSION",
     "PROGRESS_RECORD_PREFIX",
     "RELEASE_ID",
-    "WHISPER_LICENSE",
-    "WHISPER_LICENSE_URL",
+    "SUPERSEDED_RELEASE_IDS",
     "quick_release_is_ready",
     "release_root",
     "requirements_digest",

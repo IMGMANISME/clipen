@@ -1,10 +1,12 @@
 import hashlib
+import json
 import os
 from pathlib import Path
 import tempfile
 import unittest
 
 from clipen.analysis import ArtifactKind, ArtifactStore, Rational, SourceSpan
+from clipen.analysis.evidence import CoverageInterval, EvidenceCoverage, EvidenceModality
 from clipen.projects import ProjectError, ProjectRepository
 
 
@@ -27,6 +29,25 @@ class ArtifactStoreTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
+
+    def test_evidence_coverage_can_be_published_with_source_lineage(self) -> None:
+        coverage = EvidenceCoverage(self.span, EvidenceModality.VISUAL, sampled_pts=(48000, 96000))
+        staging = self.store.create_staging_file(self.project.project_id, suffix=".json")
+        staging.write_text(json.dumps(coverage.to_storage()), encoding="utf-8")
+        record = self.store.publish(
+            self.project.project_id,
+            staging,
+            kind=ArtifactKind.COVERAGE_MANIFEST,
+            producer_operation_id=self.operation_id,
+            producer_attempt_id=self.attempt_id,
+            recipe_id="evidence.coverage.v1",
+            lineage={"inventory_run_id": "inv_" + "d" * 32},
+            source_span=self.span,
+        )
+        stored = json.loads(self.store.path(record).read_text(encoding="utf-8"))
+        self.assertEqual(stored, coverage.to_storage())
+        self.assertEqual(record.source_span, self.span)
+        self.assertFalse(stored["complete"])
 
     def test_publish_is_private_content_addressed_and_durable(self) -> None:
         staging = self.store.create_staging_file(self.project.project_id, suffix=".wav")
@@ -91,7 +112,10 @@ class ArtifactStoreTests(unittest.TestCase):
                     lineage={},
                 )
             )
+        self.assertNotEqual(records[0].artifact_id, records[1].artifact_id)
+        self.assertEqual(records[0].relative_path, records[1].relative_path)
         blob = self.store.path(records[0])
+
         with self.projects.connect(self.project.project_id) as connection:
             connection.execute(
                 "DELETE FROM artifacts WHERE artifact_id = ?", (records[0].artifact_id,)
@@ -195,6 +219,60 @@ class ArtifactStoreTests(unittest.TestCase):
             SourceSpan("av_" + "c" * 32, 0, "20", "20", Rational(1, 1000))
         with self.assertRaises(ValueError):
             Rational(1, 0)
+
+
+class EvidenceCoverageTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.span = SourceSpan("av_" + "e" * 32, 0, "-10", "90", Rational(1, 1000))
+
+    def test_samples_never_imply_continuous_coverage(self) -> None:
+        coverage = EvidenceCoverage(
+            self.span, EvidenceModality.VISUAL, sampled_pts=(-10, 0, 89)
+        )
+        self.assertEqual(coverage.uncovered, (CoverageInterval(-10, 90),))
+        self.assertEqual(coverage.to_storage()["sampled_pts"], ["-10", "0", "89"])
+        self.assertFalse(coverage.to_storage()["complete"])
+
+    def test_merges_overlap_and_adjacency_without_erasing_gaps(self) -> None:
+        coverage = EvidenceCoverage(self.span, EvidenceModality.AUDIO, (
+            CoverageInterval(30, 40), CoverageInterval(0, 20),
+            CoverageInterval(-10, 5), CoverageInterval(40, 60),
+        ))
+        self.assertEqual(coverage.merged_intervals, (
+            CoverageInterval(-10, 20), CoverageInterval(30, 60),
+        ))
+        self.assertEqual(coverage.uncovered, (
+            CoverageInterval(20, 30), CoverageInterval(60, 90),
+        ))
+
+    def test_full_speech_coverage_does_not_imply_visual_coverage(self) -> None:
+        speech = EvidenceCoverage(self.span, EvidenceModality.SPEECH, (CoverageInterval(-10, 90),))
+        visual = EvidenceCoverage(self.span, EvidenceModality.VISUAL)
+        self.assertTrue(speech.to_storage()["complete"])
+        self.assertFalse(visual.to_storage()["complete"])
+
+    def test_rejects_outside_duplicate_unordered_and_noninteger_samples(self) -> None:
+        for samples in ((-11,), (90,), (0, 0), (1, 0), (True,), (1.5,)):
+            with self.subTest(samples=samples), self.assertRaises(ValueError):
+                EvidenceCoverage(self.span, EvidenceModality.VISUAL, sampled_pts=samples)
+
+    def test_rejects_outside_intervals_and_wrong_modality(self) -> None:
+        for interval in (CoverageInterval(-11, 0), CoverageInterval(0, 91)):
+            with self.subTest(interval=interval), self.assertRaises(ValueError):
+                EvidenceCoverage(self.span, EvidenceModality.AUDIO, (interval,))
+        with self.assertRaises(ValueError):
+            EvidenceCoverage(self.span, EvidenceModality.SPEECH, sampled_pts=(0,))
+        with self.assertRaises(ValueError):
+            CoverageInterval(True, 3)
+        with self.assertRaises(ValueError):
+            CoverageInterval(3, 3)
+
+    def test_pts_serialization_preserves_integers_beyond_javascript_precision(self) -> None:
+        start = 2**53 + 1
+        span = SourceSpan("av_" + "f" * 32, 0, str(start), str(start + 10), Rational(1, 90000))
+        storage = EvidenceCoverage(span, EvidenceModality.VISUAL, sampled_pts=(start,)).to_storage()
+        self.assertEqual(storage["sampled_pts"], [str(start)])
+        self.assertEqual(storage["uncovered"], [{"start_pts": str(start), "end_pts": str(start + 10)}])
 
 
 if __name__ == "__main__":

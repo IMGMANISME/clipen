@@ -7,6 +7,7 @@ import unittest
 from unittest import mock
 
 import clipen.bootstrap as bootstrap
+from clipen.asr_release import DOWNLOAD_BYTES, INSTALLED_BYTES, MODEL_NAME
 
 
 class TTYInput(io.StringIO):
@@ -209,8 +210,9 @@ class BootstrapTests(unittest.TestCase):
         profile = (self.home / ".zshrc").read_text(encoding="utf-8")
         self.assertIn(str(self.data / "bin"), profile)
         self.assertEqual(output.getvalue().count("[Y/n]"), 1)
-        self.assertIn("0.7 GB", output.getvalue())
-        self.assertIn("1.1 GB", output.getvalue())
+        self.assertIn(f"{DOWNLOAD_BYTES / 1_000_000_000:.1f} GB", output.getvalue())
+        self.assertIn(f"{INSTALLED_BYTES / 1_000_000_000:.1f} GB", output.getvalue())
+        self.assertIn(MODEL_NAME, output.getvalue())
         self.assertIn("MIT", output.getvalue())
         self.assertIn("下次開啟 Terminal", output.getvalue())
 

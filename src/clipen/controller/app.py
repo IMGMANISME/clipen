@@ -255,7 +255,9 @@ def create_app(
         return JSONResponse({"status": "ok"})
 
     async def connect_local_browser(_: Request) -> Response:
-        credentials = authority.connect_local_browser()
+        return session_response(authority.connect_local_browser())
+
+    def session_response(credentials: SessionCredentials) -> Response:
         response = JSONResponse({"connected": True})
         response.set_cookie(
             _SESSION_COOKIE,
@@ -601,11 +603,7 @@ def create_app(
 
     def require_evidence() -> EvidenceService:
         if evidence_service is None:
-            raise ProjectError(
-                "evidence_unavailable",
-                "請重新啟動 Clipen 以使用證據分析。",
-                status_code=503,
-            )
+            raise ProjectError("evidence_unavailable", "請重新啟動 Clipen 以使用證據分析。", status_code=503)
         return evidence_service
 
     async def evidence_status(request: Request) -> Response:
@@ -613,12 +611,7 @@ def create_app(
             raw_offset = request.query_params.get("offset", "0")
             if not raw_offset.isascii() or not raw_offset.isdigit() or len(raw_offset) > 4:
                 raise ProjectError("invalid_page", "頁碼不正確。", status_code=400)
-            result = await run_in_threadpool(
-                require_evidence().status,
-                request.path_params["project_id"],
-                int(raw_offset),
-            )
-            return JSONResponse(result)
+            return JSONResponse(await run_in_threadpool(require_evidence().status, request.path_params["project_id"], int(raw_offset)))
         except ProjectError as error:
             return await project_error_response(error)
 
@@ -629,60 +622,25 @@ def create_app(
             action = request.path_params["action"]
             payload = await read_json(request)
             if action == "start":
-                require_fields(
-                    payload, {"request_id", "expected_revision", "scope_id"}
-                )
-                result = await run_in_threadpool(
-                    service.start,
-                    project_id,
-                    payload["request_id"],
-                    payload["expected_revision"],
-                    payload["scope_id"],
-                )
+                require_fields(payload, {"request_id", "expected_revision", "scope_id"})
+                result = await run_in_threadpool(service.start, project_id, payload["request_id"], payload["expected_revision"], payload["scope_id"])
             elif action in {"cancel", "resume"}:
                 require_fields(payload, {"run_id"})
-                result = await run_in_threadpool(
-                    getattr(service, action), project_id, payload["run_id"]
-                )
+                result = await run_in_threadpool(getattr(service, action), project_id, payload["run_id"])
             elif action == "observe":
-                require_fields(
-                    payload,
-                    {"run_id", "request_id", "item_key", "consent"},
-                )
-                result = await run_in_threadpool(
-                    service.observe,
-                    project_id,
-                    payload["run_id"],
-                    payload["request_id"],
-                    payload["item_key"],
-                    payload["consent"],
-                )
+                require_fields(payload, {"run_id", "request_id", "item_key", "consent"})
+                result = await run_in_threadpool(service.observe, project_id, payload["run_id"], payload["request_id"], payload["item_key"], payload["consent"])
             else:
-                raise ProjectError(
-                    "command_unknown", "找不到這個操作。", status_code=404
-                )
+                raise ProjectError("command_unknown", "找不到這個操作。", status_code=404)
             return JSONResponse(result, status_code=202)
         except ProjectError as error:
             return await project_error_response(error)
 
     async def evidence_image(request: Request) -> Response:
         try:
-            def read_image() -> bytes:
-                path = require_evidence().image(
-                    request.path_params["project_id"],
-                    request.path_params["run_id"],
-                    request.path_params["artifact_id"],
-                )
-                return path.read_bytes()
-
-            return Response(
-                await run_in_threadpool(read_image),
-                media_type="image/png",
-                headers={
-                    "Cache-Control": "private, no-store",
-                    "X-Content-Type-Options": "nosniff",
-                },
-            )
+            def read_image():
+                return require_evidence().image(request.path_params["project_id"], request.path_params["run_id"], request.path_params["artifact_id"]).read_bytes()
+            return Response(await run_in_threadpool(read_image), media_type="image/png", headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"})
         except ProjectError as error:
             return await project_error_response(error)
 
@@ -698,7 +656,12 @@ def create_app(
                     scope = repository.preflight(project_id).to_public()
                     blocked_reason = None
                 except ProjectError as error:
-                    if error.code not in {"inventory_required", "preparation_empty"}:
+                    if error.code not in {
+                        "inventory_required",
+                        "preparation_empty",
+                        "root_unavailable",
+                        "root_changed",
+                    }:
                         raise
                     scope = None
                     blocked_reason = error.code
@@ -781,7 +744,9 @@ def create_app(
         try:
             payload = await read_json(request)
             require_fields(
-                payload, {"request_id", "expected_revision", "scope_id"}
+                payload,
+                {"request_id", "expected_revision", "scope_id"},
+                {"language", "vocabulary"},
             )
             run = await run_in_threadpool(
                 require_preparations().start,
@@ -789,6 +754,8 @@ def create_app(
                 payload["request_id"],
                 payload["expected_revision"],
                 payload["scope_id"],
+                payload.get("language", "zh"),
+                payload.get("vocabulary", []),
             )
             return JSONResponse({"analysis": run.to_public()}, status_code=202)
         except ProjectError as error:
@@ -937,21 +904,9 @@ def create_app(
                 cancel_inventory,
                 methods=["POST"],
             ),
-            Route(
-                "/api/projects/{project_id}/evidence",
-                evidence_status,
-                methods=["GET"],
-            ),
-            Route(
-                "/api/projects/{project_id}/evidence/commands/{action}",
-                evidence_command,
-                methods=["POST"],
-            ),
-            Route(
-                "/api/projects/{project_id}/evidence/{run_id}/images/{artifact_id}",
-                evidence_image,
-                methods=["GET"],
-            ),
+            Route("/api/projects/{project_id}/evidence", evidence_status, methods=["GET"]),
+            Route("/api/projects/{project_id}/evidence/commands/{action}", evidence_command, methods=["POST"]),
+            Route("/api/projects/{project_id}/evidence/{run_id}/images/{artifact_id}", evidence_image, methods=["GET"]),
             Route(
                 "/api/projects/{project_id}/analysis",
                 analysis_status,
