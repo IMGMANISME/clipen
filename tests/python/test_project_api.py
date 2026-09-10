@@ -177,7 +177,7 @@ class ProjectApiTests(unittest.TestCase):
         self.source.mkdir(parents=True)
         (self.source / "clip.mov").write_bytes(b"synthetic-media")
         self.reference.mkdir()
-        self.authority = LocalSessionAuthority("b" * 32)
+        self.authority = LocalSessionAuthority()
         self.workspace = ProjectWorkspace(
             self.root / "managed" / "projects",
             picker=FakePicker(self.source, self.reference),
@@ -219,11 +219,10 @@ class ProjectApiTests(unittest.TestCase):
     def _connect(self) -> tuple[str, str]:
         status, headers, _ = self._request(
             "POST",
-            "/api/session/bootstrap",
+            "/api/session/connect",
             headers={
                 "origin": "http://localhost:4200",
                 "sec-fetch-site": "same-origin",
-                "x-clipen-bootstrap": "b" * 32,
             },
         )
         self.assertEqual(status, 200)

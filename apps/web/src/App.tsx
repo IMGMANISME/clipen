@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import {
   ApiError,
-  bootstrapSession,
+  connectLocalSession,
   createProject,
   cancelInventory,
   cancelAnalysis,
@@ -39,7 +39,7 @@ import './index.css'
 
 type ApplicationState =
   | { kind: 'connecting' }
-  | { kind: 'failed'; message: string }
+  | { kind: 'failed'; message: string; serverUnavailable: boolean }
   | { kind: 'ready'; status: StatusPayload; projects: Project[] }
 
 const stages = ['素材', '分析', '計畫', '剪輯', '匯出']
@@ -112,12 +112,6 @@ function formatBytes(value: number | null): string {
     unit = units[index]
   }
   return `${size >= 10 ? size.toFixed(0) : size.toFixed(1)} ${unit}`
-}
-
-function fragmentToken(): string | null {
-  if (!window.location.hash.startsWith('#')) return null
-  const token = new URLSearchParams(window.location.hash.slice(1)).get('bootstrap')
-  return token && token.length >= 32 && token.length <= 256 ? token : null
 }
 
 function projectFromUrl(): string | null {
@@ -1071,15 +1065,17 @@ function App() {
     const controller = new AbortController()
     async function connect() {
       try {
-        const token = fragmentToken()
-        if (token) {
-          await bootstrapSession(token)
-          window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`)
-        }
+        await connectLocalSession()
         const [status, projects] = await Promise.all([getStatus(), listProjects()])
         if (!controller.signal.aborted) setApplication({ kind: 'ready', status, projects })
       } catch (caught) {
-        if (!controller.signal.aborted) setApplication({ kind: 'failed', message: errorMessage(caught) })
+        if (!controller.signal.aborted) {
+          setApplication({
+            kind: 'failed',
+            message: errorMessage(caught),
+            serverUnavailable: !(caught instanceof ApiError),
+          })
+        }
       }
     }
     void connect()
@@ -1133,7 +1129,7 @@ function App() {
       )}
 
       {application.kind === 'failed' && (
-        <main className="system-main"><section className="system-card warning" role="alert"><span className="notice-symbol">!</span><div><p className="eyebrow">無法連線</p><h1>請從 Terminal 重新啟動 Clipen</h1><p>{application.message}</p><code>clipen codex</code></div></section></main>
+        <main className="system-main"><section className="system-card warning" role="alert"><span className="notice-symbol">!</span><div><p className="eyebrow">無法連線</p><h1>{application.serverUnavailable ? 'Clipen 本機服務未啟動' : '本機工作台拒絕連線'}</h1><p>{application.message}</p>{application.serverUnavailable && <code>clipen codex</code>}</div></section></main>
       )}
 
       {ready && (

@@ -234,10 +234,9 @@ async function command<T>(path: string, csrf: string, body: object): Promise<T> 
   })
 }
 
-export async function bootstrapSession(token: string): Promise<void> {
-  await request<{ connected: true }>('/api/session/bootstrap', {
+export async function connectLocalSession(): Promise<void> {
+  await request<{ connected: true }>('/api/session/connect', {
     method: 'POST',
-    headers: { 'X-Clipen-Bootstrap': token },
   })
 }
 

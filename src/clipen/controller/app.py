@@ -11,8 +11,6 @@ import json
 from pathlib import Path
 import secrets
 import threading
-import time
-from typing import Callable
 
 from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
@@ -35,11 +33,9 @@ from clipen.system_skills import SystemSkillSummary
 
 
 _SESSION_COOKIE = "clipen_session"
-_BOOTSTRAP_HEADER = "x-clipen-bootstrap"
 _CSRF_HEADER = "x-clipen-csrf"
 _INSTANCE_HEADER = "x-clipen-instance"
 _SESSION_LIFETIME_SECONDS = 12 * 60 * 60
-_BOOTSTRAP_LIFETIME_SECONDS = 5 * 60
 _MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 _MAX_JSON_BODY_BYTES = 64 * 1024
 
@@ -95,48 +91,17 @@ class SessionCredentials:
 
 
 class LocalSessionAuthority:
-    """One-process browser sessions bootstrapped by an unguessable fragment token."""
+    """One-process browser sessions created only by the local same-origin UI."""
 
-    def __init__(
-        self,
-        bootstrap_token: str | None = None,
-        *,
-        now: Callable[[], float] = time.monotonic,
-    ) -> None:
-        self._bootstrap_token = bootstrap_token or secrets.token_urlsafe(32)
-        if len(self._bootstrap_token) < 32:
-            raise ValueError("bootstrap token is too short")
-        self._now = now
-        self._bootstrap_expires_at = now() + _BOOTSTRAP_LIFETIME_SECONDS
+    def __init__(self) -> None:
         self._credentials: SessionCredentials | None = None
         self._session_digest: bytes | None = None
         self._lock = threading.Lock()
 
-    @property
-    def bootstrap_token(self) -> str:
-        return self._bootstrap_token
-
-    def bootstrap(self, candidate: str) -> SessionCredentials | None:
+    def connect_local_browser(self) -> SessionCredentials:
+        """Authorize a same-origin browser page served by this loopback process."""
         with self._lock:
-            if self._now() > self._bootstrap_expires_at:
-                return None
-            if not secrets.compare_digest(candidate, self._bootstrap_token):
-                return None
-            if self._credentials is None:
-                credentials = SessionCredentials(
-                    session_token=secrets.token_urlsafe(32),
-                    csrf_token=secrets.token_urlsafe(32),
-                )
-                self._credentials = credentials
-                self._session_digest = self._digest(credentials.session_token)
-            return self._credentials
-
-    def renew_bootstrap(self) -> str:
-        """Issue a fresh one-process browser handoff token."""
-        with self._lock:
-            self._bootstrap_token = secrets.token_urlsafe(32)
-            self._bootstrap_expires_at = self._now() + _BOOTSTRAP_LIFETIME_SECONDS
-            return self._bootstrap_token
+            return self._credentials_locked()
 
     def authenticate(self, candidate: str | None) -> SessionCredentials | None:
         with self._lock:
@@ -145,6 +110,16 @@ class LocalSessionAuthority:
             if secrets.compare_digest(self._digest(candidate), self._session_digest):
                 return self._credentials
             return None
+
+    def _credentials_locked(self) -> SessionCredentials:
+        if self._credentials is None:
+            credentials = SessionCredentials(
+                session_token=secrets.token_urlsafe(32),
+                csrf_token=secrets.token_urlsafe(32),
+            )
+            self._credentials = credentials
+            self._session_digest = self._digest(credentials.session_token)
+        return self._credentials
 
     @staticmethod
     def _digest(value: str) -> bytes:
@@ -197,7 +172,7 @@ class LocalRequestGuard:
         credentials = None
         if path.startswith("/api/") and path not in {
             "/api/health",
-            "/api/session/bootstrap",
+            "/api/session/connect",
             "/api/instance/reopen",
         }:
             credentials = self.authority.authenticate(
@@ -210,7 +185,7 @@ class LocalRequestGuard:
             if supplied_origin != self.origin or headers.get("sec-fetch-site") != "same-origin":
                 await self._reject(scope, receive, send, 403, "cross_site_request")
                 return
-            if path != "/api/session/bootstrap":
+            if path != "/api/session/connect":
                 csrf = headers.get(_CSRF_HEADER)
                 if credentials is None or csrf is None or not secrets.compare_digest(
                     csrf, credentials.csrf_token
@@ -277,19 +252,8 @@ def create_app(
     async def health(_: Request) -> Response:
         return JSONResponse({"status": "ok"})
 
-    async def bootstrap(request: Request) -> Response:
-        headers = request.headers
-        credentials = authority.bootstrap(headers.get(_BOOTSTRAP_HEADER, ""))
-        if credentials is None:
-            return JSONResponse(
-                {
-                    "error": {
-                        "code": "bootstrap_invalid",
-                        "message": "連線已失效，請從 Clipen Terminal 重新開啟。",
-                    }
-                },
-                status_code=401,
-            )
+    async def connect_local_browser(_: Request) -> Response:
+        credentials = authority.connect_local_browser()
         response = JSONResponse({"connected": True})
         response.set_cookie(
             _SESSION_COOKIE,
@@ -339,7 +303,7 @@ def create_app(
                 {"error": {"code": "instance_invalid", "message": "找不到 Clipen instance。"}},
                 status_code=404,
             )
-        return JSONResponse({"bootstrap_token": authority.renew_bootstrap()})
+        return JSONResponse({"running": True})
 
     async def read_json(request: Request) -> dict[str, object]:
         content_type = request.headers.get("content-type", "").split(";", 1)[0].strip()
@@ -800,7 +764,7 @@ def create_app(
         debug=False,
         routes=[
             Route("/api/health", health, methods=["GET"]),
-            Route("/api/session/bootstrap", bootstrap, methods=["POST"]),
+            Route("/api/session/connect", connect_local_browser, methods=["POST"]),
             Route("/api/instance/reopen", reopen_instance, methods=["POST"]),
             Route("/api/status", status, methods=["GET"]),
             Route(
