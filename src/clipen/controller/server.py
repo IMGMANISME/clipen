@@ -32,6 +32,7 @@ from clipen.analysis import (
     ManagedAnalysisRuntime,
     PreparationRepository,
 )
+from clipen.analysis.evidence_service import EvidenceService
 from clipen.media import InventoryCoordinator, InventoryRepository
 from clipen.providers import CodexExecAdapter, ProviderUnavailable
 from clipen.projects import ProjectWorkspace
@@ -310,6 +311,7 @@ async def _serve(
     inventories = None
     preparation_repository = None
     analysis_runtime = None
+    evidence_service = None
     try:
         workspace = (
             ProjectWorkspace(paths.projects_root)
@@ -322,6 +324,8 @@ async def _serve(
             inventories.recover_incomplete(
                 project.project_id for project in workspace.repository.list_projects()
             )
+            evidence_service = EvidenceService(workspace.repository)
+            evidence_service.recover()
             preparation_repository = PreparationRepository(workspace.repository)
             for project in workspace.repository.list_projects():
                 preparation_repository.interrupt_incomplete(project.project_id)
@@ -348,6 +352,7 @@ async def _serve(
             inventories,
             preparation_repository=preparation_repository,
             analysis_runtime=analysis_runtime,
+            evidence_service=evidence_service,
         )
         config = uvicorn.Config(
             app,
@@ -406,6 +411,8 @@ async def _serve(
             if hasattr(signal, "SIGHUP") and previous_hup is not None:
                 signal.signal(signal.SIGHUP, previous_hup)
     finally:
+        if evidence_service is not None:
+            evidence_service.close()
         if analysis_runtime is not None:
             analysis_runtime.close()
         if inventories is not None:

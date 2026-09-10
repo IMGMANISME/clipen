@@ -22,6 +22,8 @@ from clipen.media import InventoryRoot, bounded_file_fingerprint
 from clipen.media.discovery import DiscoveryError, open_file_beneath
 from clipen.media.models import validate_relative_path
 
+from .resources import local_analysis_slot
+
 from .models import Rational, SourceSpan
 
 
@@ -198,8 +200,8 @@ class FFmpegAudioAdapter:
         *,
         observed_output: Path | None = None,
     ) -> tuple[bytes, bytes, int]:
-        deadline = time.monotonic() + self.timeout_seconds
-        with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
+        with local_analysis_slot(cancel, lambda: AudioPreparationError("cancelled")), tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
+            deadline = time.monotonic() + self.timeout_seconds
             try:
                 process = subprocess.Popen(
                     command,

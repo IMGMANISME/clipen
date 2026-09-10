@@ -512,3 +512,47 @@ export async function resumeAnalysis(
     )
   ).analysis
 }
+
+export type EvidenceFrame = { pts: string; artifact_id: string }
+export type EvidenceItem = {
+  key: string
+  display_name: string
+  kind: 'video' | 'audio'
+  role: DirectoryRole
+  error_code: string | null
+  frames: EvidenceFrame[]
+  source: { start_pts: string; end_pts: string; time_base: { num: number; den: number } } | null
+  scene_error_code?: string
+  scenes?: { candidate_pts: string[]; maximum_window_seconds: number; candidate_limit_reached: boolean }
+  coverage?: { complete: boolean; uncovered: { start_pts: string; end_pts: string }[] }
+  audio_features?: { windows: { rms_dbfs: number; low_energy: boolean }[] }
+}
+export type EvidenceSummary = {
+  scope: { scope_id: string; project_revision: number; total: number; video_streams: number } | null
+  blocked_reason: string | null
+  latest: {
+    run_id: string
+    state: string
+    error_code: string | null
+    completed_count: number
+    issue_count: number
+    offset: number
+    page_size: number
+    progress: { display_name?: string; phase?: string; frames?: number }
+    results: EvidenceItem[]
+    total: number
+    stale: boolean
+  } | null
+  limits: { frames_per_stream: number; local_window_seconds: number }
+}
+export function getEvidence(projectId: string, offset = 0) {
+  return request<EvidenceSummary>(`/api/projects/${projectId}/evidence?offset=${offset}`)
+}
+export function evidenceCommand(
+  projectId: string,
+  csrf: string,
+  action: 'start' | 'cancel' | 'resume',
+  payload: Record<string, unknown>,
+) {
+  return command<EvidenceSummary>(`/api/projects/${projectId}/evidence/commands/${action}`, csrf, payload)
+}

@@ -96,7 +96,7 @@ class MediaDiscovery:
         except OSError as error:
             os.close(root_fd)
             raise DiscoveryError("root_unavailable") from error
-        if identity.st_dev != root.device or identity.st_ino != root.inode:
+        if identity.st_ino != root.inode:
             os.close(root_fd)
             raise DiscoveryError("root_changed")
         discovered = [0]
@@ -246,7 +246,7 @@ def open_file_beneath(root: InventoryRoot, relative_path: str) -> int:
         raise DiscoveryError("root_unavailable") from error
     try:
         identity = os.fstat(current)
-        if identity.st_dev != root.device or identity.st_ino != root.inode:
+        if identity.st_ino != root.inode:
             raise DiscoveryError("root_changed")
         for component in path.parts[:-1]:
             next_fd = os.open(component, directory_flags, dir_fd=current)

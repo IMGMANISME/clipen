@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { TranscriptResults } from './TranscriptResults'
+import { EvidenceSection } from './EvidenceSection'
 import type { FormEvent } from 'react'
 import {
   ApiError,
@@ -1065,6 +1066,14 @@ function MaterialsWorkspace({
             onStart={() => void inspectMedia()}
             onCancel={(run) => void stopInventory(run)}
           />
+          {currentInventoryId && (
+            <EvidenceSection
+              key={`${project.project_id}:${currentInventoryId}`}
+              projectId={project.project_id}
+              csrf={csrf}
+              inventoryId={currentInventoryId}
+            />
+          )}
           {currentInventoryId && (
             <AnalysisSection
               projectId={project.project_id}

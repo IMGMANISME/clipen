@@ -263,6 +263,10 @@ def _parse_probe(
         if not isinstance(codec, str) or _CODEC.fullmatch(codec) is None:
             raise MediaProbeError("invalid_probe_output")
         details: dict[str, object] = {}
+        disposition = raw_stream.get("disposition", {})
+        if isinstance(disposition, dict):
+            details["attached_pic"] = disposition.get("attached_pic") == 1
+            details["timed_thumbnails"] = disposition.get("timed_thumbnails") == 1
         for key in ("time_base", "avg_frame_rate", "r_frame_rate"):
             candidate = raw_stream.get(key)
             if candidate not in (None, "0/0"):

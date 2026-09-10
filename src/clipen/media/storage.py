@@ -650,6 +650,21 @@ class InventoryRepository:
                         ),
                     ),
                 )
+                # Enrich legacy probe rows with newly understood disposition flags.
+                # Do not replace the immutable source version or its time mapping.
+                flags = {key: stream.details[key] for key in ("attached_pic", "timed_thumbnails") if key in stream.details}
+                if flags:
+                    existing_details = connection.execute(
+                        "SELECT details_json FROM media_streams WHERE version_id=? AND stream_index=?",
+                        (version_id, stream.stream_index),
+                    ).fetchone()[0]
+                    details = json.loads(existing_details)
+                    if any(details.get(key) != value for key, value in flags.items()):
+                        details.update(flags)
+                        connection.execute(
+                            "UPDATE media_streams SET details_json=? WHERE version_id=? AND stream_index=?",
+                            (json.dumps(details, sort_keys=True, separators=(",", ":")), version_id, stream.stream_index),
+                        )
         connection.execute(
             "INSERT INTO inventory_items "
             "(run_id, asset_id, version_id, display_name, kind, status, issue_code) "

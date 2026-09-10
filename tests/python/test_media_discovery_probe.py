@@ -77,6 +77,17 @@ class MediaDiscoveryTests(unittest.TestCase):
 
     def test_root_identity_and_file_count_bounds_fail_closed(self) -> None:
         actual = root_snapshot(self.root)
+        remounted = InventoryRoot(
+            actual.role,
+            actual.canonical_path,
+            actual.device + 1,
+            actual.inode,
+            actual.saved_at,
+        )
+        self.assertEqual(
+            {item.relative_path for item in MediaDiscovery().scan(remounted)},
+            {item.relative_path for item in MediaDiscovery().scan(actual)},
+        )
         changed = InventoryRoot(
             actual.role,
             actual.canonical_path,
