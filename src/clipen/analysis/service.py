@@ -123,7 +123,7 @@ class PreparationCoordinator:
         expected_revision: object,
         scope_id: object,
     ) -> PreparationRun:
-        run, created = self.repository.create_run_with_status(
+        run, created, retired_artifact_paths = self.repository.create_run_with_status(
             project_id,
             request_id,
             expected_revision,
@@ -133,6 +133,12 @@ class PreparationCoordinator:
         )
         if not created:
             return run
+        try:
+            self.artifacts.prune_unreferenced(project_id, retired_artifact_paths)
+        except ProjectError:
+            # The replacement run is already durable. Cleanup can be retried later
+            # without preventing the new analysis from entering the worker queue.
+            pass
         with self._lock:
             if self._shutdown.is_set():
                 return self.repository.transition(

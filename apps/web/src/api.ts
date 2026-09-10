@@ -187,6 +187,59 @@ export type AnalysisSummary = {
   current: AnalysisRun | null
 }
 
+export type TranscriptSource = {
+  start_pts: string
+  end_pts: string
+  time_base: { num: number; den: number }
+}
+
+export type AnalysisResultItem = {
+  version_id: string
+  stream_index: number
+  display_name: string
+  role: DirectoryRole
+  status: 'pending' | 'prepared' | 'transcribed' | 'needs_review' | 'no_audio' | 'no_speech' | 'failed'
+  issue_code: string | null
+  language: string | null
+  source: TranscriptSource | null
+  segment_count: number
+  preview_text: string | null
+  preview_start_pts: string | null
+  preview_truncated: boolean
+}
+
+export type AnalysisResultsPage = {
+  run_id: string
+  items: AnalysisResultItem[]
+  total: number
+  offset: number
+  limit: number
+  next_offset: number | null
+}
+
+export type TranscriptSegment = {
+  ordinal: number
+  start_pts: string
+  end_pts: string
+  text: string
+  confidence: string | null
+}
+
+export type TranscriptPage = {
+  run_id: string
+  version_id: string
+  stream_index: number
+  display_name: string
+  role: DirectoryRole
+  language: string
+  time_base: { num: number; den: number }
+  segments: TranscriptSegment[]
+  total: number
+  offset: number
+  limit: number
+  next_offset: number | null
+}
+
 export class ApiError extends Error {
   code: string
   status: number
@@ -376,6 +429,32 @@ export async function cancelInventory(
 
 export async function getAnalysis(projectId: string): Promise<AnalysisSummary> {
   return request<AnalysisSummary>(`/api/projects/${projectId}/analysis`)
+}
+
+export async function getAnalysisResults(
+  projectId: string,
+  runId: string,
+  offset = 0,
+): Promise<AnalysisResultsPage> {
+  return (
+    await request<{ results: AnalysisResultsPage }>(
+      `/api/projects/${projectId}/analyses/${runId}/results?offset=${offset}&limit=25`,
+    )
+  ).results
+}
+
+export async function getTranscriptSegments(
+  projectId: string,
+  runId: string,
+  versionId: string,
+  streamIndex: number,
+  offset = 0,
+): Promise<TranscriptPage> {
+  return (
+    await request<{ transcript: TranscriptPage }>(
+      `/api/projects/${projectId}/analyses/${runId}/items/${versionId}/${streamIndex}/transcript?offset=${offset}&limit=100`,
+    )
+  ).transcript
 }
 
 export async function removeASR(csrf: string): Promise<ASRRuntimeStatus> {

@@ -75,6 +75,48 @@ class ArtifactStoreTests(unittest.TestCase):
         )
         self.assertEqual(len(blobs), 1)
 
+    def test_prune_only_removes_blobs_without_any_live_record(self) -> None:
+        records = []
+        for operation_id in (self.operation_id, "op_" + "d" * 32):
+            staging = self.store.create_staging_file(self.project.project_id)
+            staging.write_bytes(b"shared content")
+            records.append(
+                self.store.publish(
+                    self.project.project_id,
+                    staging,
+                    kind=ArtifactKind.CHECKPOINT,
+                    producer_operation_id=operation_id,
+                    producer_attempt_id=self.attempt_id,
+                    recipe_id="checkpoint.v1",
+                    lineage={},
+                )
+            )
+        blob = self.store.path(records[0])
+        with self.projects.connect(self.project.project_id) as connection:
+            connection.execute(
+                "DELETE FROM artifacts WHERE artifact_id = ?", (records[0].artifact_id,)
+            )
+        self.assertEqual(
+            self.store.prune_unreferenced(
+                self.project.project_id, (records[0].relative_path,)
+            ),
+            0,
+        )
+        self.assertTrue(blob.exists())
+
+        with self.projects.connect(self.project.project_id) as connection:
+            connection.execute(
+                "DELETE FROM artifacts WHERE artifact_id = ?", (records[1].artifact_id,)
+            )
+        self.assertEqual(
+            self.store.prune_unreferenced(
+                self.project.project_id,
+                (records[0].relative_path, "../../source.mov", "not-a-blob"),
+            ),
+            1,
+        )
+        self.assertFalse(blob.exists())
+
     def test_publish_rejects_paths_outside_managed_staging(self) -> None:
         outside = self.root / "raw.mov"
         outside.write_bytes(b"original")

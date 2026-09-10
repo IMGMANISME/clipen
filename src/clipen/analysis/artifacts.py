@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import hashlib
+from functools import wraps
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import stat
-from typing import Mapping
+import threading
+from typing import Callable, Iterable, Mapping, TypeVar
 
 from clipen.projects.models import ProjectError, validate_project_id
 from clipen.projects.storage import ProjectRepository, utc_now
@@ -24,6 +27,24 @@ from .models import (
 
 
 _READ_SIZE = 1024 * 1024
+_BLOB_PATH = re.compile(r"artifacts/sha256/([0-9a-f]{2})/([0-9a-f]{64})\Z")
+_STORE_LOCKS_GUARD = threading.Lock()
+_STORE_LOCKS: dict[Path, threading.RLock] = {}
+_Return = TypeVar("_Return")
+
+
+def _store_lock(root: Path) -> threading.RLock:
+    with _STORE_LOCKS_GUARD:
+        return _STORE_LOCKS.setdefault(root, threading.RLock())
+
+
+def _serialized(method: Callable[..., _Return]) -> Callable[..., _Return]:
+    @wraps(method)
+    def locked(self: "ArtifactStore", *args: object, **kwargs: object) -> _Return:
+        with self._lock:
+            return method(self, *args, **kwargs)
+
+    return locked
 
 
 class ArtifactStore:
@@ -43,6 +64,7 @@ class ArtifactStore:
             raise ValueError("artifact size limit is invalid")
         self.projects = projects
         self.max_artifact_bytes = max_artifact_bytes
+        self._lock = _store_lock(projects.root)
 
     def create_staging_file(self, project_id: str, *, suffix: str = "") -> Path:
         root = self._managed_directory(project_id, "staging")
@@ -61,6 +83,7 @@ class ArtifactStore:
         os.close(descriptor)
         return path
 
+    @_serialized
     def publish(
         self,
         project_id: str,
@@ -182,6 +205,56 @@ class ArtifactStore:
                     status_code=500,
                 ) from error
         return record
+
+    @_serialized
+    def prune_unreferenced(
+        self,
+        project_id: str,
+        relative_paths: Iterable[str],
+    ) -> int:
+        """Delete retired content blobs only when no database record still uses them."""
+        validate_project_id(project_id)
+        candidates: set[str] = set()
+        for relative_path in relative_paths:
+            if not isinstance(relative_path, str):
+                continue
+            matched = _BLOB_PATH.fullmatch(relative_path)
+            if matched is None or matched.group(2)[:2] != matched.group(1):
+                continue
+            candidates.add(relative_path)
+        if not candidates:
+            return 0
+        with self.projects.connect(project_id) as connection:
+            live = {
+                row["relative_path"]
+                for row in connection.execute(
+                    "SELECT DISTINCT relative_path FROM artifacts"
+                ).fetchall()
+            }
+        project_root = self._project_root(project_id)
+        removed = 0
+        for relative_path in sorted(candidates - live):
+            candidate = project_root.joinpath(*relative_path.split("/"))
+            try:
+                parent = candidate.parent.resolve(strict=True)
+                expected_parent = project_root / "artifacts" / "sha256" / candidate.parent.name
+                if (
+                    parent != expected_parent
+                    or candidate.is_symlink()
+                ):
+                    continue
+                info = os.lstat(candidate)
+                if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                    continue
+                candidate.unlink()
+                removed += 1
+                try:
+                    parent.rmdir()
+                except OSError:
+                    pass
+            except (FileNotFoundError, OSError):
+                continue
+        return removed
 
     def get(self, project_id: str, artifact_id: str) -> ArtifactRecord:
         validate_project_id(project_id)

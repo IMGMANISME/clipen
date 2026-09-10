@@ -229,7 +229,7 @@ class PreparationStorageTests(unittest.TestCase):
 
     def test_create_run_is_durable_idempotent_and_private(self) -> None:
         scope = self.repository.preflight(self.project.project_id)
-        created, was_created = self.repository.create_run_with_status(
+        created, was_created, retired = self.repository.create_run_with_status(
             self.project.project_id,
             "request-analysis-start",
             self.project.revision,
@@ -237,7 +237,7 @@ class PreparationStorageTests(unittest.TestCase):
             recipe={"id": "audio.pcm16.v1", "chunk_seconds": 300},
             model={"id": "mlx-whisper-small", "revision": "test"},
         )
-        replay, replay_created = PreparationRepository(
+        replay, replay_created, replay_retired = PreparationRepository(
             ProjectRepository(self.root / "projects")
         ).create_run_with_status(
             self.project.project_id,
@@ -250,6 +250,8 @@ class PreparationStorageTests(unittest.TestCase):
 
         self.assertTrue(was_created)
         self.assertFalse(replay_created)
+        self.assertEqual(retired, ())
+        self.assertEqual(replay_retired, ())
         self.assertEqual(replay, created)
         self.assertEqual(created.state, PreparationState.QUEUED)
         self.assertEqual(created.counts.total, 2)
@@ -308,7 +310,7 @@ class PreparationStorageTests(unittest.TestCase):
             )
         self.assertEqual(changed.exception.code, "scope_changed")
 
-        replay, created = self.repository.create_run_with_status(
+        replay, created, _ = self.repository.create_run_with_status(
             self.project.project_id,
             "request-analysis-conflict",
             self.project.revision,
@@ -321,7 +323,7 @@ class PreparationStorageTests(unittest.TestCase):
 
     def test_item_progress_and_publish_are_transactional(self) -> None:
         scope = self.repository.preflight(self.project.project_id)
-        run, _ = self.repository.create_run_with_status(
+        run, _, _ = self.repository.create_run_with_status(
             self.project.project_id,
             "request-analysis-progress",
             self.project.revision,
@@ -374,11 +376,12 @@ class PreparationStorageTests(unittest.TestCase):
         self.assertEqual(settled.counts.prepared, 0)
         self.assertEqual(settled.counts.issues, 1)
         published = self.repository.publish(self.project.project_id, run.run_id)
-        self.assertEqual(published.state, PreparationState.SUCCEEDED)
-        self.assertEqual(self.repository.current_run(self.project.project_id), published)
+        self.assertEqual(published.state, PreparationState.FAILED)
+        self.assertEqual(published.error_code, "asr_failed")
+        self.assertIsNone(self.repository.current_run(self.project.project_id))
         events = self.repository.list_events(self.project.project_id, run.run_id)
         self.assertEqual([event["type"] for event in events][0], "queued")
-        self.assertEqual([event["type"] for event in events][-1], "succeeded")
+        self.assertEqual([event["type"] for event in events][-1], "failed")
         self.assertEqual(
             self.repository.list_events(
                 self.project.project_id,
@@ -389,9 +392,55 @@ class PreparationStorageTests(unittest.TestCase):
         )
         self.assertNotIn(str(self.source), repr(events))
 
+    def test_starting_new_analysis_replaces_old_results_without_touching_source(self) -> None:
+        scope = self.repository.preflight(self.project.project_id)
+        old, _, _ = self.repository.create_run_with_status(
+            self.project.project_id,
+            "request-analysis-old",
+            self.project.revision,
+            scope.scope_id,
+            recipe={"id": "audio.pcm16.v1"},
+            model={"id": "small"},
+        )
+        old = self.repository.transition(
+            self.project.project_id,
+            old.run_id,
+            PreparationState.RUNNING,
+            phase="extracting_audio",
+        )
+        old = self.repository.transition(
+            self.project.project_id,
+            old.run_id,
+            PreparationState.CANCELLING,
+            phase="cancelling",
+        )
+        old = self.repository.transition(
+            self.project.project_id,
+            old.run_id,
+            PreparationState.CANCELLED,
+            phase="cancelled",
+        )
+        source_before = self.clip.read_bytes()
+
+        replacement, created, retired = self.repository.create_run_with_status(
+            self.project.project_id,
+            "request-analysis-replacement",
+            self.project.revision,
+            scope.scope_id,
+            recipe={"id": "audio.pcm16.v1"},
+            model={"id": "small"},
+        )
+        self.assertTrue(created)
+        self.assertEqual(retired, ())
+        self.assertEqual(self.repository.latest_run(self.project.project_id), replacement)
+        with self.assertRaises(ProjectError) as missing:
+            self.repository.get_run(self.project.project_id, old.run_id)
+        self.assertEqual(missing.exception.code, "preparation_not_found")
+        self.assertEqual(self.clip.read_bytes(), source_before)
+
     def test_chunk_checkpoints_are_validated_and_replayable(self) -> None:
         scope = self.repository.preflight(self.project.project_id)
-        run, _ = self.repository.create_run_with_status(
+        run, _, _ = self.repository.create_run_with_status(
             self.project.project_id,
             "request-analysis-chunks",
             self.project.revision,
@@ -554,7 +603,7 @@ class PreparationStorageTests(unittest.TestCase):
 
     def test_cancel_and_restart_recovery_are_idempotent(self) -> None:
         scope = self.repository.preflight(self.project.project_id)
-        queued, _ = self.repository.create_run_with_status(
+        queued, _, _ = self.repository.create_run_with_status(
             self.project.project_id,
             "request-analysis-cancel",
             self.project.revision,
@@ -569,7 +618,7 @@ class PreparationStorageTests(unittest.TestCase):
             cancelled,
         )
 
-        active, _ = self.repository.create_run_with_status(
+        active, _, _ = self.repository.create_run_with_status(
             self.project.project_id,
             "request-analysis-interrupt",
             self.project.revision,
@@ -668,7 +717,7 @@ class PreparationStorageTests(unittest.TestCase):
 
         migrated = ProjectRepository(self.root / "projects")
         with migrated.connect(self.project.project_id) as connection:
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 4)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 5)
             run = connection.execute(
                 "SELECT project_revision, scope_id, operation_id, attempt_id, "
                 "attempt_number FROM preparation_runs WHERE run_id = ?",
@@ -735,6 +784,30 @@ class PreparationStorageTests(unittest.TestCase):
         self.assertEqual(segment["end_pts"], "96000")
         self.assertEqual(segment["text"], "手沖咖啡")
 
+        results = repository.result_items(
+            self.project.project_id, run.run_id, offset=0, limit=25
+        )
+        self.assertEqual(results["total"], 2)
+        self.assertIsNone(results["next_offset"])
+        by_status = {item["status"]: item for item in results["items"]}
+        self.assertEqual(by_status["transcribed"]["display_name"], "clip.mov")
+        self.assertEqual(by_status["transcribed"]["preview_text"], "手沖咖啡")
+        self.assertEqual(by_status["transcribed"]["preview_start_pts"], "48000")
+        self.assertEqual(by_status["no_audio"]["display_name"], "silent.mov")
+        self.assertNotIn(str(self.source), repr(results))
+
+        transcribed = by_status["transcribed"]
+        transcript = repository.transcript_segments(
+            self.project.project_id,
+            run.run_id,
+            transcribed["version_id"],
+            transcribed["stream_index"],
+        )
+        self.assertEqual(transcript["total"], 1)
+        self.assertEqual(transcript["segments"][0]["start_pts"], "48000")
+        self.assertEqual(transcript["segments"][0]["text"], "手沖咖啡")
+        self.assertNotIn(str(self.source), repr(transcript))
+
     def test_coordinator_isolates_asr_failure_to_one_item(self) -> None:
         repository = PreparationRepository(self.projects)
         coordinator = PreparationCoordinator(
@@ -755,11 +828,12 @@ class PreparationStorageTests(unittest.TestCase):
         deadline = time.monotonic() + 3
         while time.monotonic() < deadline:
             run = repository.get_run(self.project.project_id, run.run_id)
-            if run.state is PreparationState.SUCCEEDED:
+            if run.state in {PreparationState.SUCCEEDED, PreparationState.FAILED}:
                 break
             time.sleep(0.01)
         coordinator.close()
-        self.assertEqual(run.state, PreparationState.SUCCEEDED)
+        self.assertEqual(run.state, PreparationState.FAILED)
+        self.assertEqual(run.error_code, "asr_failed")
         self.assertEqual(run.counts.issues, 1)
         self.assertEqual(run.counts.no_audio, 1)
 
