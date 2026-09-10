@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { TranscriptResults } from './TranscriptResults'
 import type { FormEvent } from 'react'
 import {
   ApiError,
@@ -462,6 +463,7 @@ function InventorySection({
 }
 
 function AnalysisSection({
+  projectId,
   summary,
   loading,
   actionBusy,
@@ -470,6 +472,7 @@ function AnalysisSection({
   onResume,
   onRemoveRuntime,
 }: {
+  projectId: string
   summary: AnalysisSummary | null
   loading: boolean
   actionBusy: boolean
@@ -494,6 +497,9 @@ function AnalysisSection({
         + latest.counts.issues) / latest.counts.total) * 100,
     )
     : 0
+  const processed = latest
+    ? latest.counts.transcribed + latest.counts.no_audio + latest.counts.no_speech + latest.counts.issues
+    : 0
   const runtime = summary?.runtime
 
   return (
@@ -506,7 +512,7 @@ function AnalysisSection({
         </div>
         {!active && !interrupted && (
           <button className="button primary" onClick={onStart} disabled={!canStart}>
-            {actionBusy ? '正在準備…' : current ? '重新分析' : '開始分析'}
+            {actionBusy ? '正在準備…' : current ? '重新分析並取代結果' : '開始分析'}
           </button>
         )}
       </div>
@@ -566,7 +572,8 @@ function AnalysisSection({
             <span className="small-spinner" aria-hidden="true" />
             <div>
               <strong>{latest.state === 'cancelling' ? '正在保存 checkpoint 並停止…' : '正在本機分析素材…'}</strong>
-              <p>完成 {progress}% · 已轉錄 {latest.counts.transcribed} 個項目 · {latest.counts.issues} 個需要注意</p>
+              <p>完成 {progress}% · 已處理 {processed.toLocaleString()} / {latest.counts.total.toLocaleString()} 個項目 · {latest.counts.issues} 個需要注意</p>
+              <progress value={progress} max={100} aria-label="本機語音辨識進度" />
             </div>
           </div>
           <button
@@ -602,14 +609,32 @@ function AnalysisSection({
         </div>
       )}
 
-      {current && (
-        <div className="analysis-results">
-          <div>
-            <strong>{current.counts.issues ? '逐字稿已完成，部分素材需要注意' : '口語內容已準備好'}</strong>
-            <p>已轉錄 {current.counts.transcribed} 個項目，{current.counts.no_speech} 個沒有人聲，{current.counts.no_audio} 個沒有音軌。</p>
-          </div>
-          <span className="result-ready">分析完成</span>
+      {latest && processed > 0 && (active || ['failed', 'cancelled', 'interrupted'].includes(latest.state)) && (
+        <div className="analysis-live-results">
+          <strong>{active ? '先抽查目前結果' : '查看這次已保存的部分結果'}</strong>
+          <p>{active
+            ? '不必等整批完成；若前幾支逐字稿明顯不對，可以立即停止分析。'
+            : '即使分析停止，已完成的項目仍可用來判斷設定是否合適。'}</p>
+          <TranscriptResults
+            projectId={projectId}
+            run={latest}
+            refreshToken={processed}
+          />
         </div>
+      )}
+
+      {current && (
+        <>
+          <div className="analysis-results">
+            <div>
+              <strong>{current.counts.issues ? '逐字稿已完成，部分素材需要注意' : '口語內容已準備好'}</strong>
+              <p>已轉錄 {current.counts.transcribed} 個項目，{current.counts.no_speech} 個沒有人聲，{current.counts.no_audio} 個沒有音軌，{current.counts.issues} 個需要處理。</p>
+              <p>開始新的分析時，Clipen 會移除這份逐字稿與分析暫存；毛片與參考作品不會被刪除或修改。</p>
+            </div>
+            <span className="result-ready">分析完成</span>
+          </div>
+          <TranscriptResults key={current.run_id} projectId={projectId} run={current} />
+        </>
       )}
 
       {runtime?.state === 'ready' && !active && (
@@ -1042,6 +1067,7 @@ function MaterialsWorkspace({
           />
           {currentInventoryId && (
             <AnalysisSection
+              projectId={project.project_id}
               summary={visibleAnalysis}
               loading={!visibleAnalysis}
               actionBusy={analysisActionBusy}

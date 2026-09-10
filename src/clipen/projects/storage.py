@@ -26,7 +26,7 @@ from .models import (
 )
 
 
-_SCHEMA_VERSION = 4
+_SCHEMA_VERSION = 5
 _PROJECT_DIRECTORY = re.compile(r"prj_[0-9a-f]{32}\Z")
 
 _INVENTORY_SCHEMA = """
@@ -157,6 +157,7 @@ CREATE TABLE preparation_items (
     checkpoint_json TEXT,
     audio_artifact_id TEXT REFERENCES artifacts(artifact_id),
     transcript_revision_id TEXT REFERENCES transcription_revisions(revision_id),
+    review_required INTEGER NOT NULL DEFAULT 0 CHECK (review_required IN (0, 1)),
     PRIMARY KEY(run_id, version_id, stream_index)
 );
 CREATE TABLE operation_events (
@@ -612,7 +613,7 @@ class ProjectRepository:
                 + _INVENTORY_SCHEMA
                 + _ANALYSIS_SCHEMA
                 + """
-                PRAGMA user_version = 4;
+                PRAGMA user_version = 5;
                 """
             )
             connection.execute(
@@ -668,6 +669,9 @@ class ProjectRepository:
             if version == 3:
                 self._migrate_v3_to_v4(connection)
                 version = connection.execute("PRAGMA user_version").fetchone()[0]
+            if version == 4:
+                self._migrate_v4_to_v5(connection)
+                version = 5
             if version != _SCHEMA_VERSION:
                 connection.close()
                 raise ProjectError(
@@ -784,6 +788,61 @@ class ProjectRepository:
                         run_id, status, version_id, stream_index, ordinal
                     );
                 PRAGMA user_version = 4;
+                COMMIT;
+                """
+            )
+        except sqlite3.Error:
+            connection.rollback()
+            raise
+
+    @staticmethod
+    def _migrate_v4_to_v5(connection: sqlite3.Connection) -> None:
+        """Keep old transcripts while making their unverified quality explicit."""
+        try:
+            columns = {
+                row[1]
+                for row in connection.execute(
+                    "PRAGMA table_info(preparation_items)"
+                ).fetchall()
+            }
+            add_review_column = (
+                "" if "review_required" in columns else
+                "ALTER TABLE preparation_items ADD COLUMN review_required INTEGER "
+                "NOT NULL DEFAULT 0 CHECK (review_required IN (0, 1));"
+            )
+            connection.executescript(
+                "BEGIN IMMEDIATE;\n"
+                + add_review_column
+                + """
+                UPDATE preparation_items
+                SET review_required = 1,
+                    error_code = 'transcript_quality_unverified'
+                WHERE status = 'transcribed'
+                  AND transcript_revision_id IN (
+                      SELECT revision_id FROM transcription_revisions
+                      WHERE recipe_id = 'asr.mlx-whisper.v1'
+                  );
+                UPDATE transcription_revisions
+                SET status = 'needs_review'
+                WHERE status = 'transcribed'
+                  AND recipe_id = 'asr.mlx-whisper.v1';
+                UPDATE preparation_runs
+                SET prepared_count = (
+                        SELECT COUNT(*) FROM preparation_items
+                        WHERE preparation_items.run_id = preparation_runs.run_id
+                          AND status IN ('prepared', 'transcribed', 'no_speech')
+                    ),
+                    transcribed_count = (
+                        SELECT COUNT(*) FROM preparation_items
+                        WHERE preparation_items.run_id = preparation_runs.run_id
+                          AND status = 'transcribed' AND review_required = 0
+                    ),
+                    issue_count = (
+                        SELECT COUNT(*) FROM preparation_items
+                        WHERE preparation_items.run_id = preparation_runs.run_id
+                          AND (status = 'failed' OR review_required = 1)
+                    );
+                PRAGMA user_version = 5;
                 COMMIT;
                 """
             )

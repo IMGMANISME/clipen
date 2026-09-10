@@ -644,6 +644,38 @@ def create_app(
         except ProjectError as error:
             return await project_error_response(error)
 
+    async def analysis_results(request: Request) -> Response:
+        try:
+            results = await run_in_threadpool(
+                require_preparation_repository().result_items,
+                request.path_params["project_id"],
+                request.path_params["run_id"],
+                offset=_query_integer(
+                    request, "offset", 0, minimum=0, maximum=1_000_000
+                ),
+                limit=_query_integer(request, "limit", 25, minimum=1, maximum=100),
+            )
+            return JSONResponse({"results": results})
+        except ProjectError as error:
+            return await project_error_response(error)
+
+    async def transcript_segments(request: Request) -> Response:
+        try:
+            transcript = await run_in_threadpool(
+                require_preparation_repository().transcript_segments,
+                request.path_params["project_id"],
+                request.path_params["run_id"],
+                request.path_params["version_id"],
+                request.path_params["stream_index"],
+                offset=_query_integer(
+                    request, "offset", 0, minimum=0, maximum=1_000_000
+                ),
+                limit=_query_integer(request, "limit", 100, minimum=1, maximum=100),
+            )
+            return JSONResponse({"transcript": transcript})
+        except ProjectError as error:
+            return await project_error_response(error)
+
     async def remove_asr(request: Request) -> Response:
         try:
             payload = await read_json(request)
@@ -819,6 +851,17 @@ def create_app(
             Route(
                 "/api/projects/{project_id}/analysis",
                 analysis_status,
+                methods=["GET"],
+            ),
+            Route(
+                "/api/projects/{project_id}/analyses/{run_id}/results",
+                analysis_results,
+                methods=["GET"],
+            ),
+            Route(
+                "/api/projects/{project_id}/analyses/{run_id}/items/"
+                "{version_id}/{stream_index:int}/transcript",
+                transcript_segments,
                 methods=["GET"],
             ),
             Route(
