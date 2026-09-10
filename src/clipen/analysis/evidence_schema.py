@@ -1,4 +1,4 @@
-"""Persistent checkpoints for local evidence extraction."""
+"""Persistent evidence checkpoints and explicit observation reservations."""
 EVIDENCE_SCHEMA = """
 CREATE TABLE evidence_runs (
     run_id TEXT PRIMARY KEY,
@@ -33,5 +33,19 @@ CREATE TABLE evidence_cache (
     ffmpeg TEXT NOT NULL,
     result_json TEXT NOT NULL,
     PRIMARY KEY(item_key, recipe, ffmpeg)
+);
+"""
+
+OBSERVATION_SCHEMA = """
+CREATE TABLE evidence_observations (
+    observation_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES evidence_runs(run_id),
+    item_key TEXT NOT NULL,
+    request_id TEXT NOT NULL UNIQUE,
+    state TEXT NOT NULL CHECK (state IN ('running','succeeded','failed','cancelled','interrupted')),
+    result_json TEXT,
+    usage_json TEXT,
+    error_code TEXT,
+    UNIQUE(run_id, item_key)
 );
 """

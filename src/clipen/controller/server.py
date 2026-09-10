@@ -324,7 +324,10 @@ async def _serve(
             inventories.recover_incomplete(
                 project.project_id for project in workspace.repository.list_projects()
             )
-            evidence_service = EvidenceService(workspace.repository)
+            evidence_service = EvidenceService(
+                workspace.repository,
+                paths.attempt_root if provider.state is ProviderState.READY else None,
+            )
             evidence_service.recover()
             preparation_repository = PreparationRepository(workspace.repository)
             for project in workspace.repository.list_projects():

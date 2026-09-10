@@ -264,6 +264,7 @@ class CodexAttempt:
     output_schema: Path
     prompt: str
     timeout_seconds: float = 300.0
+    images: tuple[Path, ...] = ()
 
     def __post_init__(self) -> None:
         _bounded_identifier(self.attempt_id, "attempt_id")
@@ -275,6 +276,31 @@ class CodexAttempt:
             raise ValueError("prompt must be non-empty and at most 1,000,000 UTF-8 bytes")
         if not 0 < self.timeout_seconds <= 3600:
             raise ValueError("timeout_seconds must be between zero and 3600")
+        self.image_identity()
+
+    def image_identity(self) -> list[dict[str, str]]:
+        if type(self.images) is not tuple or len(self.images) > 8:
+            raise ValueError("at most eight immutable image inputs are allowed")
+        identity = []
+        total = 0
+        for image in self.images:
+            path = _workspace_file(image, self.workspace.resolve(), "image")
+            info = path.stat()
+            total += info.st_size
+            if info.st_nlink != 1 or info.st_size > 2 * 1024**2 or total > 8 * 1024**2:
+                raise ValueError("image input exceeds bounds or is hardlinked")
+            with path.open("rb") as source:
+                if source.read(8) != b"\x89PNG\r\n\x1a\n":
+                    raise ValueError("image input must be a PNG snapshot")
+            identity.append({"name": str(path.relative_to(self.workspace.resolve())),
+                             "sha256": sha256_file(path, 2 * 1024**2)})
+        return identity
+
+    def input_hash(self) -> str:
+        if not self.images:
+            return sha256_bytes(self.prompt.encode("utf-8"))
+        return sha256_bytes(json.dumps({"prompt": self.prompt, "images": self.image_identity()},
+                                      sort_keys=True).encode("utf-8"))
 
 
 @dataclass(frozen=True)
@@ -462,6 +488,7 @@ class CodexExecAdapter:
             str(schema),
             "--output-last-message",
             str(resolved_output),
+            *(part for image in attempt.images for part in ("--image", str(image.resolve()))),
             "--cd",
             str(workspace),
             "-",
@@ -486,7 +513,7 @@ class CodexExecAdapter:
         for artifact in (output_path, events_path, diagnostics_path):
             if artifact.exists() or artifact.is_symlink():
                 raise ProviderProtocolError("Codex attempt artifact already exists")
-        prompt_hash = sha256_bytes(attempt.prompt.encode("utf-8"))
+        prompt_hash = attempt.input_hash()
         schema_hash = sha256_file(attempt.output_schema, _MAX_SCHEMA_BYTES)
         receipt = ProviderAttemptReceipt(
             attempt_id=attempt.attempt_id,
@@ -527,6 +554,8 @@ class CodexExecAdapter:
             if returncode != 0:
                 self._raise_for_exit(returncode, stderr)
             result = self._validated_result(attempt, output_path, stdout)
+            if attempt.input_hash() != prompt_hash:
+                raise ProviderProtocolError("approved image snapshots changed during the attempt")
             receipt = replace(
                 receipt,
                 state=ProviderAttemptState.SUCCEEDED,
@@ -587,7 +616,7 @@ class CodexExecAdapter:
             if (
                 receipt.attempt_id != attempt.attempt_id
                 or receipt.prompt_sha256
-                != sha256_bytes(attempt.prompt.encode("utf-8"))
+                != attempt.input_hash()
                 or receipt.schema_sha256
                 != sha256_file(attempt.output_schema, _MAX_SCHEMA_BYTES)
             ):

@@ -26,7 +26,7 @@ from .models import (
 )
 
 
-_SCHEMA_VERSION = 6
+_SCHEMA_VERSION = 7
 _PROJECT_DIRECTORY = re.compile(r"prj_[0-9a-f]{32}\Z")
 
 _INVENTORY_SCHEMA = """
@@ -577,7 +577,7 @@ class ProjectRepository:
         command_hash: str,
     ) -> ProjectSnapshot:
         now = utc_now()
-        from clipen.analysis.evidence_schema import EVIDENCE_SCHEMA
+        from clipen.analysis.evidence_schema import EVIDENCE_SCHEMA, OBSERVATION_SCHEMA
 
         connection = sqlite3.connect(database, isolation_level=None)
         connection.row_factory = sqlite3.Row
@@ -615,8 +615,9 @@ class ProjectRepository:
                 + _INVENTORY_SCHEMA
                 + _ANALYSIS_SCHEMA
                 + EVIDENCE_SCHEMA
+                + OBSERVATION_SCHEMA
                 + """
-                PRAGMA user_version = 6;
+                PRAGMA user_version = 7;
                 """
             )
             connection.execute(
@@ -683,6 +684,14 @@ class ProjectRepository:
                     + "\nPRAGMA user_version = 6;\nCOMMIT;"
                 )
                 version = 6
+            if version == 6:
+                from clipen.analysis.evidence_schema import OBSERVATION_SCHEMA
+                connection.executescript(
+                    "BEGIN IMMEDIATE;\n"
+                    + OBSERVATION_SCHEMA
+                    + "\nPRAGMA user_version = 7;\nCOMMIT;"
+                )
+                version = 7
             if version != _SCHEMA_VERSION:
                 connection.close()
                 raise ProjectError(

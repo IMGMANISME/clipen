@@ -422,7 +422,8 @@ class MediaInventoryStorageTests(unittest.TestCase):
             DROP TABLE current_preparation;
             DROP TABLE transcript_segments;
             DROP TABLE transcription_revisions;
-            DROP TABLE evidence_results;
+            DROP TABLE evidence_observations;
+                DROP TABLE evidence_results;
                 DROP TABLE evidence_images;
                 DROP TABLE evidence_cache;
                 DROP TABLE evidence_runs;
@@ -447,7 +448,7 @@ class MediaInventoryStorageTests(unittest.TestCase):
         migrated = ProjectRepository(self.projects_root)
         self.assertEqual(migrated.get_project(self.project.project_id), before)
         with migrated.connect(self.project.project_id) as checked:
-            self.assertEqual(checked.execute("PRAGMA user_version").fetchone()[0], 6)
+            self.assertEqual(checked.execute("PRAGMA user_version").fetchone()[0], 7)
             tables = {
                 row[0]
                 for row in checked.execute(
