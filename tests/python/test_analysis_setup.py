@@ -2,6 +2,7 @@ import hashlib
 import io
 import os
 from pathlib import Path
+import shutil
 import tempfile
 import threading
 import time
@@ -11,6 +12,7 @@ from unittest import mock
 from clipen.analysis import ASRSetupError, ASRSetupManager, ASRSetupState
 from clipen.analysis.setup import ASRSetupStatus
 from clipen.analysis import setup_cli
+from clipen.asr_release import NOTICE_VERSION
 
 
 def _sha256(value: bytes) -> str:
@@ -27,6 +29,7 @@ class ASRSetupManagerTests(unittest.TestCase):
         self.model_files = tuple(
             (name, len(value), _sha256(value)) for name, value in self.files.items()
         )
+
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
@@ -46,14 +49,14 @@ class ASRSetupManagerTests(unittest.TestCase):
         arguments.update(overrides)
         return ASRSetupManager(**arguments)
 
-    @staticmethod
-    def _install_runtime(destination: Path, _requirements: Path, cancel: threading.Event) -> None:
+    def _install_runtime(self, destination: Path, _requirements: Path, cancel: threading.Event) -> None:
         if cancel.is_set():
             raise ASRSetupError("cancelled")
         executable = destination / "bin" / "python"
         executable.parent.mkdir(parents=True)
         executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
         executable.chmod(0o700)
+
 
     def _download(
         self,
@@ -86,14 +89,25 @@ class ASRSetupManagerTests(unittest.TestCase):
             manager.start_install(None)
         unsupported = self.manager(data_root=self.root / "other", machine="x86_64")
         with self.assertRaisesRegex(ASRSetupError, "asr_platform_unsupported"):
-            unsupported.start_install("asr-mlx-whisper-small-v1")
+            unsupported.start_install(NOTICE_VERSION)
+
+    def test_install_rejects_insufficient_free_space_before_staging(self) -> None:
+        manager = self.manager()
+        usage = shutil.disk_usage(self.root)
+        with mock.patch(
+            "clipen.analysis.setup.shutil.disk_usage",
+            return_value=usage._replace(free=1),
+        ):
+            with self.assertRaisesRegex(ASRSetupError, "asr_disk_space_insufficient"):
+                manager.start_install(NOTICE_VERSION)
+        self.assertFalse(manager.release.exists())
 
     def test_atomic_install_is_verified_after_restart_and_removable(self) -> None:
         manager = self.manager()
         notice = manager.public_status()["notice"]
         self.assertEqual(notice["model"]["revision"], "fixed-test-revision")
         self.assertEqual(notice["model"]["model_bytes"], 12)
-        manager.start_install("asr-mlx-whisper-small-v1")
+        manager.start_install(NOTICE_VERSION)
         self._wait(manager, ASRSetupState.READY)
         release = manager.release
         self.assertTrue((release / "receipt.json").is_file())
@@ -134,7 +148,7 @@ class ASRSetupManagerTests(unittest.TestCase):
             raise ASRSetupError("cancelled")
 
         manager = self.manager(runtime_installer=blocked_installer)
-        manager.start_install("asr-mlx-whisper-small-v1")
+        manager.start_install(NOTICE_VERSION)
         self.assertTrue(entered.wait(1))
         manager.cancel_install()
         self._wait(manager, ASRSetupState.SETUP_REQUIRED)
@@ -153,7 +167,7 @@ class ASRSetupManagerTests(unittest.TestCase):
             destination.write_bytes(b"corrupt")
 
         manager = self.manager(downloader=corrupt)
-        manager.start_install("asr-mlx-whisper-small-v1")
+        manager.start_install(NOTICE_VERSION)
         self._wait(manager, ASRSetupState.FAILED)
         self.assertEqual(manager.status().error_code, "asr_model_invalid")
         self.assertFalse(manager.release.exists())
@@ -170,9 +184,21 @@ class ASRSetupManagerTests(unittest.TestCase):
         self.assertFalse(stale.exists())
         self.assertTrue(unrelated.exists())
 
+    def test_successful_upgrade_removes_only_known_superseded_releases(self) -> None:
+        manager = self.manager()
+        old = manager.root / "funasr-nano-consensus-v1"
+        unrelated = manager.root / "user-content"
+        old.mkdir()
+        unrelated.mkdir()
+
+        manager._remove_superseded_releases()
+
+        self.assertFalse(old.exists())
+        self.assertTrue(unrelated.exists())
+
     def test_restart_rejects_symlinked_runtime_without_deleting_target(self) -> None:
         manager = self.manager()
-        manager.start_install("asr-mlx-whisper-small-v1")
+        manager.start_install(NOTICE_VERSION)
         self._wait(manager, ASRSetupState.READY)
         runtime = manager.release / "runtime"
         outside = self.root / "outside-runtime"
@@ -209,6 +235,7 @@ class ASRSetupManagerTests(unittest.TestCase):
         self.assertTrue(callable(reporter))
         self.assertIn("--only-binary=:all:", command)
         self.assertIn("--no-deps", command)
+        self.assertIn("--ignore-requires-python", command)
         self.assertIn("--progress-bar=raw", command)
         self.assertIn("--no-cache-dir", command)
         self.assertEqual(command[-2:], ("-r", str(self.requirements)))
@@ -216,10 +243,22 @@ class ASRSetupManagerTests(unittest.TestCase):
     def test_bundled_runtime_excludes_torch_conversion_stack(self) -> None:
         requirements = Path(__file__).resolve().parents[2] / "requirements" / "asr-runtime.txt"
         names = ASRSetupManager._requirement_names(requirements)
-        self.assertTrue({"mlx-whisper", "mlx", "mlx-metal"} <= names)
-        self.assertTrue(
-            names.isdisjoint({"torch", "sympy", "networkx", "jinja2", "markupsafe", "mpmath"})
+        self.assertEqual(
+            names,
+            {
+                "cffi",
+                "mlx",
+                "mlx-metal",
+                "mlx-speech",
+                "numpy",
+                "opencc-python-reimplemented",
+                "pycparser",
+                "soundfile",
+                "tokenizers",
+                "typing-extensions",
+            },
         )
+        self.assertTrue(names.isdisjoint({"torch", "mlx-whisper", "numba", "funasr"}))
 
     def test_dependency_reporter_tracks_real_package_and_download_progress(self) -> None:
         manager = self.manager(runtime_installer=None)
@@ -301,7 +340,7 @@ class ASRSetupManagerTests(unittest.TestCase):
                 ]
             )
         self.assertEqual(result, 0)
-        manager.start_install.assert_called_once_with("asr-mlx-whisper-small-v1")
+        manager.start_install.assert_called_once_with(NOTICE_VERSION)
         manager.close.assert_called_once_with(timeout=10)
 
     def test_blocking_setup_reports_heartbeat_while_phase_is_unchanged(self) -> None:

@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import sqlite3
 import tempfile
 import threading
@@ -51,11 +52,16 @@ class FakeAudioAdapter:
 
 
 class FakeTranscriber:
+    requests: list[tuple[str, str | None]] = []
+
     def probe(self) -> str:
         return "mlx-whisper test"
 
-    def transcribe(self, audio, output, *, language="zh", cancel=None):
+    def transcribe(
+        self, audio, output, *, language="zh", initial_prompt=None, cancel=None
+    ):
         del audio, cancel
+        self.requests.append((language, initial_prompt))
         output.write_text('{"test":true}', encoding="utf-8")
         return TranscriptionResult(
             language,
@@ -73,16 +79,20 @@ class FakeTranscriber:
 
 
 class FailingTranscriber(FakeTranscriber):
-    def transcribe(self, audio, output, *, language="zh", cancel=None):
-        del audio, output, language, cancel
+    def transcribe(
+        self, audio, output, *, language="zh", initial_prompt=None, cancel=None
+    ):
+        del audio, output, language, initial_prompt, cancel
         raise TranscriptionError("asr_failed")
 
 
 class BlockingTranscriber(FakeTranscriber):
     entered = threading.Event()
 
-    def transcribe(self, audio, output, *, language="zh", cancel=None):
-        del audio, output, language
+    def transcribe(
+        self, audio, output, *, language="zh", initial_prompt=None, cancel=None
+    ):
+        del audio, output, language, initial_prompt
         self.entered.set()
         assert cancel is not None
         cancel.wait(2)
@@ -90,6 +100,11 @@ class BlockingTranscriber(FakeTranscriber):
 
 
 class PreparationStorageTests(unittest.TestCase):
+    def test_default_recipe_requests_traditional_chinese_transcript(self) -> None:
+        self.assertIsNone(PreparationRecipe().initial_prompt)
+        self.assertIsNone(PreparationRecipe(vocabulary=("藍瓶咖啡",)).initial_prompt)
+        self.assertIsNone(PreparationRecipe(language="ja").initial_prompt)
+
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
@@ -227,6 +242,34 @@ class PreparationStorageTests(unittest.TestCase):
         self.assertNotIn(str(self.source), repr(public))
         self.assertNotIn("relative_path", repr(public))
 
+    def test_preflight_accepts_volume_remount_but_rejects_replaced_root(self) -> None:
+        database = self.root / "projects" / self.project.project_id / "project.sqlite3"
+        with sqlite3.connect(database) as connection:
+            roots = json.loads(
+                connection.execute(
+                    "SELECT roots_json FROM inventory_runs WHERE run_id = ?",
+                    (self.inventory.run_id,),
+                ).fetchone()[0]
+            )
+            roots[0]["device"] += 1
+            connection.execute(
+                "UPDATE inventory_runs SET roots_json = ? WHERE run_id = ?",
+                (json.dumps(roots), self.inventory.run_id),
+            )
+
+        remounted = self.repository.preflight(self.project.project_id)
+        self.assertEqual(remounted.inventory_run_id, self.inventory.run_id)
+
+        roots[0]["inode"] += 1
+        with sqlite3.connect(database) as connection:
+            connection.execute(
+                "UPDATE inventory_runs SET roots_json = ? WHERE run_id = ?",
+                (json.dumps(roots), self.inventory.run_id),
+            )
+        with self.assertRaises(ProjectError) as replaced:
+            self.repository.preflight(self.project.project_id)
+        self.assertEqual(replaced.exception.code, "root_changed")
+
     def test_create_run_is_durable_idempotent_and_private(self) -> None:
         scope = self.repository.preflight(self.project.project_id)
         created, was_created, retired = self.repository.create_run_with_status(
@@ -310,7 +353,7 @@ class PreparationStorageTests(unittest.TestCase):
             )
         self.assertEqual(changed.exception.code, "scope_changed")
 
-        replay, created, _ = self.repository.create_run_with_status(
+        replay, created, retired = self.repository.create_run_with_status(
             self.project.project_id,
             "request-analysis-conflict",
             self.project.revision,
@@ -319,6 +362,7 @@ class PreparationStorageTests(unittest.TestCase):
             model={"id": "small"},
         )
         self.assertFalse(created)
+        self.assertEqual(retired, ())
         self.assertEqual(replay.project_revision, self.project.revision)
 
     def test_item_progress_and_publish_are_transactional(self) -> None:
@@ -392,7 +436,7 @@ class PreparationStorageTests(unittest.TestCase):
         )
         self.assertNotIn(str(self.source), repr(events))
 
-    def test_starting_new_analysis_replaces_old_results_without_touching_source(self) -> None:
+    def test_starting_new_analysis_atomically_replaces_old_managed_results(self) -> None:
         scope = self.repository.preflight(self.project.project_id)
         old, _, _ = self.repository.create_run_with_status(
             self.project.project_id,
@@ -408,19 +452,111 @@ class PreparationStorageTests(unittest.TestCase):
             PreparationState.RUNNING,
             phase="extracting_audio",
         )
-        old = self.repository.transition(
+        target = next(item for item in scope.targets if item.audio is not None)
+        store = ArtifactStore(self.projects)
+        staging = store.create_staging_file(self.project.project_id, suffix=".wav")
+        staging.write_bytes(b"replaceable analysis audio")
+        artifact = store.publish(
+            self.project.project_id,
+            staging,
+            kind=ArtifactKind.ANALYSIS_AUDIO,
+            producer_operation_id=old.operation_id,
+            producer_attempt_id=old.attempt_id,
+            recipe_id="audio.pcm16.v1",
+            lineage={"version_id": target.version_id},
+            source_span=target.audio.source_span,
+        )
+        blobs = [store.path(artifact)]
+        self.repository.settle_item(
             self.project.project_id,
             old.run_id,
-            PreparationState.CANCELLING,
-            phase="cancelling",
+            target.version_id,
+            target.stream_index,
+            PreparationItemStatus.PREPARED,
+            audio_artifact_id=artifact.artifact_id,
         )
-        old = self.repository.transition(
+        chunk_span = project_samples_to_source(
+            target.audio.source_span, 0, 16_000, 16_000
+        )
+        self.repository.register_chunks(
             self.project.project_id,
             old.run_id,
-            PreparationState.CANCELLED,
-            phase="cancelled",
+            target.version_id,
+            target.stream_index,
+            (PreparedAudioChunk(self.root / "retired.wav", chunk_span, 0, 16_000),),
         )
+        result = TranscriptionResult(
+            "zh",
+            "舊逐字稿",
+            (TranscriptSegment(0, 16_000, "舊逐字稿", "0.01", ()),),
+        )
+        chunk_staging = store.create_staging_file(
+            self.project.project_id, suffix=".json"
+        )
+        chunk_staging.write_text('{"chunk":"old"}', encoding="utf-8")
+        chunk_artifact = store.publish(
+            self.project.project_id,
+            chunk_staging,
+            kind=ArtifactKind.TRANSCRIPT,
+            producer_operation_id=old.operation_id,
+            producer_attempt_id=old.attempt_id,
+            recipe_id="asr.mlx-whisper.v3",
+            lineage={"chunk": 0},
+            source_span=chunk_span,
+        )
+        blobs.append(store.path(chunk_artifact))
+        self.repository.settle_chunk(
+            self.project.project_id,
+            old.run_id,
+            target.version_id,
+            target.stream_index,
+            0,
+            chunk_artifact.artifact_id,
+            result,
+        )
+        final_staging = store.create_staging_file(
+            self.project.project_id, suffix=".json"
+        )
+        final_staging.write_text('{"text":"舊逐字稿"}', encoding="utf-8")
+        final_artifact = store.publish(
+            self.project.project_id,
+            final_staging,
+            kind=ArtifactKind.TRANSCRIPT,
+            producer_operation_id=old.operation_id,
+            producer_attempt_id=old.attempt_id,
+            recipe_id="asr.mlx-whisper.v3",
+            lineage={"chunks": [chunk_artifact.artifact_id]},
+            source_span=target.audio.source_span,
+        )
+        blobs.append(store.path(final_artifact))
+        self.repository.publish_transcript_revision(
+            self.project.project_id,
+            old.run_id,
+            target.version_id,
+            target.stream_index,
+            artifact_id=final_artifact.artifact_id,
+            language="zh",
+            model={"id": "small"},
+            recipe_id="asr.mlx-whisper.v3",
+            source_span=target.audio.source_span,
+            segments=(TimelineSegment(chunk_span, "舊逐字稿", "0.99"),),
+        )
+        old = self.repository.publish(self.project.project_id, old.run_id)
+        self.assertEqual(self.repository.current_run(self.project.project_id), old)
         source_before = self.clip.read_bytes()
+
+        with self.assertRaises(ProjectError) as invalid:
+            self.repository.create_run_with_status(
+                self.project.project_id,
+                "request-analysis-invalid-replacement",
+                self.project.revision,
+                "scope_" + "0" * 32,
+                recipe={"id": "audio.pcm16.v1"},
+                model={"id": "small"},
+            )
+        self.assertEqual(invalid.exception.code, "scope_changed")
+        self.assertEqual(self.repository.current_run(self.project.project_id), old)
+        self.assertTrue(all(blob.exists() for blob in blobs))
 
         replacement, created, retired = self.repository.create_run_with_status(
             self.project.project_id,
@@ -431,12 +567,41 @@ class PreparationStorageTests(unittest.TestCase):
             model={"id": "small"},
         )
         self.assertTrue(created)
-        self.assertEqual(retired, ())
+        self.assertEqual(
+            set(retired),
+            {
+                artifact.relative_path,
+                chunk_artifact.relative_path,
+                final_artifact.relative_path,
+            },
+        )
+        self.assertIsNone(self.repository.current_run(self.project.project_id))
         self.assertEqual(self.repository.latest_run(self.project.project_id), replacement)
         with self.assertRaises(ProjectError) as missing:
             self.repository.get_run(self.project.project_id, old.run_id)
         self.assertEqual(missing.exception.code, "preparation_not_found")
+        with self.assertRaises(ProjectError) as missing_artifact:
+            store.get(self.project.project_id, artifact.artifact_id)
+        self.assertEqual(missing_artifact.exception.code, "artifact_not_found")
+        self.assertEqual(store.prune_unreferenced(self.project.project_id, retired), 3)
+        self.assertFalse(any(blob.exists() for blob in blobs))
         self.assertEqual(self.clip.read_bytes(), source_before)
+        with self.projects.connect(self.project.project_id) as connection:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM operation_events WHERE operation_id = ?",
+                    (old.operation_id,),
+                ).fetchone()[0],
+                0,
+            )
+            self.assertEqual(
+                connection.execute("SELECT COUNT(*) FROM transcription_revisions").fetchone()[0],
+                0,
+            )
+            self.assertEqual(
+                connection.execute("SELECT COUNT(*) FROM transcript_segments").fetchone()[0],
+                0,
+            )
 
     def test_chunk_checkpoints_are_validated_and_replayable(self) -> None:
         scope = self.repository.preflight(self.project.project_id)
@@ -747,6 +912,7 @@ class PreparationStorageTests(unittest.TestCase):
         self.assertIsNotNone(chunks_exists)
 
     def test_coordinator_runs_audio_to_source_timed_transcript(self) -> None:
+        FakeTranscriber.requests.clear()
         repository = PreparationRepository(self.projects)
         coordinator = PreparationCoordinator(
             repository,
@@ -763,6 +929,8 @@ class PreparationStorageTests(unittest.TestCase):
             "request-analysis-coordinator",
             self.project.revision,
             scope.scope_id,
+            "ja",
+            ["浅草", "スカイツリー"],
         )
         deadline = time.monotonic() + 3
         while time.monotonic() < deadline:
@@ -780,6 +948,14 @@ class PreparationStorageTests(unittest.TestCase):
         self.assertEqual(run.state, PreparationState.SUCCEEDED)
         self.assertEqual(run.counts.transcribed, 1)
         self.assertEqual(run.counts.no_audio, 1)
+        self.assertEqual(
+            FakeTranscriber.requests,
+            [("ja", None)],
+        )
+        self.assertEqual(
+            repository.recipe(self.project.project_id, run.run_id)["vocabulary"],
+            ["浅草", "スカイツリー"],
+        )
         self.assertEqual(self.clip.read_bytes(), before)
         with self.projects.connect(self.project.project_id) as connection:
             segment = connection.execute(
@@ -798,6 +974,11 @@ class PreparationStorageTests(unittest.TestCase):
         self.assertEqual(by_status["transcribed"]["display_name"], "clip.mov")
         self.assertEqual(by_status["transcribed"]["preview_text"], "手沖咖啡")
         self.assertEqual(by_status["transcribed"]["preview_start_pts"], "48000")
+        self.assertEqual(by_status["transcribed"]["segment_count"], 1)
+        self.assertEqual(
+            by_status["transcribed"]["source"]["time_base"],
+            {"num": 1, "den": 48000},
+        )
         self.assertEqual(by_status["no_audio"]["display_name"], "silent.mov")
         self.assertNotIn(str(self.source), repr(results))
 
@@ -841,6 +1022,9 @@ class PreparationStorageTests(unittest.TestCase):
         self.assertEqual(run.error_code, "asr_failed")
         self.assertEqual(run.counts.issues, 1)
         self.assertEqual(run.counts.no_audio, 1)
+        results = repository.result_items(self.project.project_id, run.run_id)
+        self.assertEqual(results["items"][0]["status"], "failed")
+        self.assertEqual(results["items"][0]["issue_code"], "asr_failed")
 
     def test_coordinator_cancellation_reaches_adapter_and_settles(self) -> None:
         BlockingTranscriber.entered.clear()

@@ -32,9 +32,9 @@ from clipen.analysis import (
     ManagedAnalysisRuntime,
     PreparationRepository,
 )
-from clipen.analysis.evidence_service import EvidenceService
 from clipen.media import InventoryCoordinator, InventoryRepository
 from clipen.providers import CodexExecAdapter, ProviderUnavailable
+from clipen.analysis.evidence_service import EvidenceService
 from clipen.projects import ProjectWorkspace
 from clipen.system_skills import VerifiedSystemSkillRelease
 
@@ -324,10 +324,7 @@ async def _serve(
             inventories.recover_incomplete(
                 project.project_id for project in workspace.repository.list_projects()
             )
-            evidence_service = EvidenceService(
-                workspace.repository,
-                paths.attempt_root if provider.state is ProviderState.READY else None,
-            )
+            evidence_service = EvidenceService(workspace.repository, paths.attempt_root if provider.state is ProviderState.READY else None)
             evidence_service.recover()
             preparation_repository = PreparationRepository(workspace.repository)
             for project in workspace.repository.list_projects():

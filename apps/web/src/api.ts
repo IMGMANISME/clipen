@@ -171,9 +171,11 @@ export type ASRRuntimeStatus = {
       model_bytes: number
     }
     license: {
-      whisper_software: string
-      whisper_license_url: string
-      conversion_notice: string
+      software: string
+      software_url: string
+      model: string
+      model_url: string
+      notice: string
     }
     removable: boolean
   }
@@ -288,9 +290,7 @@ async function command<T>(path: string, csrf: string, body: object): Promise<T> 
 }
 
 export async function connectLocalSession(): Promise<void> {
-  await request<{ connected: true }>('/api/session/connect', {
-    method: 'POST',
-  })
+  await request<{ connected: true }>('/api/session/connect', { method: 'POST' })
 }
 
 export async function getStatus(): Promise<StatusPayload> {
@@ -515,12 +515,8 @@ export async function resumeAnalysis(
 
 export type EvidenceFrame = { pts: string; artifact_id: string }
 export type EvidenceItem = {
-  key: string
-  display_name: string
-  kind: 'video' | 'audio'
-  role: DirectoryRole
-  error_code: string | null
-  frames: EvidenceFrame[]
+  key: string; display_name: string; kind: 'video' | 'audio'; role: DirectoryRole
+  error_code: string | null; frames: EvidenceFrame[]
   source: { start_pts: string; end_pts: string; time_base: { num: number; den: number } } | null
   scene_error_code?: string
   scenes?: { candidate_pts: string[]; maximum_window_seconds: number; candidate_limit_reached: boolean }
@@ -528,51 +524,19 @@ export type EvidenceItem = {
   audio_features?: { windows: { rms_dbfs: number; low_energy: boolean }[] }
 }
 export type EvidenceObservation = {
-  observation_id: string
-  item_key: string
-  state: string
-  error_code: string | null
+  observation_id: string; item_key: string; state: string; error_code: string | null
   usage: { input_tokens: number; cached_input_tokens: number; output_tokens: number } | null
-  result: {
-    observations: { index: number; description: string; uncertainty: string }[]
-    style_summary: string
-    limitations: string
-  } | null
+  result: { observations: { index: number; description: string; uncertainty: string }[]; style_summary: string; limitations: string } | null
 }
 export type EvidenceSummary = {
   scope: { scope_id: string; project_revision: number; total: number; video_streams: number } | null
-  blocked_reason: string | null
-  provider_available: boolean
-  latest: {
-    run_id: string
-    state: string
-    error_code: string | null
-    completed_count: number
-    issue_count: number
-    offset: number
-    page_size: number
-    progress: { display_name?: string; phase?: string; frames?: number }
-    results: EvidenceItem[]
-    total: number
-    stale: boolean
-    observations: EvidenceObservation[]
-  } | null
-  limits: {
-    frames_per_stream: number
-    local_window_seconds: number
-    ai_calls_per_run: number
-    ai_images_per_call: number
-    ai_timeout_seconds: number
-  }
+  blocked_reason: string | null; provider_available: boolean
+  latest: { run_id: string; state: string; error_code: string | null; completed_count: number; issue_count: number; offset: number; page_size: number; progress: { display_name?: string; phase?: string; frames?: number }; results: EvidenceItem[]; total: number; stale: boolean; observations: EvidenceObservation[] } | null
+  limits: { frames_per_stream: number; local_window_seconds: number; ai_calls_per_run: number; ai_images_per_call: number; ai_timeout_seconds: number }
 }
 export function getEvidence(projectId: string, offset = 0) {
   return request<EvidenceSummary>(`/api/projects/${projectId}/evidence?offset=${offset}`)
 }
-export function evidenceCommand(
-  projectId: string,
-  csrf: string,
-  action: 'start' | 'cancel' | 'resume' | 'observe',
-  payload: Record<string, unknown>,
-) {
+export function evidenceCommand(projectId: string, csrf: string, action: 'start' | 'cancel' | 'resume' | 'observe', payload: Record<string, unknown>) {
   return command<EvidenceSummary>(`/api/projects/${projectId}/evidence/commands/${action}`, csrf, payload)
 }

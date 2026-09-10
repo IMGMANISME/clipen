@@ -536,10 +536,16 @@ class PreparationRepository:
             "DELETE FROM operation_events WHERE operation_id IN "
             "(SELECT operation_id FROM preparation_runs)"
         )
+        # Keep any record that another feature has explicitly adopted. This is
+        # defensive today and prevents future evidence/export references from being
+        # invalidated when preparation results are replaced.
         connection.execute(
             "DELETE FROM artifacts "
             "WHERE producer_operation_id IN "
-            "(SELECT operation_id FROM preparation_runs)"
+            "(SELECT operation_id FROM preparation_runs) "
+            "AND NOT EXISTS ("
+            "SELECT 1 FROM evidence_images "
+            "WHERE evidence_images.artifact_id = artifacts.artifact_id)"
         )
         connection.execute("DELETE FROM preparation_runs")
         return paths

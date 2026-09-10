@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { TranscriptResults } from './TranscriptResults'
 import { EvidenceSection } from './EvidenceSection'
+import { TranscriptResults } from './TranscriptResults'
 import type { FormEvent } from 'react'
 import {
   ApiError,
@@ -90,11 +90,23 @@ const analysisErrorCopy: Record<string, string> = {
   asr_runtime_unavailable: '本機語音辨識執行環境目前無法使用。',
   asr_model_changed: '語音辨識模型內容已改變，為避免混用結果，這次分析已停止。',
   scope_changed: '素材檢查結果已改變，請重新確認分析範圍。',
+  root_changed: '外接磁碟上的素材位置已改變，這次沒有執行語音辨識。請重新檢查素材後再試。',
+  root_unavailable: '目前無法讀取素材磁碟，這次沒有執行語音辨識。',
+  preparation_all_items_failed: '所有可分析素材都在語音辨識前失敗，沒有產生可用逐字稿。',
+}
+
+const analysisBlockedCopy: Record<string, string> = {
+  inventory_required: '請先完成素材檢查。',
+  preparation_empty: '目前沒有可進行口語分析的影音素材。',
+  root_unavailable: '目前無法讀取素材磁碟，請確認外接硬碟已連接。',
+  root_changed: '素材資料夾已改變，請先重新選擇並檢查素材。',
 }
 
 const asrSetupErrorCopy: Record<string, string> = {
   asr_runtime_create_failed: '無法建立隔離的執行環境，請確認磁碟空間後再試一次。',
   asr_runtime_install_failed: '語音辨識元件下載或安裝失敗，請確認網路後再試一次。',
+  asr_disk_space_insufficient: '磁碟空間不足，請至少保留約 3.5 GB 可用空間後再安裝。',
+  asr_disk_space_unavailable: '目前無法確認安裝磁碟的可用空間。',
   asr_runtime_install_timeout: '安裝時間超過安全上限，已停止這次設定。',
   asr_download_failed: '模型下載失敗，請確認網路後再試一次。',
   asr_download_verification_failed: '下載的模型未通過完整性驗證，Clipen 沒有啟用它。',
@@ -372,8 +384,10 @@ function InventorySection({
 
       {!sourceReady && (
         <div className="inventory-empty muted-state">
-          <strong>先選擇可使用的毛片資料夾</strong>
-          <p>完成上方的毛片位置設定後，就能開始檢查。</p>
+          <strong>{current ? '重新確認毛片資料夾' : '先選擇可使用的毛片資料夾'}</strong>
+          <p>{current
+            ? '先前的檢查結果已暫時隱藏，重新選擇並檢查後才會用於後續分析。'
+            : '完成上方的毛片位置設定後，就能開始檢查。'}</p>
         </div>
       )}
 
@@ -421,7 +435,7 @@ function InventorySection({
         </div>
       )}
 
-      {current && (
+      {current && sourceReady && (
         <div className="inventory-results">
           <div className="result-title-row">
             <div>
@@ -502,17 +516,20 @@ function AnalysisSection({
     ? latest.counts.transcribed + latest.counts.no_audio + latest.counts.no_speech + latest.counts.issues
     : 0
   const runtime = summary?.runtime
-
   return (
     <section className="analysis-section" aria-labelledby="analysis-title">
       <div className="analysis-heading">
         <div>
           <p className="eyebrow">02 · 分析</p>
-          <h2 id="analysis-title">理解素材中的口語內容</h2>
-          <p>Clipen 會在本機抽取音訊並產生帶原始時間位置的華語逐字稿。這會建立可刪除的衍生成果，不會修改毛片。</p>
+          <h2 id="analysis-title">產生繁體中文逐字稿</h2>
+          <p>Clipen 會把音訊切成短片段，再由本機 Qwen3-ASR 辨識。信心過低、只有背景聲或發生重複幻覺的片段不會硬生逐字稿；保留的結果會轉為繁體中文並對回毛片時間。</p>
         </div>
         {!active && !interrupted && (
-          <button className="button primary" onClick={onStart} disabled={!canStart}>
+          <button
+            className="button primary"
+            onClick={onStart}
+            disabled={!canStart}
+          >
             {actionBusy ? '正在準備…' : current ? '重新分析並取代結果' : '開始分析'}
           </button>
         )}
@@ -522,6 +539,16 @@ function AnalysisSection({
         <div className="analysis-card" role="status">
           <span className="small-spinner" aria-hidden="true" />
           <div><strong>正在讀取分析狀態</strong><p>尚未開始新的素材處理。</p></div>
+        </div>
+      )}
+
+      {summary?.blocked_reason && (
+        <div className="analysis-outcome has-error" role="alert">
+          <span className="outcome-symbol" aria-hidden="true">!</span>
+          <div>
+            <strong>目前不能開始逐字稿分析</strong>
+            <p>{analysisBlockedCopy[summary.blocked_reason] ?? '請先確認素材狀態。'}</p>
+          </div>
         </div>
       )}
 
@@ -537,7 +564,7 @@ function AnalysisSection({
               <div><dt>模型</dt><dd>{runtime.notice.model.name} · 固定版本 {runtime.notice.model.revision.slice(0, 8)}</dd></div>
               <div><dt>位置</dt><dd title={runtime.notice.install_location}>{runtime.notice.install_location}</dd></div>
             </dl>
-            <p className="runtime-license">原始 Whisper 軟體採用 <a href={runtime.notice.license.whisper_license_url} target="_blank" rel="noreferrer">{runtime.notice.license.whisper_software} 授權</a>。{runtime.notice.license.conversion_notice}</p>
+            <p className="runtime-license">MLX Speech 本機程式採用 <a href={runtime.notice.license.software_url} target="_blank" rel="noreferrer">{runtime.notice.license.software} 授權</a>；模型採用 <a href={runtime.notice.license.model_url} target="_blank" rel="noreferrer">{runtime.notice.license.model} 授權</a>。{runtime.notice.license.notice}</p>
           </div>
         </div>
       )}
@@ -572,8 +599,9 @@ function AnalysisSection({
           <div className="progress-main">
             <span className="small-spinner" aria-hidden="true" />
             <div>
-              <strong>{latest.state === 'cancelling' ? '正在保存 checkpoint 並停止…' : '正在本機分析素材…'}</strong>
+              <strong>{latest.state === 'cancelling' ? '正在保存 checkpoint 並停止…' : '正在辨識人聲並產生繁體中文逐字稿…'}</strong>
               <p>完成 {progress}% · 已處理 {processed.toLocaleString()} / {latest.counts.total.toLocaleString()} 個項目 · {latest.counts.issues} 個需要注意</p>
+              {progress === 0 && latest.state !== 'cancelling' && <small>第一次辨識會先載入本機模型；低信心與只有背景聲的結果不會被當成可用口語。</small>}
               <progress value={progress} max={100} aria-label="本機語音辨識進度" />
             </div>
           </div>
@@ -628,8 +656,13 @@ function AnalysisSection({
         <>
           <div className="analysis-results">
             <div>
-              <strong>{current.counts.issues ? '逐字稿已完成，部分素材需要注意' : '口語內容已準備好'}</strong>
+              <strong>{current.counts.issues ? '繁體中文逐字稿已完成，部分素材需要注意' : '繁體中文逐字稿已準備好'}</strong>
               <p>已轉錄 {current.counts.transcribed} 個項目，{current.counts.no_speech} 個沒有人聲，{current.counts.no_audio} 個沒有音軌，{current.counts.issues} 個需要處理。</p>
+              <p>
+                {current.counts.issues
+                  ? '先展開需要處理的素材，再抽查幾段成功逐字稿；其餘結果已保存，不必重新分析。'
+                  : '抽查幾段逐字稿即可；結果已保存，稍後建立剪輯計畫時會直接重用。'}
+              </p>
               <p>開始新的分析時，Clipen 會移除這份逐字稿與分析暫存；毛片與參考作品不會被刪除或修改。</p>
             </div>
             <span className="result-ready">分析完成</span>
@@ -700,7 +733,9 @@ function MaterialsWorkspace({
     return () => { mounted = false; window.clearInterval(timer) }
   }, [latestState, project.project_id])
 
-  const currentInventoryId = inventory?.current?.run_id
+  const currentInventoryId = source?.availability === 'available'
+    ? inventory?.current?.run_id
+    : undefined
   useEffect(() => {
     if (!currentInventoryId) return
     let mounted = true
@@ -854,9 +889,13 @@ function MaterialsWorkspace({
     setError(null)
     setNotice(null)
     try {
-      const run = await startAnalysis(csrf, project, visibleAnalysis.scope.scope_id)
-      setAnalysis((previous) => previous && { ...previous, latest: run })
-      setNotice('本機素材分析已開始；關閉瀏覽器不會中止 Terminal 裡的 Clipen')
+      const run = await startAnalysis(
+        csrf,
+        project,
+        visibleAnalysis.scope.scope_id,
+      )
+      setAnalysis((previous) => previous && { ...previous, latest: run, current: null })
+      setNotice('新的本機素材分析已開始，舊分析結果已移除；毛片不會被修改')
     } catch (caught) {
       setError(errorMessage(caught))
     } finally {
@@ -994,7 +1033,7 @@ function MaterialsWorkspace({
             <div>
               <p className="eyebrow">01 · 素材</p>
               <h1 id="materials-title">準備這次剪輯</h1>
-              <p>先告訴 Clipen 素材在哪裡、希望剪成什麼樣子。只有按下下方「檢查素材」後才會讀取媒體資訊；這個階段不會呼叫 AI。</p>
+              <p>先告訴 Clipen 素材在哪裡、希望剪成什麼樣子。檢查素材後，可分別啟動本機分析；只有明確同意傳送縮圖，才會呼叫 AI。</p>
             </div>
             <div className={`save-state ${dirty ? 'unsaved' : ''}`} aria-live="polite">
               <span aria-hidden="true" />{saving ? '保存中' : dirty ? '尚未保存' : '已保存'}
@@ -1066,14 +1105,7 @@ function MaterialsWorkspace({
             onStart={() => void inspectMedia()}
             onCancel={(run) => void stopInventory(run)}
           />
-          {currentInventoryId && (
-            <EvidenceSection
-              key={`${project.project_id}:${currentInventoryId}`}
-              projectId={project.project_id}
-              csrf={csrf}
-              inventoryId={currentInventoryId}
-            />
-          )}
+          {currentInventoryId && <EvidenceSection key={`${project.project_id}:${currentInventoryId}`} projectId={project.project_id} csrf={csrf} inventoryId={currentInventoryId} />}
           {currentInventoryId && (
             <AnalysisSection
               projectId={project.project_id}

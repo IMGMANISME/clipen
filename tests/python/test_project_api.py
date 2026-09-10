@@ -52,13 +52,21 @@ class ApiPreparationCoordinator:
     def __init__(self, repository: PreparationRepository) -> None:
         self.repository = repository
 
-    def start(self, project_id, request_id, expected_revision, scope_id):
+    def start(
+        self,
+        project_id,
+        request_id,
+        expected_revision,
+        scope_id,
+        language="zh",
+        vocabulary=(),
+    ):
         return self.repository.create_run_with_status(
             project_id,
             request_id,
             expected_revision,
             scope_id,
-            recipe={"id": "test"},
+            recipe={"id": "test", "language": language, "vocabulary": vocabulary},
             model={"id": "test"},
         )[0]
 
@@ -86,20 +94,22 @@ class ApiAnalysisRuntime:
             "completed_units": 0,
             "total_units": 3,
             "notice": {
-                "version": "asr-mlx-whisper-small-v1",
+                "version": "asr-qwen3-1.7b-confidence-v1",
                 "download_bytes": 1_200_000_000,
                 "installed_bytes": 1_700_000_000,
                 "install_location": "/managed/asr",
                 "model": {
-                    "name": "Whisper Small MLX",
+                    "name": "Fun-ASR Nano 高可信辨識",
                     "source": "https://example.invalid/model",
                     "revision": "fixed",
                     "model_bytes": 481_307_858,
                 },
                 "license": {
-                    "whisper_software": "MIT",
-                    "whisper_license_url": "https://example.invalid/license",
-                    "conversion_notice": "converted model notice",
+                    "software": "MIT",
+                    "software_url": "https://example.invalid/software-license",
+                    "model": "Apache-2.0",
+                    "model_url": "https://example.invalid/model-license",
+                    "notice": "fixed model notice",
                 },
                 "removable": True,
             },
@@ -552,12 +562,46 @@ class ProjectApiTests(unittest.TestCase):
                 "request_id": "request-api-analysis-start",
                 "expected_revision": project["revision"],
                 "scope_id": analysis["scope"]["scope_id"],
+                "language": "ja",
+                "vocabulary": ["浅草", "スカイツリー"],
             },
             headers=self.mutation_headers(),
         )
         self.assertEqual(status, 202)
         run = self.json_body(body)["analysis"]
         self.assertEqual(run["state"], "queued")
+        self.assertEqual(
+            self.preparation_repository.recipe(project["project_id"], run["run_id"]),
+            {
+                "id": "test",
+                "language": "ja",
+                "vocabulary": ["浅草", "スカイツリー"],
+            },
+        )
+
+        results_path = (
+            f"/api/projects/{project['project_id']}/analyses/"
+            f"{run['run_id']}/results"
+        )
+        unauthorized, _, _ = self._request("GET", results_path)
+        self.assertEqual(unauthorized, 401)
+        result_status, _, result_body = self._request(
+            "GET", results_path, headers={"cookie": self.cookie}
+        )
+        self.assertEqual(result_status, 200)
+        results = self.json_body(result_body)["results"]
+        self.assertEqual(results["total"], 1)
+        self.assertEqual(results["items"][0]["display_name"], "clip.mov")
+        self.assertEqual(results["items"][0]["status"], "no_audio")
+        self.assertNotIn(str(self.source), result_body.decode("utf-8"))
+        invalid_status, _, invalid_body = self._request(
+            "GET",
+            f"{results_path}?offset=-1",
+            headers={"cookie": self.cookie},
+        )
+        self.assertEqual(invalid_status, 422)
+        self.assertEqual(self.json_body(invalid_body)["error"]["code"], "pagination_invalid")
+
         event_status, event_headers, _ = self._request(
             "GET",
             f"/api/projects/{project['project_id']}/analyses/{run['run_id']}/events",

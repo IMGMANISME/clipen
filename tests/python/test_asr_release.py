@@ -5,6 +5,7 @@ import unittest
 
 from clipen.asr_release import (
     MODEL_FILES,
+    MODEL_ID,
     MODEL_REVISION,
     NOTICE_VERSION,
     RELEASE_ID,
@@ -19,7 +20,7 @@ class ASRReleaseContractTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
         self.requirements = self.root / "asr-runtime.txt"
-        self.requirements.write_text("mlx-whisper==0.4.3\n", encoding="utf-8")
+        self.requirements.write_text("mlx-speech==0.5.2\n", encoding="utf-8")
         release = release_root(self.root)
         (release / "runtime" / "bin").mkdir(parents=True)
         python = release / "runtime" / "bin" / "python"
@@ -32,10 +33,10 @@ class ASRReleaseContractTests(unittest.TestCase):
         (release / "receipt.json").write_text(
             json.dumps(
                 {
-                    "schema": 1,
+                    "schema": 3,
                     "release_id": RELEASE_ID,
                     "notice_version": NOTICE_VERSION,
-                    "model_id": "mlx-whisper-small",
+                    "model_id": MODEL_ID,
                     "model_revision": MODEL_REVISION,
                     "model_manifest_sha256": "a" * 64,
                     "requirements_sha256": requirements_digest(self.requirements),
@@ -51,7 +52,7 @@ class ASRReleaseContractTests(unittest.TestCase):
 
     def test_quick_check_binds_receipt_runtime_model_sizes_and_requirements(self) -> None:
         self.assertTrue(quick_release_is_ready(self.root, self.requirements))
-        self.requirements.write_text("mlx-whisper==0.4.4\n", encoding="utf-8")
+        self.requirements.write_text("mlx-speech==0.5.3\n", encoding="utf-8")
         self.assertFalse(quick_release_is_ready(self.root, self.requirements))
 
     def test_quick_check_rejects_changed_model_size(self) -> None:

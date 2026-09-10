@@ -24,22 +24,29 @@ from urllib.request import Request, urlopen
 import venv
 
 from clipen.asr_release import (
-    CONVERSION_NOTICE,
+    ASR_SOFTWARE_LICENSE,
+    ASR_SOFTWARE_LICENSE_URL,
     DOWNLOAD_BYTES,
     INSTALLED_BYTES,
+    LICENSE_NOTICE,
+    MODEL_DOWNLOADS,
     MODEL_FILES,
+    MODEL_ID,
+    MODEL_LICENSE,
+    MODEL_LICENSE_URL,
+    MODEL_NAME,
     MODEL_REPOSITORY,
     MODEL_REVISION,
     NOTICE_VERSION,
     RELEASE_ID,
-    WHISPER_LICENSE,
-    WHISPER_LICENSE_URL,
+    SUPERSEDED_RELEASE_IDS,
 )
 
-from .transcription import LocalModelSnapshot, MLXWhisperAdapter
+from .transcription import LocalModelSnapshot, Qwen3ASRAdapter
 
 
-_MAX_DOWNLOAD_BYTES = 512 * 1024 * 1024
+_MAX_DOWNLOAD_BYTES = 4 * 1024**3
+_INSTALL_FREE_SPACE_MARGIN = 512 * 1024**2
 _INSTALL_TIMEOUT_SECONDS = 60 * 60
 _MAX_CAPTURE_BYTES = 4 * 1024 * 1024
 _STAGING_NAME = re.compile(r"\.staging-[0-9a-f]{32}\Z")
@@ -90,15 +97,17 @@ class ASRSetupStatus:
                 "installed_bytes": INSTALLED_BYTES,
                 "install_location": str(install_root),
                 "model": {
-                    "name": "Whisper Small MLX",
+                    "name": MODEL_NAME,
                     "source": f"https://huggingface.co/{model_repository}/tree/{model_revision}",
                     "revision": model_revision,
                     "model_bytes": sum(item[1] for item in model_files),
                 },
                 "license": {
-                    "whisper_software": WHISPER_LICENSE,
-                    "whisper_license_url": WHISPER_LICENSE_URL,
-                    "conversion_notice": CONVERSION_NOTICE,
+                    "software": ASR_SOFTWARE_LICENSE,
+                    "software_url": ASR_SOFTWARE_LICENSE_URL,
+                    "model": MODEL_LICENSE,
+                    "model_url": MODEL_LICENSE_URL,
+                    "notice": LICENSE_NOTICE,
                 },
                 "removable": True,
             },
@@ -124,6 +133,7 @@ class ASRSetupManager:
         model_repository: str = MODEL_REPOSITORY,
         model_revision: str = MODEL_REVISION,
         model_files: tuple[tuple[str, int, str], ...] = MODEL_FILES,
+        model_downloads: tuple[tuple[str, str, int, str], ...] | None = None,
     ) -> None:
         self.data_root = self._secure_directory(Path(data_root))
         self.root = self._secure_directory(self.data_root / "asr")
@@ -149,6 +159,35 @@ class ASRSetupManager:
         self._model_repository = model_repository
         self._model_revision = model_revision
         self._model_files = model_files
+        if model_downloads is None:
+            if (
+                model_repository == MODEL_REPOSITORY
+                and model_revision == MODEL_REVISION
+                and model_files == MODEL_FILES
+            ):
+                model_downloads = MODEL_DOWNLOADS
+            else:
+                model_downloads = tuple(
+                    (
+                        filename,
+                        f"https://huggingface.co/{model_repository}/resolve/{model_revision}/{filename}",
+                        size,
+                        digest,
+                    )
+                    for filename, size, digest in model_files
+                )
+        if (
+            len(model_downloads) != len(model_files)
+            or len({item[0] for item in model_downloads}) != len(model_downloads)
+            or {item[0] for item in model_downloads}
+            != {item[0] for item in model_files}
+            or any(
+                not url.startswith("https://") or size < 1 or len(digest) != 64
+                for _filename, url, size, digest in model_downloads
+            )
+        ):
+            raise ValueError("ASR model download metadata is invalid")
+        self._model_downloads = model_downloads
         self._lock = threading.Lock()
         self._cancel = threading.Event()
         self._worker: threading.Thread | None = None
@@ -179,6 +218,16 @@ class ASRSetupManager:
             raise ASRSetupError("asr_notice_required")
         if self._system != "Darwin" or self._machine != "arm64":
             raise ASRSetupError("asr_platform_unsupported")
+        with self._lock:
+            if self._status.state is ASRSetupState.READY:
+                return self._status
+            if self._worker is not None and self._worker.is_alive():
+                raise ASRSetupError("asr_setup_busy")
+        try:
+            if shutil.disk_usage(self.root).free < INSTALLED_BYTES + _INSTALL_FREE_SPACE_MARGIN:
+                raise ASRSetupError("asr_disk_space_insufficient")
+        except OSError as error:
+            raise ASRSetupError("asr_disk_space_unavailable") from error
         with self._lock:
             if self._status.state is ASRSetupState.READY:
                 return self._status
@@ -243,7 +292,7 @@ class ASRSetupManager:
             self._status = status
             return status
 
-    def adapter_factory(self) -> Callable[[], MLXWhisperAdapter] | None:
+    def adapter_factory(self) -> Callable[[], Qwen3ASRAdapter] | None:
         binding = self.runtime_binding()
         return None if binding is None else binding[0]
 
@@ -253,12 +302,12 @@ class ASRSetupManager:
 
     def runtime_binding(
         self,
-    ) -> tuple[Callable[[], MLXWhisperAdapter], dict[str, object]] | None:
+    ) -> tuple[Callable[[], Qwen3ASRAdapter], dict[str, object]] | None:
         if self.status().state is not ASRSetupState.READY:
             return None
         runtime_python, snapshot = self._read_release()
         return (
-            lambda: MLXWhisperAdapter(runtime_python, snapshot),
+            lambda: Qwen3ASRAdapter(runtime_python, snapshot),
             {
                 "id": snapshot.model_id,
                 "revision": snapshot.revision,
@@ -313,15 +362,12 @@ class ASRSetupManager:
                 "downloading_model",
                 "正在下載固定版本的語音辨識模型…",
                 1,
-                progress_percent=40,
+                progress_percent=42,
                 detail_total_bytes=model_total,
             )
-            for filename, size, digest in self._model_files:
-                url = (
-                    f"https://huggingface.co/{self._model_repository}/resolve/"
-                    f"{self._model_revision}/{filename}"
-                )
+            for filename, url, size, digest in self._model_downloads:
                 self._active_model_download = (model_completed, model_total)
+                self._active_download_phase = "model"
                 self._downloader(url, model / filename, size, digest, self._cancel)
                 model_completed += size
                 self._set_model_download_progress(model_completed, model_total)
@@ -333,10 +379,10 @@ class ASRSetupManager:
             )
             manifest = self._hash_model(model)
             receipt = {
-                "schema": 1,
+                "schema": 3,
                 "release_id": RELEASE_ID,
                 "notice_version": NOTICE_VERSION,
-                "model_id": "mlx-whisper-small",
+                "model_id": MODEL_ID,
                 "model_revision": self._model_revision,
                 "model_manifest_sha256": manifest,
                 "requirements_sha256": self._hash_file(self.requirements),
@@ -346,6 +392,7 @@ class ASRSetupManager:
             self._write_receipt(staging / "receipt.json", receipt)
             os.replace(staging, self.release)
             self._read_release()
+            self._remove_superseded_releases()
             status = ASRSetupStatus(
                 ASRSetupState.READY,
                 "ready",
@@ -426,6 +473,10 @@ class ASRSetupManager:
             "--no-input",
             "--only-binary=:all:",
             "--no-deps",
+            # mlx-speech 0.5.2 is pure Python and Clipen exercises only its
+            # Qwen3-ASR path, which is verified on the project's Python 3.10
+            # floor. Upstream metadata currently declares Python 3.13+.
+            "--ignore-requires-python",
             f"--progress-bar={'raw' if self._supports_raw_progress(python) else 'off'}",
             "--no-cache-dir",
             "-r",
@@ -539,7 +590,7 @@ class ASRSetupManager:
         )
 
     def _set_model_download_progress(self, completed: int, total: int) -> None:
-        percent = 40 + int(min(completed, total) / max(1, total) * 55)
+        percent = 42 + int(min(completed, total) / max(1, total) * 53)
         self._set_progress(
             "downloading_model",
             "正在下載固定版本的語音辨識模型…",
@@ -576,7 +627,18 @@ class ASRSetupManager:
                     base, model_total = getattr(
                         self, "_active_model_download", (0, expected_size)
                     )
-                    self._set_model_download_progress(base + total, model_total)
+                    if getattr(self, "_active_download_phase", "model") == "runtime":
+                        self._set_progress(
+                            "downloading_runtime",
+                            "正在下載固定版本的語音辨識程式…",
+                            1,
+                            progress_percent=40
+                            + int(min(base + total, model_total) / max(1, model_total) * 2),
+                            detail_completed_bytes=base + total,
+                            detail_total_bytes=model_total,
+                        )
+                    else:
+                        self._set_model_download_progress(base + total, model_total)
                 output.flush()
                 os.fsync(output.fileno())
         except ASRSetupError:
@@ -674,7 +736,9 @@ class ASRSetupManager:
                 self._diagnostic_lines = tuple(output_tail)
             raise ASRSetupError("asr_runtime_install_failed")
 
-    def _read_release(self) -> tuple[Path, LocalModelSnapshot]:
+    def _read_release(
+        self,
+    ) -> tuple[Path, LocalModelSnapshot]:
         if self.release.is_symlink() or not self.release.is_dir():
             raise ASRSetupError("asr_release_invalid")
         receipt_path = self.release / "receipt.json"
@@ -685,10 +749,10 @@ class ASRSetupManager:
         except (OSError, UnicodeError, json.JSONDecodeError) as error:
             raise ASRSetupError("asr_receipt_invalid") from error
         required = {
-            "schema": 1,
+            "schema": 3,
             "release_id": RELEASE_ID,
             "notice_version": NOTICE_VERSION,
-            "model_id": "mlx-whisper-small",
+            "model_id": MODEL_ID,
             "model_revision": self._model_revision,
             "runtime_python": "runtime/bin/python",
             "model_path": "model",
@@ -713,12 +777,55 @@ class ASRSetupManager:
             or not os.access(runtime_python, os.X_OK)
         ):
             raise ASRSetupError("asr_runtime_invalid")
-        observed = self._hash_model(model)
+        observed = self._validate_installed_model(model)
         if observed != manifest:
             raise ASRSetupError("asr_model_invalid")
-        return runtime_python, LocalModelSnapshot(
-            "mlx-whisper-small", self._model_revision, model, manifest
+        return (
+            runtime_python,
+            LocalModelSnapshot(
+                MODEL_ID,
+                self._model_revision,
+                model,
+                manifest,
+                tuple((filename, size) for filename, size, _ in self._model_files),
+            ),
         )
+
+    def _validate_installed_model(self, model: Path) -> str:
+        """Validate an installed, previously hashed release without rereading GBs."""
+
+        if model.is_symlink() or not model.is_dir():
+            raise ASRSetupError("asr_model_invalid")
+        expected_names = {filename for filename, _, _ in self._model_files}
+        observed_names: set[str] = set()
+        for candidate in model.rglob("*"):
+            if candidate.is_symlink():
+                raise ASRSetupError("asr_model_invalid")
+            if candidate.is_dir():
+                continue
+            relative = candidate.relative_to(model).as_posix()
+            if relative not in expected_names:
+                raise ASRSetupError("asr_model_invalid")
+            observed_names.add(relative)
+        if observed_names != expected_names:
+            raise ASRSetupError("asr_model_invalid")
+        digest = hashlib.sha256()
+        for filename, expected_size, expected_hash in self._model_files:
+            path = model / filename
+            info = os.lstat(path)
+            if (
+                path.is_symlink()
+                or not stat.S_ISREG(info.st_mode)
+                or info.st_nlink != 1
+                or info.st_size != expected_size
+            ):
+                raise ASRSetupError("asr_model_invalid")
+            digest.update(filename.encode())
+            digest.update(b"\0")
+            digest.update(str(expected_size).encode())
+            digest.update(b"\0")
+            digest.update(bytes.fromhex(expected_hash))
+        return digest.hexdigest()
 
     def _hash_model(self, model: Path) -> str:
         if model.is_symlink() or not model.is_dir():
@@ -763,6 +870,19 @@ class ASRSetupManager:
 
     def _remove_release(self) -> None:
         self._remove_tree(self.release, missing_ok=True)
+
+    def _remove_superseded_releases(self) -> None:
+        for release_id in SUPERSEDED_RELEASE_IDS:
+            candidate = self.root / release_id
+            if candidate == self.release:
+                continue
+            try:
+                self._remove_tree(candidate, missing_ok=True)
+            except ASRSetupError as error:
+                with self._lock:
+                    self._diagnostic_lines = (
+                        f"superseded ASR cleanup failed: {release_id}: {error.code}",
+                    )
 
     def _cleanup_staging(self) -> None:
         for candidate in self.root.iterdir():
