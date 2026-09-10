@@ -111,6 +111,35 @@ class CodexProviderTests(unittest.TestCase):
         values.update(changes)
         return CodexAttempt(**values)
 
+    def test_image_attachments_are_ordered_confined_and_bound_to_receipt(self) -> None:
+        images = []
+        for name in ("a.png", "b.png"):
+            path = self.workspace / name
+            path.write_bytes(b"\x89PNG\r\n\x1a\n" + name.encode())
+            images.append(path)
+        attempt = self.attempt(images=tuple(images))
+        adapter = CodexExecAdapter(self.root, self.fake_codex(SUCCESSFUL_FAKE), environment={"PATH": "/usr/bin"})
+        adapter.execute(attempt)
+        arguments = json.loads((self.workspace / "observation.json").read_text())["arguments"]
+        attached = [arguments[i+1] for i, value in enumerate(arguments) if value == "--image"]
+        self.assertEqual(attached, [str(path.resolve()) for path in images])
+        self.assertEqual(adapter.reconcile(attempt).state, ProviderAttemptState.SUCCEEDED)
+        images[0].write_bytes(b"\x89PNG\r\n\x1a\nchanged")
+        self.assertIsNone(adapter.reconcile(attempt).result)
+
+    def test_image_bounds_and_escape_are_rejected_before_launch(self) -> None:
+        outside = self.root / "outside.png"
+        outside.write_bytes(b"\x89PNG\r\n\x1a\n")
+        linked = self.workspace / "linked.png"
+        linked.symlink_to(outside)
+        for images in ((outside,), (linked,), (outside,) * 9):
+            with self.subTest(images=images), self.assertRaises(ValueError):
+                self.attempt(images=images)
+        oversized = self.workspace / "oversized.png"
+        oversized.write_bytes(b"\x89PNG\r\n\x1a\n" + b"x" * (2 * 1024**2))
+        with self.assertRaises(ValueError):
+            self.attempt(images=(oversized,))
+
     def test_executes_one_ephemeral_attempt_with_prompt_on_stdin(self) -> None:
         adapter = CodexExecAdapter(
             self.root, self.fake_codex(SUCCESSFUL_FAKE), environment={"PATH": "/usr/bin"}

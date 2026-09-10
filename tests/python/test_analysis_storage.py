@@ -677,6 +677,7 @@ class PreparationStorageTests(unittest.TestCase):
             connection.execute("PRAGMA foreign_keys = OFF")
             connection.executescript(
                 """
+                DROP TABLE evidence_observations;
                 DROP TABLE evidence_results;
                 DROP TABLE evidence_images;
                 DROP TABLE evidence_cache;
@@ -721,7 +722,7 @@ class PreparationStorageTests(unittest.TestCase):
 
         migrated = ProjectRepository(self.root / "projects")
         with migrated.connect(self.project.project_id) as connection:
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 6)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 7)
             run = connection.execute(
                 "SELECT project_revision, scope_id, operation_id, attempt_id, "
                 "attempt_number FROM preparation_runs WHERE run_id = ?",

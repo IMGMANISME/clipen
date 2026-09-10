@@ -644,6 +644,19 @@ def create_app(
                 result = await run_in_threadpool(
                     getattr(service, action), project_id, payload["run_id"]
                 )
+            elif action == "observe":
+                require_fields(
+                    payload,
+                    {"run_id", "request_id", "item_key", "consent"},
+                )
+                result = await run_in_threadpool(
+                    service.observe,
+                    project_id,
+                    payload["run_id"],
+                    payload["request_id"],
+                    payload["item_key"],
+                    payload["consent"],
+                )
             else:
                 raise ProjectError(
                     "command_unknown", "找不到這個操作。", status_code=404

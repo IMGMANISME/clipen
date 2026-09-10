@@ -527,9 +527,22 @@ export type EvidenceItem = {
   coverage?: { complete: boolean; uncovered: { start_pts: string; end_pts: string }[] }
   audio_features?: { windows: { rms_dbfs: number; low_energy: boolean }[] }
 }
+export type EvidenceObservation = {
+  observation_id: string
+  item_key: string
+  state: string
+  error_code: string | null
+  usage: { input_tokens: number; cached_input_tokens: number; output_tokens: number } | null
+  result: {
+    observations: { index: number; description: string; uncertainty: string }[]
+    style_summary: string
+    limitations: string
+  } | null
+}
 export type EvidenceSummary = {
   scope: { scope_id: string; project_revision: number; total: number; video_streams: number } | null
   blocked_reason: string | null
+  provider_available: boolean
   latest: {
     run_id: string
     state: string
@@ -542,8 +555,15 @@ export type EvidenceSummary = {
     results: EvidenceItem[]
     total: number
     stale: boolean
+    observations: EvidenceObservation[]
   } | null
-  limits: { frames_per_stream: number; local_window_seconds: number }
+  limits: {
+    frames_per_stream: number
+    local_window_seconds: number
+    ai_calls_per_run: number
+    ai_images_per_call: number
+    ai_timeout_seconds: number
+  }
 }
 export function getEvidence(projectId: string, offset = 0) {
   return request<EvidenceSummary>(`/api/projects/${projectId}/evidence?offset=${offset}`)
@@ -551,7 +571,7 @@ export function getEvidence(projectId: string, offset = 0) {
 export function evidenceCommand(
   projectId: string,
   csrf: string,
-  action: 'start' | 'cancel' | 'resume',
+  action: 'start' | 'cancel' | 'resume' | 'observe',
   payload: Record<string, unknown>,
 ) {
   return command<EvidenceSummary>(`/api/projects/${projectId}/evidence/commands/${action}`, csrf, payload)
