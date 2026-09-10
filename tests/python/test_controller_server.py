@@ -14,6 +14,7 @@ from clipen.controller.server import (
     ServerPaths,
     _InstanceLease,
     _bind_socket,
+    _print_ui_url,
     _read_instance_record,
     _terminal_reopen_loop,
     probe_codex,
@@ -129,10 +130,7 @@ class ControllerServerTests(unittest.TestCase):
         static = self.root / "dist"
         static.mkdir()
         (static / "index.html").write_text("clipen", encoding="utf-8")
-        existing = ExistingController(
-            "http://localhost:4207",
-            "http://localhost:4207/#bootstrap=fresh-token",
-        )
+        existing = ExistingController("http://localhost:4207")
         opened: list[str] = []
         output = io.StringIO()
         with (
@@ -148,30 +146,39 @@ class ControllerServerTests(unittest.TestCase):
             result = run_server(
                 ServerPaths(static, self.attempt_root),
                 ProviderStatus("Codex", ProviderState.READY, "AI 已連接"),
-                LocalSessionAuthority("z" * 32),
+                LocalSessionAuthority(),
                 mock.Mock(),
                 browser_open=lambda url: opened.append(url) is None,
             )
 
         self.assertEqual(result, 0)
-        self.assertEqual(opened, [existing.connect_url])
+        self.assertEqual(opened, [existing.public_url])
         self.assertIn("Clipen 已在執行", output.getvalue())
         self.assertIn("UI：\nhttp://localhost:4207\n", output.getvalue())
 
-    def test_pressing_enter_renews_handoff_and_reopens_the_browser(self) -> None:
-        authority = LocalSessionAuthority("t" * 32)
+    def test_pressing_enter_reopens_the_fixed_ui_url(self) -> None:
         opened: list[str] = []
         input_stream = io.StringIO("\n")
         with mock.patch.object(sys, "stdin", input_stream):
             _terminal_reopen_loop(
                 "http://localhost:4201",
-                authority,
                 lambda url: opened.append(url) is None,
                 lambda: False,
             )
         self.assertEqual(len(opened), 1)
-        self.assertTrue(opened[0].startswith("http://localhost:4201/#bootstrap="))
-        self.assertNotIn("t" * 32, opened[0])
+        self.assertEqual(opened[0], "http://localhost:4201")
+
+    def test_terminal_prints_the_fixed_url_as_a_clickable_link(self) -> None:
+        output = io.StringIO()
+        with (
+            mock.patch("sys.stdout", output),
+            mock.patch.object(output, "isatty", return_value=True),
+        ):
+            _print_ui_url("http://localhost:4201")
+
+        rendered = output.getvalue()
+        self.assertIn("\033]8;;http://localhost:4201\033\\", rendered)
+        self.assertIn("http://localhost:4201", rendered)
 
     def test_server_paths_reject_symlink_attempt_root(self) -> None:
         static = self.root / "dist"

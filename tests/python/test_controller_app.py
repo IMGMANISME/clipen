@@ -96,7 +96,7 @@ class ControllerAppTests(unittest.TestCase):
         (self.static_root / "assets").mkdir()
         (self.static_root / "index.html").write_text("<main>Clipen</main>", encoding="utf-8")
         (self.static_root / "assets" / "app.js").write_text("export {}", encoding="utf-8")
-        self.authority = LocalSessionAuthority("b" * 32)
+        self.authority = LocalSessionAuthority()
         self.provider = ProviderStatus("Codex", ProviderState.READY, "AI 已連接")
         self.app = create_app(
             ControllerConfig(self.static_root), self.provider, self.authority
@@ -113,24 +113,23 @@ class ControllerAppTests(unittest.TestCase):
     ) -> ASGIResponse:
         return asyncio.run(asgi_request(self.app, method, path, headers))
 
-    def bootstrap(self) -> ASGIResponse:
+    def connect(self) -> ASGIResponse:
         return self.request(
             "POST",
-            "/api/session/bootstrap",
+            "/api/session/connect",
             {
                 "origin": "http://localhost:4200",
                 "sec-fetch-site": "same-origin",
-                "x-clipen-bootstrap": "b" * 32,
             },
         )
 
-    def test_bootstrap_sets_private_cookie_and_status_requires_it(self) -> None:
+    def test_local_connection_sets_private_cookie_and_status_requires_it(self) -> None:
         unauthenticated = self.request("GET", "/api/status")
         self.assertEqual(unauthenticated.status, 401)
 
-        bootstrap = self.bootstrap()
-        self.assertEqual(bootstrap.status, 200)
-        set_cookie = bootstrap.header("set-cookie")
+        connection = self.connect()
+        self.assertEqual(connection.status, 200)
+        set_cookie = connection.header("set-cookie")
         self.assertIsNotNone(set_cookie)
         assert set_cookie is not None
         self.assertIn("HttpOnly", set_cookie)
@@ -144,34 +143,61 @@ class ControllerAppTests(unittest.TestCase):
         self.assertEqual(payload["provider"]["state"], "ready")
         self.assertTrue(payload["session"]["csrf_token"])
 
+    def test_fixed_localhost_url_connects_each_browser_without_fragment_token(self) -> None:
+        first = self.request(
+            "POST",
+            "/api/session/connect",
+            {
+                "origin": "http://localhost:4200",
+                "sec-fetch-site": "same-origin",
+            },
+        )
+        second = self.request(
+            "POST",
+            "/api/session/connect",
+            {
+                "origin": "http://localhost:4200",
+                "sec-fetch-site": "same-origin",
+            },
+        )
+        self.assertEqual(first.status, 200)
+        self.assertEqual(second.status, 200)
+        first_cookie = first.header("set-cookie")
+        second_cookie = second.header("set-cookie")
+        self.assertIsNotNone(first_cookie)
+        self.assertEqual(first_cookie, second_cookie)
+        assert first_cookie is not None
+        status = self.request(
+            "GET", "/api/status", {"cookie": first_cookie.split(";", 1)[0]}
+        )
+        self.assertEqual(status.status, 200)
+
     def test_rejects_invalid_host_origin_and_cross_site_mutation(self) -> None:
         bad_host = self.request("GET", "/api/health", {"host": "example.com"})
         self.assertEqual(bad_host.status, 400)
 
         bad_origin = self.request(
             "POST",
-            "/api/session/bootstrap",
+            "/api/session/connect",
             {
                 "origin": "https://example.com",
                 "sec-fetch-site": "cross-site",
-                "x-clipen-bootstrap": "b" * 32,
             },
         )
         self.assertEqual(bad_origin.status, 403)
 
         missing_fetch_metadata = self.request(
             "POST",
-            "/api/session/bootstrap",
+            "/api/session/connect",
             {
                 "origin": "http://localhost:4200",
-                "x-clipen-bootstrap": "b" * 32,
             },
         )
         self.assertEqual(missing_fetch_metadata.status, 403)
 
     def test_future_mutations_require_session_and_csrf(self) -> None:
-        bootstrap = self.bootstrap()
-        set_cookie = bootstrap.header("set-cookie")
+        connection = self.connect()
+        set_cookie = connection.header("set-cookie")
         assert set_cookie is not None
         cookie = set_cookie.split(";", 1)[0]
 
@@ -187,21 +213,7 @@ class ControllerAppTests(unittest.TestCase):
         self.assertEqual(rejected.status, 403)
         self.assertEqual(rejected.json()["error"]["code"], "csrf_failed")
 
-    def test_bootstrap_expires_but_is_idempotent_during_its_window(self) -> None:
-        clock = [100.0]
-        authority = LocalSessionAuthority("x" * 32, now=lambda: clock[0])
-        first = authority.bootstrap("x" * 32)
-        second = authority.bootstrap("x" * 32)
-        self.assertEqual(first, second)
-
-        clock[0] += 301
-        self.assertIsNone(authority.bootstrap("x" * 32))
-
-        renewed = authority.renew_bootstrap()
-        self.assertNotEqual(renewed, "x" * 32)
-        self.assertIsNotNone(authority.bootstrap(renewed))
-
-    def test_private_instance_reopen_issues_a_fresh_browser_handoff(self) -> None:
+    def test_private_instance_reopen_verifies_the_running_controller(self) -> None:
         self.app = create_app(
             ControllerConfig(self.static_root, instance_secret="i" * 32),
             self.provider,
@@ -216,18 +228,7 @@ class ControllerAppTests(unittest.TestCase):
             {"x-clipen-instance": "i" * 32},
         )
         self.assertEqual(reopened.status, 200)
-        token = reopened.json()["bootstrap_token"]
-        self.assertGreaterEqual(len(token), 32)
-        accepted = self.request(
-            "POST",
-            "/api/session/bootstrap",
-            {
-                "origin": "http://localhost:4200",
-                "sec-fetch-site": "same-origin",
-                "x-clipen-bootstrap": token,
-            },
-        )
-        self.assertEqual(accepted.status, 200)
+        self.assertEqual(reopened.json(), {"running": True})
 
     def test_static_and_api_responses_have_security_cache_headers(self) -> None:
         index = self.request("GET", "/")
@@ -259,8 +260,8 @@ class ControllerAppTests(unittest.TestCase):
         unauthenticated = self.request("GET", "/api/system-skills")
         self.assertEqual(unauthenticated.status, 401)
 
-        bootstrap = self.bootstrap()
-        cookie_header = bootstrap.header("set-cookie")
+        connection = self.connect()
+        cookie_header = connection.header("set-cookie")
         assert cookie_header is not None
         catalog = self.request(
             "GET",

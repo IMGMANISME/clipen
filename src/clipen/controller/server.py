@@ -59,7 +59,6 @@ class PortUnavailable(RuntimeError):
 @dataclass(frozen=True)
 class ExistingController:
     public_url: str
-    connect_url: str
 
 
 class _InstanceLease:
@@ -245,11 +244,10 @@ def _request_reopen(port: int, secret: str) -> ExistingController | None:
         if response.status != 200 or len(body) > 4096:
             return None
         value = json.loads(body.decode("utf-8"))
-        token = value.get("bootstrap_token") if isinstance(value, dict) else None
-        if not isinstance(token, str) or not 32 <= len(token) <= 256:
+        if not isinstance(value, dict) or value.get("running") is not True:
             return None
         public_url = f"http://localhost:{port}"
-        return ExistingController(public_url, f"{public_url}/#bootstrap={token}")
+        return ExistingController(public_url)
     except (OSError, http.client.HTTPException, UnicodeError, json.JSONDecodeError):
         return None
     finally:
@@ -270,12 +268,14 @@ def _find_existing_controller(registry_path: Path) -> ExistingController | None:
 def _print_ui_url(url: str, *, first_connection: bool = False) -> None:
     label = "首次連線：" if first_connection else "UI："
     print(label, flush=True)
-    print(url, flush=True)
+    if sys.stdout.isatty():
+        print(f"\033]8;;{url}\033\\{url}\033]8;;\033\\", flush=True)
+    else:
+        print(url, flush=True)
 
 
 def _terminal_reopen_loop(
     public_url: str,
-    authority: LocalSessionAuthority,
     browser_open: Callable[[str], bool],
     should_stop: Callable[[], bool],
 ) -> None:
@@ -286,15 +286,13 @@ def _terminal_reopen_loop(
             return
         if line == "" or should_stop():
             return
-        token = authority.renew_bootstrap()
-        connect_url = f"{public_url}/#bootstrap={token}"
         try:
-            opened = browser_open(connect_url)
+            opened = browser_open(public_url)
         except Exception:
             opened = False
         if not opened:
             print("瀏覽器未自動開啟。", flush=True)
-            _print_ui_url(connect_url, first_connection=True)
+            _print_ui_url(public_url, first_connection=True)
 
 
 async def _serve(
@@ -362,8 +360,6 @@ async def _serve(
             lifespan="off",
         )
         server = uvicorn.Server(config)
-        connect_url = f"{public_url}/#bootstrap={authority.bootstrap_token}"
-
         async def announce_when_started() -> None:
             while not server.started and not server.should_exit:
                 await asyncio.sleep(0.02)
@@ -376,19 +372,18 @@ async def _serve(
                 _print_ui_url(public_url)
                 print("狀態：等待 UI 操作", flush=True)
                 try:
-                    opened = browser_open(connect_url)
+                    opened = browser_open(public_url)
                 except Exception:
                     opened = False
                 if not opened:
                     print("瀏覽器未自動開啟。", flush=True)
-                    _print_ui_url(connect_url, first_connection=True)
+                    _print_ui_url(public_url, first_connection=True)
                 if sys.stdin.isatty():
                     print("按 Enter 重新開啟 UI · 按 Ctrl+C 關閉 Clipen", flush=True)
                     threading.Thread(
                         target=_terminal_reopen_loop,
                         args=(
                             public_url,
-                            authority,
                             browser_open,
                             lambda: server.should_exit,
                         ),
@@ -436,12 +431,12 @@ def run_server(
         print("Clipen 已在執行", flush=True)
         _print_ui_url(existing.public_url)
         try:
-            opened = browser_open(existing.connect_url)
+            opened = browser_open(existing.public_url)
         except Exception:
             opened = False
         if not opened:
             print("瀏覽器未自動開啟。", flush=True)
-            _print_ui_url(existing.connect_url, first_connection=True)
+            _print_ui_url(existing.public_url, first_connection=True)
         return 0
     try:
         asyncio.run(
