@@ -1,5 +1,6 @@
 import hashlib
 import os
+from dataclasses import replace
 from pathlib import Path
 import subprocess
 import tempfile
@@ -14,7 +15,7 @@ from clipen.projects import (
     ProjectWorkspace,
     SelectionAuthority,
 )
-from clipen.projects.picker import MacOSDirectoryPicker
+from clipen.projects.picker import MacOSDirectoryPicker, refresh_availability
 
 
 class FakePicker(NativeDirectoryPicker):
@@ -214,6 +215,26 @@ class ProjectPickerTests(unittest.TestCase):
         detached.rename(self.source)
         self.assertEqual(
             workspace.get_project(project.project_id).directories[0].availability,
+            DirectoryAvailability.AVAILABLE,
+        )
+
+    def test_external_volume_device_number_may_change_after_remount(self) -> None:
+        workspace, project = self.create_workspace(FakePicker(self.source))
+        selection = workspace.select_directory(
+            "request-pick-device-drift", DirectoryRole.SOURCE
+        )
+        assert selection is not None
+        project = workspace.set_directory(
+            project.project_id,
+            "request-save-device-drift",
+            project.revision,
+            DirectoryRole.SOURCE,
+            selection["selection_token"],
+        )
+        reference = project.directories[0]
+
+        self.assertEqual(
+            refresh_availability(replace(reference, device=reference.device + 1)).availability,
             DirectoryAvailability.AVAILABLE,
         )
 

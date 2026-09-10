@@ -81,6 +81,23 @@ class MediaInventoryStorageTests(unittest.TestCase):
             ),
         )
 
+    def test_reinspection_adds_cover_flags_without_replacing_time_mapping(self) -> None:
+        from dataclasses import replace
+        import json
+        original = self.usable_video()
+        first = self.start()
+        self.inventories.stage_items(self.project.project_id, first.run_id, (original,))
+        self.inventories.publish(self.project.project_id, first.run_id)
+        second = self.start("request-inventory-reinspect")
+        enriched = replace(original, streams=(MediaStream(0, "video", "h264", {
+            "time_base": "1/1000", "attached_pic": True, "timed_thumbnails": False,
+        }), original.streams[1]))
+        self.inventories.stage_items(self.project.project_id, second.run_id, (enriched,))
+        with self.projects.connect(self.project.project_id) as connection:
+            details = json.loads(connection.execute("SELECT details_json FROM media_streams WHERE stream_index=0").fetchone()[0])
+        self.assertTrue(details["attached_pic"])
+        self.assertEqual(details["time_base"], "1/90000")
+
     def test_create_run_is_durable_idempotent_and_does_not_change_project_revision(self) -> None:
         created = self.inventories.create_run(
             self.project.project_id,
@@ -405,7 +422,11 @@ class MediaInventoryStorageTests(unittest.TestCase):
             DROP TABLE current_preparation;
             DROP TABLE transcript_segments;
             DROP TABLE transcription_revisions;
-            DROP TABLE preparation_chunks;
+            DROP TABLE evidence_results;
+                DROP TABLE evidence_images;
+                DROP TABLE evidence_cache;
+                DROP TABLE evidence_runs;
+                DROP TABLE preparation_chunks;
             DROP TABLE artifacts;
             DROP TABLE operation_events;
             DROP TABLE preparation_items;
@@ -426,7 +447,7 @@ class MediaInventoryStorageTests(unittest.TestCase):
         migrated = ProjectRepository(self.projects_root)
         self.assertEqual(migrated.get_project(self.project.project_id), before)
         with migrated.connect(self.project.project_id) as checked:
-            self.assertEqual(checked.execute("PRAGMA user_version").fetchone()[0], 5)
+            self.assertEqual(checked.execute("PRAGMA user_version").fetchone()[0], 6)
             tables = {
                 row[0]
                 for row in checked.execute(

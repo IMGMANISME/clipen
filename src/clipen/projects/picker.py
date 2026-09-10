@@ -188,7 +188,11 @@ def refresh_availability(reference: DirectoryReference) -> DirectoryReference:
         return replace(reference, availability=DirectoryAvailability.CHANGED)
     if not os.access(path, os.R_OK | os.X_OK):
         return replace(reference, availability=DirectoryAvailability.PERMISSION_REQUIRED)
-    if int(info.st_dev) != reference.device or int(info.st_ino) != reference.inode:
+    # APFS external volumes can receive a different st_dev after a normal
+    # unmount/remount. The directory inode remains the stable object identity;
+    # every media file is still opened beneath this descriptor and checked
+    # against its saved size, mtime and fingerprint before processing.
+    if int(info.st_ino) != reference.inode:
         return replace(reference, availability=DirectoryAvailability.CHANGED)
     return replace(reference, availability=DirectoryAvailability.AVAILABLE)
 

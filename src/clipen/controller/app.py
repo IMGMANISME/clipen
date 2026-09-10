@@ -27,6 +27,7 @@ from clipen.analysis import (
     PreparationCoordinator,
     PreparationRepository,
 )
+from clipen.analysis.evidence_service import EvidenceService
 from clipen.media import InventoryCoordinator
 from clipen.projects import DirectoryRole, ProjectError, ProjectWorkspace
 from clipen.system_skills import SystemSkillSummary
@@ -246,6 +247,7 @@ def create_app(
     preparations: PreparationCoordinator | None = None,
     preparation_repository: PreparationRepository | None = None,
     analysis_runtime: ManagedAnalysisRuntime | None = None,
+    evidence_service: EvidenceService | None = None,
 ) -> ASGIApp:
     static_root = config.static_root.resolve(strict=True)
 
@@ -597,6 +599,80 @@ def create_app(
         except ProjectError as error:
             return await project_error_response(error)
 
+    def require_evidence() -> EvidenceService:
+        if evidence_service is None:
+            raise ProjectError(
+                "evidence_unavailable",
+                "請重新啟動 Clipen 以使用證據分析。",
+                status_code=503,
+            )
+        return evidence_service
+
+    async def evidence_status(request: Request) -> Response:
+        try:
+            raw_offset = request.query_params.get("offset", "0")
+            if not raw_offset.isascii() or not raw_offset.isdigit() or len(raw_offset) > 4:
+                raise ProjectError("invalid_page", "頁碼不正確。", status_code=400)
+            result = await run_in_threadpool(
+                require_evidence().status,
+                request.path_params["project_id"],
+                int(raw_offset),
+            )
+            return JSONResponse(result)
+        except ProjectError as error:
+            return await project_error_response(error)
+
+    async def evidence_command(request: Request) -> Response:
+        try:
+            service = require_evidence()
+            project_id = request.path_params["project_id"]
+            action = request.path_params["action"]
+            payload = await read_json(request)
+            if action == "start":
+                require_fields(
+                    payload, {"request_id", "expected_revision", "scope_id"}
+                )
+                result = await run_in_threadpool(
+                    service.start,
+                    project_id,
+                    payload["request_id"],
+                    payload["expected_revision"],
+                    payload["scope_id"],
+                )
+            elif action in {"cancel", "resume"}:
+                require_fields(payload, {"run_id"})
+                result = await run_in_threadpool(
+                    getattr(service, action), project_id, payload["run_id"]
+                )
+            else:
+                raise ProjectError(
+                    "command_unknown", "找不到這個操作。", status_code=404
+                )
+            return JSONResponse(result, status_code=202)
+        except ProjectError as error:
+            return await project_error_response(error)
+
+    async def evidence_image(request: Request) -> Response:
+        try:
+            def read_image() -> bytes:
+                path = require_evidence().image(
+                    request.path_params["project_id"],
+                    request.path_params["run_id"],
+                    request.path_params["artifact_id"],
+                )
+                return path.read_bytes()
+
+            return Response(
+                await run_in_threadpool(read_image),
+                media_type="image/png",
+                headers={
+                    "Cache-Control": "private, no-store",
+                    "X-Content-Type-Options": "nosniff",
+                },
+            )
+        except ProjectError as error:
+            return await project_error_response(error)
+
     async def analysis_status(request: Request) -> Response:
         try:
             repository = require_preparation_repository()
@@ -847,6 +923,21 @@ def create_app(
                 "/api/projects/{project_id}/inventories/{run_id}/commands/cancel",
                 cancel_inventory,
                 methods=["POST"],
+            ),
+            Route(
+                "/api/projects/{project_id}/evidence",
+                evidence_status,
+                methods=["GET"],
+            ),
+            Route(
+                "/api/projects/{project_id}/evidence/commands/{action}",
+                evidence_command,
+                methods=["POST"],
+            ),
+            Route(
+                "/api/projects/{project_id}/evidence/{run_id}/images/{artifact_id}",
+                evidence_image,
+                methods=["GET"],
             ),
             Route(
                 "/api/projects/{project_id}/analysis",
