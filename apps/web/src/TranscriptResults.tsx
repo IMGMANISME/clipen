@@ -39,7 +39,7 @@ const issueCopy: Record<string, string> = {
   asr_model_unavailable: '本機語音辨識模型暫時無法使用。',
   asr_runtime_unavailable: '本機語音辨識環境暫時無法使用。',
   asr_runtime_unsupported: '目前的語音辨識環境不受支援。',
-  transcript_low_confidence: '部分口語信心較低，請搭配畫面與上下文確認。',
+  transcript_low_confidence: '原始收音與有限的增強比對沒有得到穩定結果，或無法確認人聲是否屬於拍攝主體。這份逐字稿不會被當成可信口語，請搭配畫面與原音確認。',
   transcript_quality_unverified: '這是舊版產生的逐字稿，品質尚未驗證，請先核對。',
   preparation_item_internal_error: '處理這個項目時發生未預期的本機錯誤。',
 }
