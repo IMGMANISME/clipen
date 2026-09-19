@@ -522,7 +522,7 @@ function AnalysisSection({
         <div>
           <p className="eyebrow">02 · 分析</p>
           <h2 id="analysis-title">產生繁體中文逐字稿</h2>
-          <p>Clipen 會把音訊切成短片段，再由本機 Qwen3-ASR 辨識。信心過低、只有背景聲或發生重複幻覺的片段不會硬生逐字稿；保留的結果會轉為繁體中文並對回毛片時間。</p>
+          <p>Clipen 會先用原始收音辨識；偏小聲或底噪較高的短片段會在本機做有限的語音增強比對。增強版不會覆蓋原音，兩版不一致時會保留原音文字並標記為需要核對。</p>
         </div>
         {!active && !interrupted && (
           <button
@@ -601,7 +601,7 @@ function AnalysisSection({
             <div>
               <strong>{latest.state === 'cancelling' ? '正在保存 checkpoint 並停止…' : '正在辨識人聲並產生繁體中文逐字稿…'}</strong>
               <p>完成 {progress}% · 已處理 {processed.toLocaleString()} / {latest.counts.total.toLocaleString()} 個項目 · {latest.counts.issues} 個需要注意</p>
-              {progress === 0 && latest.state !== 'cancelling' && <small>第一次辨識會先載入本機模型；低信心與只有背景聲的結果不會被當成可用口語。</small>}
+              {progress === 0 && latest.state !== 'cancelling' && <small>第一次辨識會先載入本機模型；弱收音只會有限度重試，避免整批素材雙跑造成過熱。</small>}
               <progress value={progress} max={100} aria-label="本機語音辨識進度" />
             </div>
           </div>
