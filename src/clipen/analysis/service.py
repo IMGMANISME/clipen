@@ -57,7 +57,7 @@ class _Transcriber(Protocol):
 @dataclass(frozen=True)
 class PreparationRecipe:
     audio_recipe_id: str = "audio.pcm16-16khz-mono.v1"
-    transcript_recipe_id: str = "asr.qwen3-1.7b.confidence.v1"
+    transcript_recipe_id: str = "asr.qwen3-1.7b.adaptive-camera-audio.v2"
     chunk_seconds: int = 5 * 60
     language: str = "zh"
     vocabulary: tuple[str, ...] = ()
