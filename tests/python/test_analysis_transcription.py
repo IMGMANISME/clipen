@@ -11,7 +11,10 @@ import wave
 from clipen.analysis import (
     LocalModelSnapshot,
     PreparedAudio,
+    TranscriptSegment,
+    TranscriptWord,
     TranscriptionError,
+    TranscriptionResult,
     hash_model_directory,
 )
 from clipen.analysis.transcription import _PersistentASRWorkerAdapter
@@ -162,6 +165,30 @@ class TranscriptionAdapterTests(unittest.TestCase):
         output = self.root / "result.json"
         output.touch(mode=0o600)
         self.assertTrue(adapter.transcribe(self.audio, output).no_speech_detected)
+
+    def test_transcript_wide_review_score_marks_result(self) -> None:
+        result = TranscriptionResult(
+            "zh",
+            "第一句\n第二句",
+            (
+                TranscriptSegment(
+                    0,
+                    16_000,
+                    "第一句",
+                    None,
+                    (TranscriptWord(0, 16_000, "第一句", "0.64"),),
+                ),
+                TranscriptSegment(
+                    16_000,
+                    32_000,
+                    "第二句",
+                    None,
+                    (TranscriptWord(16_000, 32_000, "第二句", "0.64"),),
+                ),
+            ),
+        )
+
+        self.assertTrue(result.needs_review)
 
     def test_zero_duration_word_is_dropped_without_losing_valid_segment(self) -> None:
         payload = self.valid_payload()

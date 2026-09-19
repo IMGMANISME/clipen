@@ -6,6 +6,7 @@ import argparse
 from decimal import Decimal
 import importlib.metadata
 import json
+import math
 import os
 from pathlib import Path
 import stat
@@ -19,6 +20,8 @@ _MAX_CAPTURE_BYTES = 32 * 1024 * 1024
 _MAX_AUDIO_SECONDS = 5 * 60 + 1
 _WINDOW_SECONDS = 12
 _MAX_NEW_TOKENS = 128
+_REVIEW_SCORE = 0.64
+_MAX_ENHANCED_RETRIES = 4
 _MODEL_FILES = {
     "chat_template.json",
     "config.json",
@@ -169,6 +172,131 @@ def _audible_from_rms(
     return max(rms) >= 0.006 and sum(value >= 0.003 for value in rms) / len(rms) >= 0.02
 
 
+def _percentile(values: list[float], fraction: float) -> float:
+    if not values or not 0 <= fraction <= 1:
+        raise ValueError("invalid percentile")
+    ordered = sorted(float(value) for value in values)
+    position = (len(ordered) - 1) * fraction
+    lower = math.floor(position)
+    upper = math.ceil(position)
+    if lower == upper:
+        return ordered[lower]
+    weight = position - lower
+    return ordered[lower] * (1 - weight) + ordered[upper] * weight
+
+
+def _quality_from_rms(
+    rms: list[float], *, peak: float, clipping_ratio: float
+) -> dict[str, float | bool]:
+    """Summarize capture quality without claiming that energy equals speech."""
+
+    if (
+        not rms
+        or not math.isfinite(peak)
+        or not math.isfinite(clipping_ratio)
+        or peak < 0
+        or not 0 <= clipping_ratio <= 1
+        or any(not math.isfinite(value) or value < 0 for value in rms)
+    ):
+        raise ValueError("invalid audio quality input")
+    noise_floor = _percentile(rms, 0.2)
+    foreground = _percentile(rms, 0.9)
+    denominator = max(noise_floor, 0.0005)
+    snr_db = 20 * math.log10(max(foreground, denominator) / denominator)
+    active_threshold = max(0.003, noise_floor * 2.5)
+    active_ratio = sum(value >= active_threshold for value in rms) / len(rms)
+    quiet = foreground < 0.025
+    noisy = noise_floor >= 0.0025 and snr_db < 12
+    clipped = clipping_ratio >= 0.001
+    return {
+        "noise_floor": noise_floor,
+        "foreground_rms": foreground,
+        "snr_db": snr_db,
+        "active_ratio": active_ratio,
+        "peak": peak,
+        "clipping_ratio": clipping_ratio,
+        "quiet": quiet,
+        "noisy": noisy,
+        "clipped": clipped,
+        "needs_enhancement": quiet or noisy,
+    }
+
+
+def _audio_quality(samples, sample_rate: int = 16_000) -> dict[str, float | bool]:
+    import numpy as np
+
+    frame_size = max(1, sample_rate // 50)
+    usable = int(samples.shape[0]) // frame_size * frame_size
+    if usable < frame_size:
+        raise ValueError("audio window is too short")
+    frames = samples[:usable].reshape(-1, frame_size)
+    rms = np.sqrt(np.mean(frames * frames, axis=1)).tolist()
+    absolute = np.abs(samples)
+    return _quality_from_rms(
+        rms,
+        peak=float(np.max(absolute)),
+        clipping_ratio=float(np.mean(absolute >= 0.985)),
+    )
+
+
+def _enhance_for_speech(samples, quality: dict[str, float | bool]):
+    """Apply one bounded spectral-gating candidate to a short local window."""
+
+    import numpy as np
+
+    source = np.asarray(samples, dtype=np.float32)
+    if source.ndim != 1 or source.size < 1 or not np.all(np.isfinite(source)):
+        raise ValueError("invalid audio samples")
+    frame_size = 512
+    hop = 256
+    if source.size < frame_size:
+        output = source.astype(np.float32, copy=True)
+    else:
+        frame_count = 1 + math.ceil((source.size - frame_size) / hop)
+        padded_size = (frame_count - 1) * hop + frame_size
+        padded = np.pad(source, (0, padded_size - source.size))
+        frames = np.lib.stride_tricks.sliding_window_view(padded, frame_size)[::hop]
+        window = np.hanning(frame_size).astype(np.float32)
+        spectrum = np.fft.rfft(frames * window, axis=1)
+        magnitude = np.abs(spectrum)
+        noise = np.quantile(magnitude, 0.2, axis=0)
+        strength = 1.2 if bool(quality["noisy"]) else 0.8
+        floor = 0.12 if bool(quality["noisy"]) else 0.22
+        gain = np.clip(
+            1.0 - strength * noise[None, :] / np.maximum(magnitude, 1e-7),
+            floor,
+            1.0,
+        )
+        frequencies = np.fft.rfftfreq(frame_size, d=1 / 16_000)
+        gain[:, frequencies < 80] *= 0.15
+        reconstructed = np.fft.irfft(spectrum * gain, n=frame_size, axis=1)
+        output = np.zeros(padded_size, dtype=np.float64)
+        weights = np.zeros(padded_size, dtype=np.float64)
+        synthesis = window.astype(np.float64)
+        for index, frame in enumerate(reconstructed):
+            start = index * hop
+            output[start : start + frame_size] += frame * synthesis
+            weights[start : start + frame_size] += synthesis * synthesis
+        valid = weights > 1e-8
+        output[valid] /= weights[valid]
+        output = output[: source.size].astype(np.float32)
+    level = float(np.quantile(np.abs(output), 0.95))
+    if level > 1e-5:
+        amplification = min(6.0, max(0.5, 0.18 / level))
+        output = output * amplification
+    peak = float(np.max(np.abs(output)))
+    if peak > 0.95:
+        output = output * (0.95 / peak)
+    return np.clip(output, -1.0, 1.0).astype(np.float32)
+
+
+def _retry_budget(sample_count: int, sample_rate: int = 16_000) -> int:
+    if sample_count < 1 or sample_rate < 1:
+        raise ValueError("invalid retry duration")
+    minutes = sample_count / sample_rate / 60
+    return min(_MAX_ENHANCED_RETRIES, max(1, math.ceil(minutes)))
+
+
 def _semantic(value: str) -> str:
     return "".join(
         character.casefold()
@@ -206,11 +334,75 @@ def _accept_candidate(
     _mean, low_ratio, score = _confidence(probabilities)
     if not ended or len(compact) < 2 or _looks_repetitive(text):
         return False, score
-    # In both isolated and mixed-window tests, labelled Pocket 3 foreground
-    # speech scored at least 0.84. The labelled background-only material peaked
-    # at 0.53 after segmentation. Keep the first release inside that gap and
-    # prefer omitting uncertain speech over publishing a fluent hallucination.
+    # Token confidence can reject weak decoding and fluent hallucinations, but
+    # it cannot prove that audible speech belongs to the foreground subject.
+    # Capture stability is evaluated separately before downstream use.
     return score >= 0.68 and low_ratio < 0.32, score
+
+
+def _candidate(runtime, convert, audio) -> dict[str, object]:
+    text, probabilities, ended = _transcribe(runtime, audio)
+    text = convert(text).strip()
+    accepted, score = _accept_candidate(text, probabilities, ended=ended)
+    return {"text": text, "accepted": accepted, "score": score}
+
+
+def _should_retry(
+    candidate: dict[str, object], quality: dict[str, float | bool]
+) -> bool:
+    # Model confidence was high for several labelled Pocket 3 near-homophone
+    # errors. Capture quality, not model confidence alone, controls the bounded
+    # comparison pass.
+    del candidate
+    return bool(quality["needs_enhancement"])
+
+
+def _choose_candidate(
+    original: dict[str, object], enhanced: dict[str, object] | None
+) -> tuple[str, float] | None:
+    original_ok = bool(original["accepted"])
+    if enhanced is None:
+        return (
+            (str(original["text"]), float(original["score"]))
+            if original_ok
+            else None
+        )
+    enhanced_ok = bool(enhanced["accepted"])
+    if original_ok and enhanced_ok:
+        original_score = float(original["score"])
+        enhanced_score = float(enhanced["score"])
+        selected = enhanced if enhanced_score > original_score else original
+        if _semantic(str(original["text"])) == _semantic(str(enhanced["text"])):
+            return str(selected["text"]), max(original_score, enhanced_score)
+        # Enhancement is a disagreement detector, not an authority. Preserve
+        # the original capture's reading and make the uncertainty visible.
+        return str(original["text"]), min(original_score, _REVIEW_SCORE)
+    if original_ok:
+        return str(original["text"]), float(original["score"])
+    if enhanced_ok:
+        # Speech recovered only after processing must remain visibly reviewable.
+        return str(enhanced["text"]), min(float(enhanced["score"]), _REVIEW_SCORE)
+    return None
+
+
+def _selection_needs_review(
+    original: dict[str, object],
+    enhanced: dict[str, object] | None,
+    quality: dict[str, float | bool],
+) -> bool:
+    """Require human review when weak capture has no stable second reading."""
+
+    if not bool(quality["needs_enhancement"]):
+        return False
+    original_ok = bool(original["accepted"])
+    enhanced_ok = enhanced is not None and bool(enhanced["accepted"])
+    if not original_ok and not enhanced_ok:
+        return False
+    return not (
+        original_ok
+        and enhanced_ok
+        and _semantic(str(original["text"])) == _semantic(str(enhanced["text"]))
+    )
 
 
 def _canonical_probability(value: float) -> str:
@@ -278,16 +470,73 @@ def _transcribe(runtime, audio) -> tuple[str, list[float], bool]:
 
 def _result(runtime, convert, audio: Path) -> dict[str, object]:
     samples = _read_audio(audio)
-    segments: list[dict[str, object]] = []
+    windows: list[dict[str, object]] = []
     for start_sample, end_sample in _window_ranges(samples):
         window = samples[start_sample:end_sample]
         if not _has_audible_activity(window):
             continue
-        text, probabilities, ended = _transcribe(runtime, window)
-        text = convert(text).strip()
-        accepted, score = _accept_candidate(text, probabilities, ended=ended)
-        if not accepted:
+        quality = _audio_quality(window)
+        original = _candidate(runtime, convert, window)
+        windows.append(
+            {
+                "start": start_sample,
+                "end": end_sample,
+                "audio": window,
+                "quality": quality,
+                "original": original,
+                "enhanced": None,
+            }
+        )
+    eligible = [
+        (index, record)
+        for index, record in enumerate(windows)
+        if _should_retry(record["original"], record["quality"])  # type: ignore[arg-type]
+    ]
+    eligible.sort(
+        key=lambda item: (
+            bool(item[1]["original"]["accepted"]),  # type: ignore[index]
+            float(item[1]["quality"]["active_ratio"]),  # type: ignore[index]
+            float(item[1]["original"]["score"]),  # type: ignore[index]
+        ),
+        reverse=True,
+    )
+    for index, _record in eligible[: _retry_budget(int(samples.shape[0]))]:
+        record = windows[index]
+        enhanced_audio = _enhance_for_speech(
+            record["audio"], record["quality"]  # type: ignore[arg-type]
+        )
+        record["enhanced"] = _candidate(runtime, convert, enhanced_audio)
+
+    selections: list[tuple[dict[str, object], str, float, bool]] = []
+    for record in windows:
+        selected = _choose_candidate(
+            record["original"], record["enhanced"]  # type: ignore[arg-type]
+        )
+        if selected is None:
             continue
+        text, score = selected
+        selections.append(
+            (
+                record,
+                text,
+                score,
+                _selection_needs_review(
+                    record["original"],  # type: ignore[arg-type]
+                    record["enhanced"],  # type: ignore[arg-type]
+                    record["quality"],  # type: ignore[arg-type]
+                ),
+            )
+        )
+
+    # One uncertain phrase makes the whole transcript unsafe for automatic
+    # downstream use. Cap every phrase so averaging cannot hide that fact.
+    transcript_needs_review = any(selection[3] for selection in selections)
+    segments: list[dict[str, object]] = []
+    for record, text, score, _needs_review in selections:
+        if transcript_needs_review:
+            score = min(score, _REVIEW_SCORE)
+        start_sample = int(record["start"])
+        end_sample = int(record["end"])
         start = start_sample / 16_000
         end = end_sample / 16_000
         probability = _canonical_probability(score)
