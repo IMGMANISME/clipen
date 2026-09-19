@@ -196,6 +196,37 @@ class ProjectStorageTests(unittest.TestCase):
             self.repository.get_project(created.project_id)
         self.assertEqual(context.exception.code, "migration_required")
 
+    def test_v6_with_existing_observation_table_finishes_migration(self) -> None:
+        created = self.repository.create_project(
+            "request-create-partial-migration", "接續 migration"
+        )
+        database = self.projects / created.project_id / "project.sqlite3"
+        with sqlite3.connect(database) as connection:
+            connection.execute(
+                "INSERT INTO evidence_runs "
+                "(run_id, request_id, scope_id, inventory_run_id, project_revision, "
+                "state, scope_json, total_count, progress_json, created_at) "
+                "VALUES ('evd_test', 'evidence-request', 'scope_test', "
+                "'inventory_test', 1, 'running', '{}', 1, '{}', '2026-09-19')"
+            )
+            connection.execute(
+                "INSERT INTO evidence_observations "
+                "(observation_id, run_id, item_key, request_id, state) "
+                "VALUES ('obs_test', 'evd_test', 'item_test', "
+                "'observation-request', 'running')"
+            )
+            connection.execute("PRAGMA user_version = 6")
+
+        restarted = ProjectRepository(self.projects)
+        self.assertEqual(restarted.get_project(created.project_id), created)
+        with restarted.connect(created.project_id) as connection:
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 7)
+            observation = connection.execute(
+                "SELECT state FROM evidence_observations "
+                "WHERE observation_id = 'obs_test'"
+            ).fetchone()
+        self.assertEqual(observation["state"], "running")
+
     def test_validation_rejects_control_characters_and_oversized_brief(self) -> None:
         with self.assertRaises(ProjectError):
             self.repository.create_project("request-create-0008", "bad\nname")

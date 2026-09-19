@@ -685,12 +685,7 @@ class ProjectRepository:
                 )
                 version = 6
             if version == 6:
-                from clipen.analysis.evidence_schema import OBSERVATION_SCHEMA
-                connection.executescript(
-                    "BEGIN IMMEDIATE;\n"
-                    + OBSERVATION_SCHEMA
-                    + "\nPRAGMA user_version = 7;\nCOMMIT;"
-                )
+                self._migrate_v6_to_v7(connection)
                 version = 7
             if version != _SCHEMA_VERSION:
                 connection.close()
@@ -719,6 +714,34 @@ class ProjectRepository:
         except sqlite3.Error:
             connection.rollback()
             raise
+
+    @staticmethod
+    def _migrate_v6_to_v7(connection: sqlite3.Connection) -> None:
+        """Finish an interrupted observation migration without deleting data."""
+
+        from clipen.analysis.evidence_schema import OBSERVATION_SCHEMA
+
+        existing = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' "
+            "AND name = 'evidence_observations'"
+        ).fetchone()
+        migration_sql = OBSERVATION_SCHEMA
+        if existing is not None:
+            observed_sql = existing["sql"]
+            expected = " ".join(OBSERVATION_SCHEMA.rstrip(";\n ").split())
+            observed = (
+                " ".join(observed_sql.rstrip(";\n ").split())
+                if isinstance(observed_sql, str)
+                else ""
+            )
+            if observed != expected:
+                raise sqlite3.DatabaseError("unexpected evidence observation schema")
+            migration_sql = ""
+        connection.executescript(
+            "BEGIN IMMEDIATE;\n"
+            + migration_sql
+            + "\nPRAGMA user_version = 7;\nCOMMIT;"
+        )
 
     @staticmethod
     def _migrate_v2_to_v3(connection: sqlite3.Connection) -> None:
