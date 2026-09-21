@@ -53,6 +53,7 @@ class EvidenceService:
         self._lock = threading.Lock()
         self._queue = queue.Queue(maxsize=16)
         self._cancel = {}
+        self._projects = set()
         self._closed = False
         self._worker = None
 
@@ -106,20 +107,32 @@ class EvidenceService:
             raise fail("evidence_not_found")
         with self.projects.connect(project_id) as db:
             row = db.execute("SELECT * FROM evidence_runs WHERE run_id=?", (run_id,)).fetchone()
-        if row is None:
-            raise fail("evidence_not_found")
-        result = dict(row)
-        with self.projects.connect(project_id) as db:
-            result["results_json"] = "[" + ",".join(r[0] for r in db.execute("SELECT result_json FROM evidence_results WHERE run_id=? ORDER BY ordinal", (run_id,))) + "]"
+            if row is None:
+                raise fail("evidence_not_found")
+            result = dict(row)
+            stored_results = [
+                json.loads(result_row[0])
+                for result_row in db.execute(
+                    "SELECT result_json FROM evidence_results "
+                    "WHERE run_id=? ORDER BY ordinal",
+                    (run_id,),
+                )
+            ]
+            result["results_json"] = encoded(stored_results)
         return result
 
     def _current(self, project_id, scope):
         if self.scope(project_id)["scope_id"] != scope["scope_id"]:
             raise fail("evidence_scope_changed", "素材範圍已改變，請重新擷取；舊成果仍保留。")
 
-    def status(self, project_id, offset=0):
+    def status(self, project_id, offset=0, *, run_id=None):
         if type(offset) is not int or not 0 <= offset <= MAX_STREAMS:
             raise fail("invalid_page")
+        if run_id is not None and (
+            not isinstance(run_id, str)
+            or re.fullmatch(r"ev_[0-9a-f]{32}", run_id) is None
+        ):
+            raise fail("evidence_not_found")
         try:
             scope = self.scope(project_id)
             blocked = None
@@ -128,16 +141,37 @@ class EvidenceService:
                 raise
             scope, blocked = None, error.message
         with self.projects.connect(project_id) as db:
-            row = db.execute("SELECT * FROM evidence_runs ORDER BY created_at DESC,rowid DESC LIMIT 1").fetchone()
+            row = (
+                db.execute(
+                    "SELECT * FROM evidence_runs WHERE run_id=?", (run_id,)
+                ).fetchone()
+                if run_id is not None
+                else db.execute(
+                    "SELECT * FROM evidence_runs "
+                    "ORDER BY created_at DESC,rowid DESC LIMIT 1"
+                ).fetchone()
+            )
+            if run_id is not None and row is None:
+                raise fail("evidence_not_found")
             observations = [] if row is None else [dict(o) for o in db.execute("SELECT observation_id,item_key,state,result_json,usage_json,error_code FROM evidence_observations WHERE run_id=? ORDER BY rowid", (row["run_id"],))]
+            counts = None if row is None else db.execute(
+                "SELECT COUNT(*),COALESCE(SUM(has_issue),0) "
+                "FROM evidence_results WHERE run_id=?",
+                (row["run_id"],),
+            ).fetchone()
+            page = [] if row is None else [
+                json.loads(result[0])
+                for result in db.execute(
+                    "SELECT result_json FROM evidence_results "
+                    "WHERE run_id=? ORDER BY ordinal LIMIT ? OFFSET ?",
+                    (row["run_id"], PAGE_SIZE, offset),
+                )
+            ]
         for obs in observations:
             obs["result"] = json.loads(obs.pop("result_json") or "null")
             obs["usage"] = json.loads(obs.pop("usage_json") or "null")
         latest = None if row is None else {k: row[k] for k in ("run_id", "state", "error_code")}
         if latest is not None:
-            with self.projects.connect(project_id) as db:
-                counts = db.execute("SELECT COUNT(*),COALESCE(SUM(has_issue),0) FROM evidence_results WHERE run_id=?", (row["run_id"],)).fetchone()
-                page = [json.loads(r[0]) for r in db.execute("SELECT result_json FROM evidence_results WHERE run_id=? ORDER BY ordinal LIMIT ? OFFSET ?", (row["run_id"], PAGE_SIZE, offset))]
             latest.update(completed_count=counts[0], issue_count=counts[1], offset=offset, page_size=PAGE_SIZE,
                           progress=json.loads(row["progress_json"]), results=page, total=row["total_count"],
                           stale=scope is None or scope["scope_id"] != row["scope_id"], observations=observations)
@@ -161,7 +195,7 @@ class EvidenceService:
                 if existing:
                     if existing["scope_id"] != scope_id or existing["project_revision"] != revision:
                         raise fail("request_conflict")
-                    return self.status(project_id)
+                    return self.status(project_id, run_id=existing["run_id"])
             scope = self.scope(project_id)
             if scope["scope_id"] != scope_id or scope["project_revision"] != revision:
                 raise fail("evidence_scope_changed")
@@ -176,7 +210,7 @@ class EvidenceService:
                            (run_id, request_id, scope_id, scope["inventory_run_id"], revision, encoded(scope), len(scope["items"]), utc_now()))
                 db.commit()
             self._enqueue(project_id, run_id, None)
-        return self.status(project_id)
+        return self.status(project_id, run_id=run_id)
 
     def resume(self, project_id, run_id):
         with self._lock:
@@ -191,7 +225,7 @@ class EvidenceService:
                     raise fail("evidence_busy")
                 db.execute("UPDATE evidence_runs SET state='running',error_code=NULL WHERE run_id=?", (run_id,))
             self._enqueue(project_id, run_id, None)
-        return self.status(project_id)
+        return self.status(project_id, run_id=run_id)
 
     def cancel(self, project_id, run_id):
         with self._lock:
@@ -199,7 +233,7 @@ class EvidenceService:
             for (pid, rid, _), token in self._cancel.items():
                 if (pid, rid) == (project_id, run_id):
                     token.set()
-        return self.status(project_id)
+        return self.status(project_id, run_id=run_id)
 
     def observe(self, project_id, run_id, request_id, item_key, consent):
         validate_request_id(request_id)
@@ -224,7 +258,7 @@ class EvidenceService:
                 if prior:
                     if prior["run_id"] != run_id or prior["item_key"] != item_key:
                         raise fail("request_conflict")
-                    return self.status(project_id)
+                    return self.status(project_id, run_id=run_id)
                 if db.execute("SELECT 1 FROM evidence_observations WHERE run_id=? AND item_key=?", (run_id, item_key)).fetchone():
                     raise fail("observation_already_attempted", "此批圖片已送出過，不會自動重試。請查閱已保存結果或用量。")
                 if db.execute("SELECT count(*) FROM evidence_observations WHERE run_id=?", (run_id,)).fetchone()[0] >= MAX_OBSERVATIONS:
@@ -233,10 +267,11 @@ class EvidenceService:
                 db.execute("INSERT INTO evidence_observations(observation_id,run_id,item_key,request_id,state) VALUES(?,?,?,?,'running')", (observation_id, run_id, item_key, request_id))
                 db.commit()
             self._enqueue(project_id, run_id, observation_id)
-        return self.status(project_id)
+        return self.status(project_id, run_id=run_id)
 
     def _enqueue(self, project_id, run_id, observation_id):
         key = (project_id, run_id, observation_id)
+        self._projects.add(project_id)
         self._cancel[key] = threading.Event()
         self._queue.put_nowait(key)
         if self._worker is None:
@@ -246,11 +281,11 @@ class EvidenceService:
     def _loop(self):
         while True:
             key = self._queue.get()
-            if key is None:
-                return
-            with self._lock:
-                token = self._cancel[key]
             try:
+                if key is None:
+                    return
+                with self._lock:
+                    token = self._cancel[key]
                 if key[2] is None:
                     self._extract(*key[:2], token)
                 else:
@@ -266,19 +301,45 @@ class EvidenceService:
                 except ProjectError:
                     pass
             finally:
-                with self._lock:
-                    self._cancel.pop(key, None)
+                if key is not None:
+                    with self._lock:
+                        self._cancel.pop(key, None)
                 self._queue.task_done()
 
-    def close(self):
+    def close(self, timeout=15):
         with self._lock:
+            if self._closed:
+                return
             self._closed = True
             for token in self._cancel.values():
                 token.set()
             worker = self._worker
+            projects = tuple(self._projects)
+            # Queued work has not started and is safe to discard. Draining it
+            # also guarantees room for the sentinel without waiting forever on
+            # a full bounded queue.
+            while True:
+                try:
+                    queued = self._queue.get_nowait()
+                except queue.Empty:
+                    break
+                if queued is not None:
+                    self._cancel.pop(queued, None)
+                self._queue.task_done()
+            if worker is not None:
+                self._queue.put_nowait(None)
         if worker:
-            self._queue.put(None)
-            worker.join(15)
+            worker.join(max(0, timeout))
+        for project_id in projects:
+            with self.projects.connect(project_id) as db:
+                db.execute(
+                    "UPDATE evidence_runs SET state='interrupted', "
+                    "error_code='controller_stopped' WHERE state='running'"
+                )
+                db.execute(
+                    "UPDATE evidence_observations SET state='interrupted', "
+                    "error_code='outcome_unknown' WHERE state='running'"
+                )
 
     def _publish(self, project_id, run_id, path, span, recipe, lineage):
         return self.artifacts.publish(project_id, path, kind=ArtifactKind.CHECKPOINT,
@@ -351,7 +412,9 @@ class EvidenceService:
                             continue
                     span = source.source_span
                     if item["kind"] == "video":
-                        duration = Fraction(int(span.end_pts) - int(span.start_pts)) * Fraction(span.time_base.numerator, span.time_base.denominator)
+                        duration = Fraction(span.duration_pts) * Fraction(
+                            span.time_base.numerator, span.time_base.denominator
+                        )
                         for ordinal in range(8):
                             if cancel.is_set():
                                 raise AudioPreparationError("cancelled")
