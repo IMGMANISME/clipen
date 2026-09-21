@@ -1,4 +1,5 @@
-"""Persistent evidence checkpoints and explicit observation reservations."""
+"""Evidence tables owned by the per-project SQLite storage schema."""
+
 EVIDENCE_SCHEMA = """
 CREATE TABLE evidence_runs (
     run_id TEXT PRIMARY KEY,

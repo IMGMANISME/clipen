@@ -24,6 +24,7 @@ from .models import (
     validate_request_id,
     validate_revision,
 )
+from .evidence_schema import EVIDENCE_SCHEMA, OBSERVATION_SCHEMA
 
 
 _SCHEMA_VERSION = 7
@@ -577,8 +578,6 @@ class ProjectRepository:
         command_hash: str,
     ) -> ProjectSnapshot:
         now = utc_now()
-        from clipen.analysis.evidence_schema import EVIDENCE_SCHEMA, OBSERVATION_SCHEMA
-
         connection = sqlite3.connect(database, isolation_level=None)
         connection.row_factory = sqlite3.Row
         try:
@@ -677,7 +676,6 @@ class ProjectRepository:
                 self._migrate_v4_to_v5(connection)
                 version = 5
             if version == 5:
-                from clipen.analysis.evidence_schema import EVIDENCE_SCHEMA
                 connection.executescript(
                     "BEGIN IMMEDIATE;\n"
                     + EVIDENCE_SCHEMA
@@ -718,8 +716,6 @@ class ProjectRepository:
     @staticmethod
     def _migrate_v6_to_v7(connection: sqlite3.Connection) -> None:
         """Finish an interrupted observation migration without deleting data."""
-
-        from clipen.analysis.evidence_schema import OBSERVATION_SCHEMA
 
         existing = connection.execute(
             "SELECT sql FROM sqlite_master WHERE type = 'table' "
