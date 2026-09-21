@@ -6,9 +6,8 @@ from dataclasses import dataclass, replace
 from enum import Enum
 from typing import Mapping, AbstractSet
 
-
-class InvalidTransition(ValueError):
-    """A requested state change violates the product state machine."""
+from .errors import InvalidTransition
+from .validation import require_identifier
 
 
 class OperationKind(str, Enum):
@@ -83,11 +82,6 @@ _ATTEMPT_TRANSITIONS: Mapping[AttemptState, AbstractSet[AttemptState]] = {
 }
 
 
-def _require_identifier(value: str, field: str) -> None:
-    if not isinstance(value, str) or not value.strip() or len(value) > 128:
-        raise ValueError(f"{field} must be a non-empty bounded identifier")
-
-
 @dataclass(frozen=True)
 class Operation:
     operation_id: str
@@ -98,13 +92,23 @@ class Operation:
     revision: int = 0
 
     def __post_init__(self) -> None:
-        _require_identifier(self.operation_id, "operation_id")
-        _require_identifier(self.project_id, "project_id")
-        _require_identifier(self.input_snapshot_id, "input_snapshot_id")
-        if self.revision < 0:
+        require_identifier(self.operation_id, "operation_id")
+        require_identifier(self.project_id, "project_id")
+        require_identifier(self.input_snapshot_id, "input_snapshot_id")
+        if not isinstance(self.kind, OperationKind) or not isinstance(
+            self.state, OperationState
+        ):
+            raise ValueError("operation kind or state is invalid")
+        if (
+            isinstance(self.revision, bool)
+            or not isinstance(self.revision, int)
+            or self.revision < 0
+        ):
             raise ValueError("revision cannot be negative")
 
     def transition(self, target: OperationState) -> "Operation":
+        if not isinstance(target, OperationState):
+            raise InvalidTransition("operation target state is invalid")
         if target not in _OPERATION_TRANSITIONS[self.state]:
             raise InvalidTransition(f"operation cannot move from {self.state} to {target}")
         return replace(self, state=target, revision=self.revision + 1)
@@ -119,14 +123,22 @@ class Attempt:
     revision: int = 0
 
     def __post_init__(self) -> None:
-        _require_identifier(self.attempt_id, "attempt_id")
-        _require_identifier(self.operation_id, "operation_id")
-        if self.number < 1:
+        require_identifier(self.attempt_id, "attempt_id")
+        require_identifier(self.operation_id, "operation_id")
+        if not isinstance(self.state, AttemptState):
+            raise ValueError("attempt state is invalid")
+        if isinstance(self.number, bool) or not isinstance(self.number, int) or self.number < 1:
             raise ValueError("attempt number must start at one")
-        if self.revision < 0:
+        if (
+            isinstance(self.revision, bool)
+            or not isinstance(self.revision, int)
+            or self.revision < 0
+        ):
             raise ValueError("revision cannot be negative")
 
     def transition(self, target: AttemptState) -> "Attempt":
+        if not isinstance(target, AttemptState):
+            raise InvalidTransition("attempt target state is invalid")
         if target not in _ATTEMPT_TRANSITIONS[self.state]:
             raise InvalidTransition(f"attempt cannot move from {self.state} to {target}")
         return replace(self, state=target, revision=self.revision + 1)

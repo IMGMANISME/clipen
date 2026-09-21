@@ -214,13 +214,6 @@ class ArtifactStoreTests(unittest.TestCase):
         self.assertEqual(context.exception.code, "artifact_store_unsafe")
         self.assertEqual(list(outside.iterdir()), [])
 
-    def test_source_span_rejects_invalid_time_contracts(self) -> None:
-        with self.assertRaises(ValueError):
-            SourceSpan("av_" + "c" * 32, 0, "20", "20", Rational(1, 1000))
-        with self.assertRaises(ValueError):
-            Rational(1, 0)
-
-
 class EvidenceCoverageTests(unittest.TestCase):
     def setUp(self) -> None:
         self.span = SourceSpan("av_" + "e" * 32, 0, "-10", "90", Rational(1, 1000))

@@ -1,5 +1,7 @@
 """Local, recoverable media preparation and transcription."""
 
+from clipen.domain.media_time import Rational, SourceSpan
+
 from .artifacts import ArtifactStore
 from .audio import (
     AudioPreparationError,
@@ -19,8 +21,6 @@ from .models import (
     PreparationItemStatus,
     PreparationRun,
     PreparationState,
-    Rational,
-    SourceSpan,
     TimelineSegment,
 )
 from .storage import (
