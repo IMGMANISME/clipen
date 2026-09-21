@@ -6,7 +6,8 @@ from dataclasses import dataclass, replace
 from enum import Enum
 from typing import Mapping, AbstractSet
 
-from .operations import InvalidTransition, _require_identifier
+from .errors import InvalidTransition
+from .validation import require_identifier
 
 
 class PlanStatus(str, Enum):
@@ -49,13 +50,25 @@ class PlanRevision:
             "analysis_snapshot_id",
             "system_skill_release",
         ):
-            _require_identifier(getattr(self, field), field)
-        if self.revision < 1:
+            require_identifier(getattr(self, field), field)
+        if not isinstance(self.status, PlanStatus):
+            raise ValueError("plan status is invalid")
+        if (
+            isinstance(self.revision, bool)
+            or not isinstance(self.revision, int)
+            or self.revision < 1
+        ):
             raise ValueError("plan revision must start at one")
-        if len(self.content_hash) != 64 or any(character not in "0123456789abcdef" for character in self.content_hash):
+        if (
+            not isinstance(self.content_hash, str)
+            or len(self.content_hash) != 64
+            or any(character not in "0123456789abcdef" for character in self.content_hash)
+        ):
             raise ValueError("content_hash must be a lowercase SHA-256 digest")
 
     def transition(self, target: PlanStatus) -> "PlanRevision":
+        if not isinstance(target, PlanStatus):
+            raise InvalidTransition("plan target status is invalid")
         if target not in _PLAN_TRANSITIONS[self.status]:
             raise InvalidTransition(f"plan cannot move from {self.status} to {target}")
         return replace(self, status=target)

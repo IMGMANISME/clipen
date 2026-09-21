@@ -37,9 +37,40 @@ class PlanRevisionTests(unittest.TestCase):
 
     def test_hash_and_revision_are_validated(self) -> None:
         with self.assertRaises(ValueError):
-            PlanRevision("plan-1", "project-1", 0, "a" * 64, "materials-1", "analysis-1", "skills-1")
+            PlanRevision(
+                "plan-1", "project-1", 0, "a" * 64, "materials-1", "analysis-1", "skills-1"
+            )
         with self.assertRaises(ValueError):
-            PlanRevision("plan-1", "project-1", 1, "not-a-hash", "materials-1", "analysis-1", "skills-1")
+            PlanRevision(
+                "plan-1",
+                "project-1",
+                1,
+                "not-a-hash",
+                "materials-1",
+                "analysis-1",
+                "skills-1",
+            )
+        with self.assertRaises(ValueError):
+            PlanRevision(
+                "plan-1",
+                "project-1",
+                True,
+                "a" * 64,
+                "materials-1",
+                "analysis-1",
+                "skills-1",
+            )
+        with self.assertRaises(ValueError):
+            PlanRevision(
+                "plan-1",
+                "project-1",
+                1,
+                "a" * 64,
+                "materials-1",
+                "analysis-1",
+                "skills-1",
+                status="draft",
+            )
 
 
 if __name__ == "__main__":

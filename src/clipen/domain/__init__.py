@@ -9,6 +9,18 @@ from .operations import (
     OperationState,
 )
 from .plans import PlanRevision, PlanStatus
+from .media_time import Rational, SourceSpan
+from .timeline import (
+    ClipSource,
+    EditTimeline,
+    EffectRequest,
+    GraphicClip,
+    Marker,
+    MediaClip,
+    TextClip,
+    Track,
+    TrackKind,
+)
 
 __all__ = [
     "Attempt",
@@ -19,4 +31,15 @@ __all__ = [
     "OperationState",
     "PlanRevision",
     "PlanStatus",
+    "ClipSource",
+    "EditTimeline",
+    "EffectRequest",
+    "GraphicClip",
+    "Marker",
+    "MediaClip",
+    "Rational",
+    "SourceSpan",
+    "TextClip",
+    "Track",
+    "TrackKind",
 ]

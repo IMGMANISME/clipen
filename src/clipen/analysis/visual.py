@@ -56,7 +56,7 @@ class LocalEvidenceExtractor(FFmpegAudioAdapter):
         tb = span.time_base
         if tb.numerator <= 0:
             raise AudioPreparationError("video_time_metadata_missing")
-        duration = Fraction(int(span.end_pts) - int(span.start_pts)) * Fraction(tb.numerator, tb.denominator)
+        duration = Fraction(span.duration_pts) * Fraction(tb.numerator, tb.denominator)
         if not 0 <= offset < duration:
             raise AudioPreparationError("frame_time_mapping_invalid")
         absolute_time = Fraction(int(span.start_pts)) * Fraction(tb.numerator, tb.denominator) + offset

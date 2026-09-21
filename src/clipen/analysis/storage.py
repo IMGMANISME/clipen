@@ -269,9 +269,9 @@ class PreparationRepository:
                     row["fingerprint"],
                     span,
                 )
-                duration += Fraction(
-                    int(span.end_pts) - int(span.start_pts)
-                ) * Fraction(span.time_base.numerator, span.time_base.denominator)
+                duration += Fraction(span.duration_pts) * Fraction(
+                    span.time_base.numerator, span.time_base.denominator
+                )
                 targets.append(
                     PreparationTarget(
                         row["version_id"],
