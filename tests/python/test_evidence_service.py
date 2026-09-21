@@ -182,6 +182,22 @@ class EvidenceServiceTests(unittest.TestCase):
             with self.subTest(invalid=invalid), self.assertRaises(ProjectError):
                 self.service.cancel(self.pid, invalid)
 
+    def test_replayed_start_returns_the_original_run(self):
+        first = self.start()["latest"]["run_id"]
+        self.wait()
+        scope = self.service.scope(self.pid)
+        second = self.service.start(
+            self.pid,
+            "evidence-request-2",
+            scope["project_revision"],
+            scope["scope_id"],
+        )["latest"]["run_id"]
+        self.wait()
+        self.assertNotEqual(first, second)
+
+        replay = self.start()["latest"]
+        self.assertEqual(replay["run_id"], first)
+
     def test_scope_supports_more_than_one_hundred_streams(self):
         with self.projects.connect(self.pid) as db:
             row = db.execute("SELECT version_id,details_json FROM media_streams WHERE kind='video' LIMIT 1").fetchone()
@@ -213,6 +229,31 @@ class EvidenceServiceTests(unittest.TestCase):
         self.service.extractor_factory = FakeExtractor
         self.service.resume(self.pid, run)
         self.assertEqual(self.wait()['latest']['state'], 'succeeded')
+
+    def test_close_persists_interruption_and_drains_shutdown_sentinel(self):
+        entered = threading.Event()
+        release = threading.Event()
+
+        class UncooperativeExtractor(FakeExtractor):
+            def frame(self, source, offset, output, cancel):
+                entered.set()
+                release.wait(3)
+                return super().frame(source, offset, output, cancel)
+
+        self.service.extractor_factory = UncooperativeExtractor
+        run_id = self.start()['latest']['run_id']
+        self.assertTrue(entered.wait(2))
+
+        self.service.close(timeout=0)
+        interrupted = self.service.status(self.pid, run_id=run_id)['latest']
+        self.assertEqual(interrupted['state'], 'interrupted')
+        self.assertEqual(interrupted['error_code'], 'controller_stopped')
+
+        release.set()
+        self.service._worker.join(3)
+        self.assertFalse(self.service._worker.is_alive())
+        self.assertEqual(self.service._queue.unfinished_tasks, 0)
+        self.service.close()
 
     def test_api_protects_image_and_mutation_routes(self):
         from clipen.controller import create_app, ControllerConfig, LocalSessionAuthority, ProviderStatus, ProviderState
