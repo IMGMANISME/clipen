@@ -20,18 +20,28 @@ from clipen.domain import (
 
 
 class TimelineTests(unittest.TestCase):
-    def media(self, item_id: str = "clip-1", start_frame: int = 0) -> MediaClip:
+    def media(
+        self,
+        item_id: str = "clip-1",
+        start_frame: int = 0,
+        *,
+        duration_frames: int = 120,
+        duration_pts: int = 360_000,
+        stream_index: int = 0,
+        time_base: Rational = Rational(1, 90_000),
+    ) -> MediaClip:
+        start_pts = 18_018
         return MediaClip(
             item_id=item_id,
             start_frame=start_frame,
-            duration_frames=120,
+            duration_frames=duration_frames,
             source=ClipSource(
                 SourceSpan(
                     "av_" + "a" * 32,
-                    0,
-                    "18018",
-                    "198018",
-                    Rational(1, 90_000),
+                    stream_index,
+                    str(start_pts),
+                    str(start_pts + duration_pts),
+                    time_base,
                 ),
                 handle_before_pts=9_000,
                 handle_after_pts=18_000,
@@ -49,6 +59,7 @@ class TimelineTests(unittest.TestCase):
             frame_rate=Rational(30_000, 1_001),
             width=3_840,
             height=2_160,
+            duration_frames=180,
             tracks=(
                 Track("video-1", TrackKind.VIDEO, (self.media(),)),
                 Track(
@@ -68,9 +79,10 @@ class TimelineTests(unittest.TestCase):
     def test_serializes_exact_source_time_and_editable_layers(self) -> None:
         payload = self.timeline().to_payload()
         self.assertEqual(payload["frame_rate"], {"num": 30_000, "den": 1_001})
+        self.assertEqual(payload["duration_frames"], 180)
         source = payload["tracks"][0]["items"][0]["source"]
         self.assertEqual(source["start_pts"], "18018")
-        self.assertEqual(source["end_pts"], "198018")
+        self.assertEqual(source["end_pts"], "378018")
         self.assertEqual(source["time_base"], {"num": 1, "den": 90_000})
         self.assertEqual(
             [track["kind"] for track in payload["tracks"]],
@@ -115,7 +127,7 @@ class TimelineTests(unittest.TestCase):
         source = self.media().source.span
         self.assertEqual(SourceSpan.from_storage(source.to_storage()), source)
         self.assertEqual(source.time_base, Rational(1, 90_000))
-        self.assertEqual(source.duration_pts, 180_000)
+        self.assertEqual(source.duration_pts, 360_000)
 
     def test_collection_inputs_are_frozen_as_tuples(self) -> None:
         effects = [EffectRequest("clipen.transform", {})]
@@ -144,6 +156,7 @@ class TimelineTests(unittest.TestCase):
             timeline.frame_rate,
             timeline.width,
             timeline.height,
+            240,
             (track,),
             (Marker("later", 20, "稍後"), Marker("earlier", 10, "較早")),
         )
@@ -161,7 +174,6 @@ class TimelineTests(unittest.TestCase):
             MediaClip("clip-1", 0, 30, object())
 
     def test_requires_globally_unique_item_ids(self) -> None:
-        clip = self.media()
         with self.assertRaisesRegex(ValueError, "item IDs"):
             EditTimeline(
                 timeline_id="timeline-1",
@@ -172,11 +184,92 @@ class TimelineTests(unittest.TestCase):
                 frame_rate=Rational(24, 1),
                 width=1_920,
                 height=1_080,
+                duration_frames=180,
                 tracks=(
-                    Track("video-1", TrackKind.VIDEO, (clip,)),
-                    Track("audio-1", TrackKind.AUDIO, (clip,)),
+                    Track(
+                        "video-1",
+                        TrackKind.VIDEO,
+                        (self.media(duration_frames=96),),
+                    ),
+                    Track(
+                        "audio-1",
+                        TrackKind.AUDIO,
+                        (self.media(duration_frames=96),),
+                    ),
                 ),
             )
+
+    def test_rejects_items_markers_and_sources_outside_timeline_contract(self) -> None:
+        timeline = self.timeline()
+        with self.assertRaisesRegex(ValueError, "item exceeds"):
+            EditTimeline(
+                timeline_id=timeline.timeline_id,
+                project_id=timeline.project_id,
+                plan_id=timeline.plan_id,
+                plan_revision=timeline.plan_revision,
+                plan_content_hash=timeline.plan_content_hash,
+                frame_rate=timeline.frame_rate,
+                width=timeline.width,
+                height=timeline.height,
+                duration_frames=100,
+                tracks=timeline.tracks,
+            )
+        with self.assertRaisesRegex(ValueError, "marker exceeds"):
+            EditTimeline(
+                timeline_id=timeline.timeline_id,
+                project_id=timeline.project_id,
+                plan_id=timeline.plan_id,
+                plan_revision=timeline.plan_revision,
+                plan_content_hash=timeline.plan_content_hash,
+                frame_rate=timeline.frame_rate,
+                width=timeline.width,
+                height=timeline.height,
+                duration_frames=180,
+                tracks=timeline.tracks,
+                markers=(Marker("end-review", 181, "超出結尾"),),
+            )
+        with self.assertRaisesRegex(ValueError, "source duration"):
+            EditTimeline(
+                timeline_id=timeline.timeline_id,
+                project_id=timeline.project_id,
+                plan_id=timeline.plan_id,
+                plan_revision=timeline.plan_revision,
+                plan_content_hash=timeline.plan_content_hash,
+                frame_rate=timeline.frame_rate,
+                width=timeline.width,
+                height=timeline.height,
+                duration_frames=180,
+                tracks=(
+                    Track(
+                        "video-1",
+                        TrackKind.VIDEO,
+                        (self.media(duration_frames=120, duration_pts=180_000),),
+                    ),
+                ),
+            )
+
+    def test_nonzero_pts_and_audio_time_base_map_at_fractional_frame_rate(self) -> None:
+        timeline = self.timeline()
+        audio = self.media(
+            "audio-1",
+            duration_frames=60,
+            duration_pts=96_000,
+            stream_index=1,
+            time_base=Rational(1, 48_000),
+        )
+        result = EditTimeline(
+            timeline_id=timeline.timeline_id,
+            project_id=timeline.project_id,
+            plan_id=timeline.plan_id,
+            plan_revision=timeline.plan_revision,
+            plan_content_hash=timeline.plan_content_hash,
+            frame_rate=Rational(30_000, 1_001),
+            width=timeline.width,
+            height=timeline.height,
+            duration_frames=60,
+            tracks=(Track("audio-1", TrackKind.AUDIO, (audio,)),),
+        )
+        self.assertEqual(result.tracks[0].items[0].source.span.start_pts, "18018")
 
     def test_payload_matches_public_schema(self) -> None:
         schema_path = Path(__file__).parents[2] / "schemas/v1/edit-timeline.schema.json"

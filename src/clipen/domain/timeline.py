@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from fractions import Fraction
 import json
 import math
 import re
@@ -307,6 +308,7 @@ class EditTimeline:
     frame_rate: Rational
     width: int
     height: int
+    duration_frames: int
     tracks: tuple[Track, ...]
     markers: tuple[Marker, ...] = ()
 
@@ -325,6 +327,7 @@ class EditTimeline:
             raise ValueError("timeline frame rate is invalid")
         _positive_integer(self.width, "width", 65_535)
         _positive_integer(self.height, "height", 65_535)
+        _positive_integer(self.duration_frames, "duration_frames")
         if not self.tracks:
             raise ValueError("timeline must contain at least one track")
         if len(self.tracks) > _MAX_TRACKS or len(self.markers) > _MAX_MARKERS:
@@ -333,6 +336,24 @@ class EditTimeline:
             raise ValueError("timeline tracks are invalid")
         if any(not isinstance(marker, Marker) for marker in self.markers):
             raise ValueError("timeline markers are invalid")
+        for track in self.tracks:
+            for item in track.items:
+                if item.start_frame + item.duration_frames > self.duration_frames:
+                    raise ValueError("timeline item exceeds timeline duration")
+                if isinstance(item, MediaClip):
+                    source = item.source.span
+                    source_frames = Fraction(
+                        source.duration_pts
+                        * source.time_base.numerator
+                        * self.frame_rate.numerator,
+                        source.time_base.denominator * self.frame_rate.denominator,
+                    )
+                    if abs(source_frames - item.duration_frames) > 1:
+                        raise ValueError(
+                            "media source duration does not match timeline duration"
+                        )
+        if any(marker.frame > self.duration_frames for marker in self.markers):
+            raise ValueError("timeline marker exceeds timeline duration")
         object.__setattr__(
             self,
             "markers",
@@ -358,6 +379,7 @@ class EditTimeline:
             "plan_content_hash": self.plan_content_hash,
             "frame_rate": self.frame_rate.to_storage(),
             "canvas": {"width": self.width, "height": self.height},
+            "duration_frames": self.duration_frames,
             "tracks": [track.to_payload() for track in self.tracks],
             "markers": [marker.to_payload() for marker in self.markers],
         }

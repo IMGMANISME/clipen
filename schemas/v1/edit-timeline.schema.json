@@ -13,6 +13,7 @@
     "plan_content_hash",
     "frame_rate",
     "canvas",
+    "duration_frames",
     "tracks",
     "markers"
   ],
@@ -27,6 +28,11 @@
       "pattern": "^[0-9a-f]{64}$"
     },
     "frame_rate": { "$ref": "#/$defs/rational" },
+    "duration_frames": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9223372036854775807
+    },
     "canvas": {
       "type": "object",
       "additionalProperties": false,
