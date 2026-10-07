@@ -34,6 +34,7 @@ from .reports import (
     ValidationSeverity,
     ValidationStatus,
 )
+from .timeline_validation import TimelineReferences, TimelineValidator
 
 __all__ = [
     "Attempt",
@@ -64,4 +65,6 @@ __all__ = [
     "ValidationReport",
     "ValidationSeverity",
     "ValidationStatus",
+    "TimelineReferences",
+    "TimelineValidator",
 ]
