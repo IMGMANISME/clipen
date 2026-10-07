@@ -21,6 +21,31 @@ from .validation import require_identifier
 _REQUIRED_DELIVERIES = frozenset(
     (DeliveryMode.MOVIE, DeliveryMode.RESOLVE_PROJECT)
 )
+_MAX_REPORTED_ISSUES = 10_000
+
+
+class _IssueCollector:
+    """Bound report memory while preserving an explicit blocking diagnosis."""
+
+    def __init__(self) -> None:
+        self.items: list[ValidationIssue] = []
+        self.truncated = False
+
+    def append(self, issue: ValidationIssue) -> None:
+        if self.truncated:
+            return
+        if len(self.items) == _MAX_REPORTED_ISSUES - 1:
+            self.items.append(
+                _blocking(
+                    "timeline.validation.issue_limit",
+                    "",
+                    "時間軸問題數量超過單次報告的安全上限。",
+                    "請先修正目前列出的問題，再重新驗證。",
+                )
+            )
+            self.truncated = True
+            return
+        self.items.append(issue)
 
 
 def _identifier_set(values: frozenset[str], field: str) -> frozenset[str]:
@@ -75,7 +100,7 @@ class TimelineValidator:
         if not isinstance(references, TimelineReferences):
             raise ValueError("timeline references are invalid")
 
-        issues: list[ValidationIssue] = []
+        issues = _IssueCollector()
         self._validate_plan(timeline, references, issues)
         self._validate_continuity(timeline, issues)
         self._validate_items(timeline, profile, references, issues)
@@ -84,14 +109,14 @@ class TimelineValidator:
             timeline.timeline_id,
             profile.profile_id,
             profile.content_hash,
-            tuple(issues),
+            tuple(issues.items),
         )
 
     @staticmethod
     def _validate_plan(
         timeline: EditTimeline,
         references: TimelineReferences,
-        issues: list[ValidationIssue],
+        issues: _IssueCollector,
     ) -> None:
         plan = references.plan
         if timeline.project_id != references.project_id:
@@ -128,7 +153,7 @@ class TimelineValidator:
 
     @staticmethod
     def _validate_continuity(
-        timeline: EditTimeline, issues: list[ValidationIssue]
+        timeline: EditTimeline, issues: _IssueCollector
     ) -> None:
         primary = next(
             (track for track in timeline.tracks if track.kind is TrackKind.VIDEO),
@@ -192,7 +217,7 @@ class TimelineValidator:
         timeline: EditTimeline,
         profile: CapabilityProfile,
         references: TimelineReferences,
-        issues: list[ValidationIssue],
+        issues: _IssueCollector,
     ) -> None:
         elements = {item.kind: item for item in profile.elements}
         effects = {
@@ -271,7 +296,7 @@ class TimelineValidator:
         location: str,
         capabilities: dict[tuple[str, int], EffectCapability],
         validators: dict[tuple[str, int], Draft202012Validator],
-        issues: list[ValidationIssue],
+        issues: _IssueCollector,
     ) -> None:
         for effect_index, request in enumerate(item.effects):
             effect_location = f"{location}/effects/{effect_index}"

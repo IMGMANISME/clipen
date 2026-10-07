@@ -1,5 +1,6 @@
 import time
 import unittest
+from unittest.mock import patch
 
 from clipen.domain import (
     CapabilityProfile,
@@ -296,6 +297,16 @@ class TimelineValidatorTests(unittest.TestCase):
         elapsed = time.monotonic() - started
         self.assertEqual(report.status, ValidationStatus.PASS)
         self.assertLess(elapsed, 5)
+
+    def test_issue_output_is_bounded_and_reports_truncation(self) -> None:
+        with patch("clipen.domain.timeline_validation._MAX_REPORTED_ISSUES", 3):
+            report = self.validate(profile=CapabilityProfile("empty", 1))
+        self.assertEqual(len(report.issues), 3)
+        self.assertEqual(
+            report.issues[-1].rule_id,
+            "timeline.validation.issue_limit",
+        )
+        self.assertEqual(report.status, ValidationStatus.BLOCKING)
 
 
 if __name__ == "__main__":

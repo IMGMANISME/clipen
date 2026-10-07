@@ -19,6 +19,7 @@ _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 _MAX_FRAME = 2**63 - 1
 _MAX_TRACKS = 256
 _MAX_ITEMS_PER_TRACK = 100_000
+_MAX_TOTAL_ITEMS = 100_000
 _MAX_MARKERS = 100_000
 _MAX_EFFECTS_PER_CLIP = 128
 
@@ -348,6 +349,8 @@ class EditTimeline:
             raise ValueError("timeline contains too many tracks or markers")
         if any(not isinstance(track, Track) for track in self.tracks):
             raise ValueError("timeline tracks are invalid")
+        if sum(len(track.items) for track in self.tracks) > _MAX_TOTAL_ITEMS:
+            raise ValueError("timeline contains too many items")
         if any(not isinstance(marker, Marker) for marker in self.markers):
             raise ValueError("timeline markers are invalid")
         for track in self.tracks:
