@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 from jsonschema import Draft202012Validator
 
@@ -201,6 +202,29 @@ class TimelineTests(unittest.TestCase):
                     ),
                 ),
             )
+
+    def test_rejects_excessive_total_items_across_tracks(self) -> None:
+        with patch("clipen.domain.timeline._MAX_TOTAL_ITEMS", 1):
+            with self.assertRaisesRegex(ValueError, "too many items"):
+                EditTimeline(
+                    timeline_id="timeline-1",
+                    project_id="project-1",
+                    plan_id="plan-1",
+                    plan_revision=1,
+                    plan_content_hash="a" * 64,
+                    frame_rate=Rational(30, 1),
+                    width=1_920,
+                    height=1_080,
+                    duration_frames=120,
+                    tracks=(
+                        Track("video-1", TrackKind.VIDEO, (self.media(),)),
+                        Track(
+                            "title-1",
+                            TrackKind.TITLE,
+                            (TextClip("title-1", 0, 30, "Title", "default"),),
+                        ),
+                    ),
+                )
 
     def test_rejects_items_markers_and_sources_outside_timeline_contract(self) -> None:
         timeline = self.timeline()
