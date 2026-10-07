@@ -116,12 +116,13 @@
     "effect": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["effect_id", "parameters"],
+      "required": ["effect_id", "version", "parameters"],
       "properties": {
         "effect_id": {
           "type": "string",
           "pattern": "^[a-z][a-z0-9_.-]{0,127}$"
         },
+        "version": { "type": "integer", "minimum": 1 },
         "parameters": {
           "type": "object",
           "maxProperties": 128

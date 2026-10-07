@@ -21,6 +21,19 @@ from .timeline import (
     Track,
     TrackKind,
 )
+from .capabilities import (
+    CapabilityProfile,
+    DeliveryMode,
+    EffectCapability,
+    ElementCapability,
+    VerifiedDelivery,
+)
+from .reports import (
+    ValidationIssue,
+    ValidationReport,
+    ValidationSeverity,
+    ValidationStatus,
+)
 
 __all__ = [
     "Attempt",
@@ -42,4 +55,13 @@ __all__ = [
     "TextClip",
     "Track",
     "TrackKind",
+    "CapabilityProfile",
+    "DeliveryMode",
+    "EffectCapability",
+    "ElementCapability",
+    "VerifiedDelivery",
+    "ValidationIssue",
+    "ValidationReport",
+    "ValidationSeverity",
+    "ValidationStatus",
 ]
