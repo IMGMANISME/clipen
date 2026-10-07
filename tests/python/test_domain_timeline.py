@@ -122,6 +122,9 @@ class TimelineTests(unittest.TestCase):
             effect.parameters,
             {"position": {"x": 10}, "tags": ["intro"]},
         )
+        self.assertEqual(effect.to_payload()["version"], 1)
+        with self.assertRaisesRegex(ValueError, "version"):
+            EffectRequest("clipen.transform", {}, version=True)
 
     def test_source_time_uses_the_shared_analysis_representation(self) -> None:
         source = self.media().source.span

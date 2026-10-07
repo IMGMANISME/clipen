@@ -101,11 +101,20 @@ class EffectRequest:
     """A semantic effect request; exporters decide whether they can map it."""
 
     effect_id: str
+    version: int
     _parameters_json: str
 
-    def __init__(self, effect_id: str, parameters: Mapping[str, object]) -> None:
+    def __init__(
+        self,
+        effect_id: str,
+        parameters: Mapping[str, object],
+        *,
+        version: int = 1,
+    ) -> None:
         if not isinstance(effect_id, str) or _EFFECT_ID.fullmatch(effect_id) is None:
             raise ValueError("effect_id is invalid")
+        if isinstance(version, bool) or not isinstance(version, int) or version < 1:
+            raise ValueError("effect version is invalid")
         if not isinstance(parameters, Mapping):
             raise ValueError("effect parameters must be an object")
         _validate_json_value(parameters)
@@ -122,6 +131,7 @@ class EffectRequest:
         if len(encoded.encode("utf-8")) > 16_384:
             raise ValueError("effect parameters are too large")
         object.__setattr__(self, "effect_id", effect_id)
+        object.__setattr__(self, "version", version)
         object.__setattr__(self, "_parameters_json", encoded)
 
     @property
@@ -129,7 +139,11 @@ class EffectRequest:
         return json.loads(self._parameters_json)
 
     def to_payload(self) -> dict[str, object]:
-        return {"effect_id": self.effect_id, "parameters": json.loads(self._parameters_json)}
+        return {
+            "effect_id": self.effect_id,
+            "version": self.version,
+            "parameters": json.loads(self._parameters_json),
+        }
 
 
 class TrackKind(str, Enum):
