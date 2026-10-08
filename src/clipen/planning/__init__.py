@@ -3,6 +3,7 @@
 from .models import PlanningCandidate, PlanningContext, TranscriptReliability
 from .context import PlanningContextBuilder
 from .proposal import PlanProposalError, resolve_plan_proposal
+from .service import PlanningService
 from .storage import PlanningRepository, PlanningRun, PlanningRunState
 
 __all__ = [
@@ -13,6 +14,7 @@ __all__ = [
     "PlanningRepository",
     "PlanningRun",
     "PlanningRunState",
+    "PlanningService",
     "TranscriptReliability",
     "resolve_plan_proposal",
 ]
