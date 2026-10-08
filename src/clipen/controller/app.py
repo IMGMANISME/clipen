@@ -29,6 +29,7 @@ from clipen.analysis import (
 )
 from clipen.analysis.evidence_service import EvidenceService
 from clipen.media import InventoryCoordinator
+from clipen.planning import PlanningService
 from clipen.projects import (
     DirectoryRole,
     ProjectError,
@@ -254,6 +255,7 @@ def create_app(
     analysis_runtime: ManagedAnalysisRuntime | None = None,
     evidence_service: EvidenceService | None = None,
     timeline_validations: TimelineValidationRepository | None = None,
+    planning_service: PlanningService | None = None,
 ) -> ASGIApp:
     static_root = config.static_root.resolve(strict=True)
     if timeline_validations is None and workspace is not None:
@@ -409,6 +411,15 @@ def create_app(
                 status_code=503,
             )
         return timeline_validations
+
+    def require_planning() -> PlanningService:
+        if planning_service is None:
+            raise ProjectError(
+                "planning_unavailable",
+                "Clipen 剪輯計畫尚未準備完成。",
+                status_code=503,
+            )
+        return planning_service
 
     def require_fields(
         payload: dict[str, object], required: set[str], optional: set[str] | None = None
@@ -574,6 +585,98 @@ def create_app(
                 payload["report_id"],
             )
             return JSONResponse(state.to_public())
+        except ProjectError as error:
+            return await project_error_response(error)
+
+    async def planning_status(request: Request) -> Response:
+        try:
+            result = await run_in_threadpool(
+                require_planning().status,
+                request.path_params["project_id"],
+            )
+            return JSONResponse(result)
+        except ProjectError as error:
+            return await project_error_response(error)
+
+    async def start_planning(request: Request) -> Response:
+        try:
+            payload = await read_json(request)
+            require_fields(
+                payload,
+                {
+                    "request_id",
+                    "expected_revision",
+                    "editing_skill_id",
+                    "consent",
+                    "expected_context_hash",
+                },
+            )
+            run = await run_in_threadpool(
+                require_planning().start,
+                request.path_params["project_id"],
+                payload["request_id"],
+                payload["expected_revision"],
+                payload["editing_skill_id"],
+                payload["consent"],
+                payload["expected_context_hash"],
+            )
+            return JSONResponse({"run": run.to_public()}, status_code=202)
+        except ProjectError as error:
+            return await project_error_response(error)
+
+    async def cancel_planning(request: Request) -> Response:
+        try:
+            payload = await read_json(request)
+            require_fields(payload, set())
+            run = await run_in_threadpool(
+                require_planning().cancel,
+                request.path_params["project_id"],
+                request.path_params["run_id"],
+            )
+            return JSONResponse({"run": run.to_public()})
+        except ProjectError as error:
+            return await project_error_response(error)
+
+    async def update_plan(request: Request) -> Response:
+        try:
+            payload = await read_json(request)
+            require_fields(
+                payload,
+                {"request_id", "plan_id", "expected_revision", "plan"},
+            )
+            if not isinstance(payload["plan"], dict):
+                raise ProjectError(
+                    "plan_content_invalid",
+                    "剪輯計畫內容格式無效。",
+                    status_code=422,
+                )
+            result = await run_in_threadpool(
+                require_planning().update_plan,
+                request.path_params["project_id"],
+                payload["request_id"],
+                payload["plan_id"],
+                payload["expected_revision"],
+                payload["plan"],
+            )
+            return JSONResponse(result)
+        except ProjectError as error:
+            return await project_error_response(error)
+
+    async def confirm_plan(request: Request) -> Response:
+        try:
+            payload = await read_json(request)
+            require_fields(
+                payload,
+                {"request_id", "plan_id", "expected_revision"},
+            )
+            result = await run_in_threadpool(
+                require_planning().confirm_plan,
+                request.path_params["project_id"],
+                payload["request_id"],
+                payload["plan_id"],
+                payload["expected_revision"],
+            )
+            return JSONResponse(result)
         except ProjectError as error:
             return await project_error_response(error)
 
@@ -933,6 +1036,31 @@ def create_app(
             Route(
                 "/api/projects/{project_id}/timeline-validation/commands/accept-warnings",
                 accept_timeline_warnings,
+                methods=["POST"],
+            ),
+            Route(
+                "/api/projects/{project_id}/planning",
+                planning_status,
+                methods=["GET"],
+            ),
+            Route(
+                "/api/projects/{project_id}/planning/commands/start",
+                start_planning,
+                methods=["POST"],
+            ),
+            Route(
+                "/api/projects/{project_id}/planning/{run_id}/commands/cancel",
+                cancel_planning,
+                methods=["POST"],
+            ),
+            Route(
+                "/api/projects/{project_id}/plan/commands/update",
+                update_plan,
+                methods=["POST"],
+            ),
+            Route(
+                "/api/projects/{project_id}/plan/commands/confirm",
+                confirm_plan,
                 methods=["POST"],
             ),
             Route(

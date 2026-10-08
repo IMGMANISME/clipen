@@ -50,6 +50,10 @@ def main(arguments: Sequence[str] | None = None) -> int:
                 attempt_root=attempt_root,
                 projects_root=data_root / "projects",
                 asr_requirements=repo_root / "requirements" / "asr-runtime.txt",
+                plan_schema=repo_root
+                / "schemas"
+                / "v1"
+                / "plan-proposal.schema.json",
             ),
             provider,
             LocalSessionAuthority(),

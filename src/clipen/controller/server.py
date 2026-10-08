@@ -33,6 +33,7 @@ from clipen.analysis import (
     PreparationRepository,
 )
 from clipen.media import InventoryCoordinator, InventoryRepository
+from clipen.planning import PlanningRepository, PlanningService
 from clipen.providers import CodexExecAdapter, ProviderUnavailable
 from clipen.analysis.evidence_service import EvidenceService
 from clipen.projects import ProjectWorkspace
@@ -132,6 +133,7 @@ class ServerPaths:
     attempt_root: Path
     projects_root: Path | None = None
     asr_requirements: Path | None = None
+    plan_schema: Path | None = None
 
     def prepare(self) -> None:
         if not self.static_root.resolve(strict=True).is_dir():
@@ -151,6 +153,11 @@ class ServerPaths:
             strict=True
         ).is_file():
             raise ValueError("ASR runtime requirements are missing")
+        if self.plan_schema is not None and (
+            self.plan_schema.is_symlink()
+            or not self.plan_schema.resolve(strict=True).is_file()
+        ):
+            raise ValueError("planning proposal schema is missing")
 
 
 def probe_codex(attempt_root: Path) -> ProviderStatus:
@@ -312,6 +319,7 @@ async def _serve(
     preparation_repository = None
     analysis_runtime = None
     evidence_service = None
+    planning_service = None
     try:
         workspace = (
             ProjectWorkspace(paths.projects_root)
@@ -326,6 +334,14 @@ async def _serve(
             )
             evidence_service = EvidenceService(workspace.repository, paths.attempt_root if provider.state is ProviderState.READY else None)
             evidence_service.recover()
+            if paths.plan_schema is not None:
+                planning_service = PlanningService(
+                    PlanningRepository(workspace.repository),
+                    paths.attempt_root,
+                    paths.plan_schema,
+                    system_skills,
+                )
+                planning_service.recover()
             preparation_repository = PreparationRepository(workspace.repository)
             for project in workspace.repository.list_projects():
                 preparation_repository.interrupt_incomplete(project.project_id)
@@ -353,6 +369,7 @@ async def _serve(
             preparation_repository=preparation_repository,
             analysis_runtime=analysis_runtime,
             evidence_service=evidence_service,
+            planning_service=planning_service,
         )
         config = uvicorn.Config(
             app,
@@ -411,6 +428,8 @@ async def _serve(
             if hasattr(signal, "SIGHUP") and previous_hup is not None:
                 signal.signal(signal.SIGHUP, previous_hup)
     finally:
+        if planning_service is not None:
+            planning_service.close()
         if evidence_service is not None:
             evidence_service.close()
         if analysis_runtime is not None:
