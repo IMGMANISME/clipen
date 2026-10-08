@@ -99,6 +99,20 @@ class PlanRevisionTests(unittest.TestCase):
         )
         Draft202012Validator(schema).validate(self.plan().to_payload())
 
+    def test_plan_payload_round_trips_and_rejects_corruption(self) -> None:
+        plan = self.plan().transition(PlanStatus.READY_FOR_REVIEW)
+        self.assertEqual(PlanRevision.from_payload(plan.to_payload()), plan)
+
+        corrupted = plan.to_payload()
+        corrupted["summary"] = "內容已被修改"
+        with self.assertRaises(ValueError):
+            PlanRevision.from_payload(corrupted)
+
+        wrong_type = plan.to_payload()
+        wrong_type["sections"][0]["unknowns"] = [42]
+        with self.assertRaises(ValueError):
+            PlanRevision.from_payload(wrong_type)
+
     def test_rejects_empty_duplicate_or_invalid_content(self) -> None:
         with self.assertRaises(ValueError):
             PlanSection("section-empty", "空白", "沒有來源", ())

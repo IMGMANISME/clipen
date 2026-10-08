@@ -220,7 +220,7 @@ class ProjectStorageTests(unittest.TestCase):
         restarted = ProjectRepository(self.projects)
         self.assertEqual(restarted.get_project(created.project_id), created)
         with restarted.connect(created.project_id) as connection:
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 8)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 9)
             observation = connection.execute(
                 "SELECT state FROM evidence_observations "
                 "WHERE observation_id = 'obs_test'"
