@@ -8,7 +8,7 @@ from .operations import (
     OperationKind,
     OperationState,
 )
-from .plans import PlanRevision, PlanStatus
+from .plans import PlanRevision, PlanSection, PlanSourceRange, PlanStatus, plan_content_hash
 from .media_time import Rational, SourceSpan
 from .timeline import (
     ClipSource,
@@ -44,7 +44,10 @@ __all__ = [
     "OperationKind",
     "OperationState",
     "PlanRevision",
+    "PlanSection",
+    "PlanSourceRange",
     "PlanStatus",
+    "plan_content_hash",
     "ClipSource",
     "EditTimeline",
     "EffectRequest",

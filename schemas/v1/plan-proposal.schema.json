@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://clipen.local/schemas/v1/plan-proposal.schema.json",
+  "title": "Clipen bounded AI Plan proposal",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "title", "summary", "sections"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^(?=.*\\S)[^\\u0000]+$"
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000,
+      "pattern": "^(?=.*\\S)[^\\u0000]+$"
+    },
+    "sections": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": { "$ref": "#/$defs/section" }
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    },
+    "section": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "section_id",
+        "title",
+        "purpose",
+        "candidate_ids",
+        "edit_notes",
+        "unknowns"
+      ],
+      "properties": {
+        "section_id": { "$ref": "#/$defs/identifier" },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "pattern": "^(?=.*\\S)[^\\u0000]+$"
+        },
+        "purpose": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000,
+          "pattern": "^(?=.*\\S)[^\\u0000]+$"
+        },
+        "candidate_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/identifier" }
+        },
+        "edit_notes": {
+          "type": "string",
+          "maxLength": 4000,
+          "pattern": "^[^\\u0000]*$"
+        },
+        "unknowns": {
+          "type": "array",
+          "maxItems": 128,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "pattern": "^(?=.*\\S)[^\\u0000]+$"
+          }
+        }
+      }
+    }
+  }
+}
