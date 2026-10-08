@@ -26,9 +26,10 @@ from .models import (
 )
 from .evidence_schema import EVIDENCE_SCHEMA, OBSERVATION_SCHEMA
 from .validation_schema import VALIDATION_WORKFLOW_SCHEMA
+from .planning_schema import PLANNING_SCHEMA
 
 
-_SCHEMA_VERSION = 8
+_SCHEMA_VERSION = 9
 _PROJECT_DIRECTORY = re.compile(r"prj_[0-9a-f]{32}\Z")
 
 _INVENTORY_SCHEMA = """
@@ -617,8 +618,9 @@ class ProjectRepository:
                 + EVIDENCE_SCHEMA
                 + OBSERVATION_SCHEMA
                 + VALIDATION_WORKFLOW_SCHEMA
+                + PLANNING_SCHEMA
                 + """
-                PRAGMA user_version = 8;
+                PRAGMA user_version = 9;
                 """
             )
             connection.execute(
@@ -690,6 +692,9 @@ class ProjectRepository:
             if version == 7:
                 self._migrate_v7_to_v8(connection)
                 version = 8
+            if version == 8:
+                self._migrate_v8_to_v9(connection)
+                version = 9
             if version != _SCHEMA_VERSION:
                 connection.close()
                 raise ProjectError(
@@ -802,6 +807,66 @@ class ProjectRepository:
             "BEGIN IMMEDIATE;\n"
             + migration_sql
             + "\nPRAGMA user_version = 8;\nCOMMIT;"
+        )
+
+    @staticmethod
+    def _migrate_v8_to_v9(connection: sqlite3.Connection) -> None:
+        """Create or verify planning tables after an interrupted migration."""
+
+        expected_columns = {
+            "planning_runs": (
+                "run_id", "project_id", "request_id", "project_revision",
+                "editing_skill_id", "system_skill_release", "context_hash",
+                "context_json", "estimated_input_tokens", "state", "phase",
+                "plan_id", "plan_revision", "usage_json", "error_code",
+                "created_at", "started_at", "completed_at",
+            ),
+            "plan_revisions": (
+                "plan_id", "revision", "project_id", "status", "content_hash",
+                "material_snapshot_id", "analysis_snapshot_id",
+                "system_skill_release", "payload_json", "source_run_id", "created_at",
+            ),
+            "current_plan": ("slot", "plan_id", "revision"),
+            "plan_command_receipts": (
+                "request_id", "command_type", "request_hash", "response_json", "created_at",
+            ),
+        }
+        observed = {
+            row["name"]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' "
+                "AND name IN (?, ?, ?, ?)",
+                tuple(expected_columns),
+            )
+        }
+        if observed and observed != set(expected_columns):
+            raise sqlite3.DatabaseError("incomplete planning schema")
+        if observed:
+            for table, expected in expected_columns.items():
+                columns = tuple(
+                    row["name"]
+                    for row in connection.execute(f"PRAGMA table_info({table})")
+                )
+                if columns != expected:
+                    raise sqlite3.DatabaseError("unexpected planning schema")
+            indexes = {
+                row["name"]
+                for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'index'"
+                )
+            }
+            if not {
+                "planning_runs_project_created",
+                "plan_revisions_project_created",
+            }.issubset(indexes):
+                raise sqlite3.DatabaseError("incomplete planning indexes")
+            migration_sql = ""
+        else:
+            migration_sql = PLANNING_SCHEMA
+        connection.executescript(
+            "BEGIN IMMEDIATE;\n"
+            + migration_sql
+            + "\nPRAGMA user_version = 9;\nCOMMIT;"
         )
 
     @staticmethod

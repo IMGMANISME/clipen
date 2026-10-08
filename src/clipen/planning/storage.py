@@ -1,0 +1,441 @@
+"""Durable planning runs and immutable editable Plan revision contents."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from enum import Enum
+import json
+import re
+import sqlite3
+import uuid
+
+from clipen.domain import PlanRevision, PlanStatus
+from clipen.domain.validation import require_identifier
+from clipen.projects.models import (
+    ProjectError,
+    validate_project_id,
+    validate_request_id,
+    validate_revision,
+)
+from clipen.projects.storage import ProjectRepository, command_digest, utc_now
+from clipen.providers.recovery import ProviderUsage
+
+from .models import PlanningContext
+
+
+_RUN_ID = re.compile(r"planrun_[0-9a-f]{32}\Z")
+
+
+class PlanningRunState(str, Enum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    INTERRUPTED = "interrupted"
+
+
+@dataclass(frozen=True)
+class PlanningRun:
+    run_id: str
+    project_id: str
+    project_revision: int
+    editing_skill_id: str
+    system_skill_release: str
+    context_hash: str
+    estimated_input_tokens: int
+    state: PlanningRunState
+    phase: str
+    plan_id: str | None
+    plan_revision: int | None
+    usage: ProviderUsage | None
+    error_code: str | None
+    created_at: str
+    started_at: str | None
+    completed_at: str | None
+
+    def to_public(self) -> dict[str, object]:
+        return {
+            "run_id": self.run_id,
+            "project_revision": self.project_revision,
+            "editing_skill_id": self.editing_skill_id,
+            "estimated_input_tokens": self.estimated_input_tokens,
+            "state": self.state.value,
+            "phase": self.phase,
+            "plan_id": self.plan_id,
+            "plan_revision": self.plan_revision,
+            "usage": None if self.usage is None else self.usage.to_dict(),
+            "error_code": self.error_code,
+            "created_at": self.created_at,
+            "started_at": self.started_at,
+            "completed_at": self.completed_at,
+        }
+
+
+class PlanningRepository:
+    def __init__(self, projects: ProjectRepository) -> None:
+        self.projects = projects
+
+    def create_run(
+        self,
+        project_id: str,
+        request_id: object,
+        expected_revision: object,
+        editing_skill_id: str,
+        system_skill_release: str,
+        context: PlanningContext,
+    ) -> tuple[PlanningRun, bool]:
+        validate_project_id(project_id)
+        normalized_request = validate_request_id(request_id)
+        revision = validate_revision(expected_revision)
+        require_identifier(editing_skill_id, "editing_skill_id")
+        require_identifier(system_skill_release, "system_skill_release")
+        if context.project_id != project_id:
+            raise ValueError("planning context belongs to another project")
+        command_hash = command_digest(
+            {
+                "project_revision": revision,
+                "editing_skill_id": editing_skill_id,
+                "system_skill_release": system_skill_release,
+                "context_hash": context.content_hash,
+            }
+        )
+        run_id = "planrun_" + uuid.uuid4().hex
+        now = utc_now()
+        encoded_context = json.dumps(
+            context.to_storage(),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        try:
+            with self.projects.connect(project_id) as database:
+                database.execute("BEGIN IMMEDIATE")
+                existing = database.execute(
+                    "SELECT * FROM planning_runs WHERE request_id = ?",
+                    (normalized_request,),
+                ).fetchone()
+                if existing is not None:
+                    stored_hash = command_digest(
+                        {
+                            "project_revision": existing["project_revision"],
+                            "editing_skill_id": existing["editing_skill_id"],
+                            "system_skill_release": existing["system_skill_release"],
+                            "context_hash": existing["context_hash"],
+                        }
+                    )
+                    if stored_hash != command_hash:
+                        raise ProjectError(
+                            "request_conflict",
+                            "這次產生計畫的操作與既有內容衝突。",
+                            status_code=409,
+                        )
+                    database.rollback()
+                    return self._run(existing), False
+                current_revision = database.execute(
+                    "SELECT revision FROM project WHERE project_id = ?", (project_id,)
+                ).fetchone()[0]
+                if current_revision != revision:
+                    raise ProjectError(
+                        "revision_conflict",
+                        "作品內容已更新，請重新整理後再產生計畫。",
+                        status_code=409,
+                    )
+                if database.execute(
+                    "SELECT 1 FROM planning_runs WHERE state IN ('queued', 'running')"
+                ).fetchone():
+                    raise ProjectError(
+                        "planning_busy", "目前已有剪輯計畫正在產生。", status_code=409
+                    )
+                database.execute(
+                    "INSERT INTO planning_runs "
+                    "(run_id, project_id, request_id, project_revision, editing_skill_id, "
+                    "system_skill_release, context_hash, context_json, "
+                    "estimated_input_tokens, state, phase, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', 'queued', ?)",
+                    (
+                        run_id,
+                        project_id,
+                        normalized_request,
+                        revision,
+                        editing_skill_id,
+                        system_skill_release,
+                        context.content_hash,
+                        encoded_context,
+                        context.estimated_input_tokens,
+                        now,
+                    ),
+                )
+                row = database.execute(
+                    "SELECT * FROM planning_runs WHERE run_id = ?", (run_id,)
+                ).fetchone()
+                database.commit()
+                return self._run(row), True
+        except ProjectError:
+            raise
+        except sqlite3.Error as error:
+            raise ProjectError(
+                "storage_failed", "Clipen 無法建立剪輯計畫工作。", status_code=500
+            ) from error
+
+    def context(self, project_id: str, run_id: str) -> PlanningContext:
+        row = self._get_row(project_id, run_id)
+        try:
+            return self._stored_context(row)
+        except (json.JSONDecodeError, TypeError, ValueError) as error:
+            raise ProjectError(
+                "storage_corrupt", "Clipen 無法讀取剪輯計畫輸入。", status_code=500
+            ) from error
+
+    def get_run(self, project_id: str, run_id: str) -> PlanningRun:
+        return self._run(self._get_row(project_id, run_id))
+
+    def latest_run(self, project_id: str) -> PlanningRun | None:
+        validate_project_id(project_id)
+        with self.projects.connect(project_id) as database:
+            row = database.execute(
+                "SELECT * FROM planning_runs ORDER BY created_at DESC, rowid DESC LIMIT 1"
+            ).fetchone()
+        return None if row is None else self._run(row)
+
+    def mark_running(self, project_id: str, run_id: str) -> PlanningRun:
+        now = utc_now()
+        with self.projects.connect(project_id) as database:
+            database.execute("BEGIN IMMEDIATE")
+            row = self._get_row_in(database, run_id)
+            if row["state"] != PlanningRunState.QUEUED.value:
+                raise ProjectError(
+                    "planning_state_conflict",
+                    "這次剪輯計畫目前不能開始。",
+                    status_code=409,
+                )
+            database.execute(
+                "UPDATE planning_runs SET state='running', phase='provider', started_at=? "
+                "WHERE run_id=?",
+                (now, run_id),
+            )
+            updated = database.execute(
+                "SELECT * FROM planning_runs WHERE run_id=?", (run_id,)
+            ).fetchone()
+            database.commit()
+        return self._run(updated)
+
+    def publish(
+        self,
+        project_id: str,
+        run_id: str,
+        plan: PlanRevision,
+        usage: ProviderUsage | None,
+    ) -> PlanningRun:
+        if plan.project_id != project_id or plan.status is not PlanStatus.READY_FOR_REVIEW:
+            raise ValueError("published plan identity or status is invalid")
+        payload = json.dumps(
+            plan.to_payload(), ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        )
+        now = utc_now()
+        usage_json = (
+            None
+            if usage is None
+            else json.dumps(usage.to_dict(), separators=(",", ":"))
+        )
+        with self.projects.connect(project_id) as database:
+            try:
+                database.execute("BEGIN IMMEDIATE")
+                run = self._get_row_in(database, run_id)
+                if run["state"] != PlanningRunState.RUNNING.value:
+                    raise ProjectError(
+                        "planning_state_conflict",
+                        "這次剪輯計畫目前不能保存結果。",
+                        status_code=409,
+                    )
+                context = self._stored_context(run)
+                if (
+                    plan.material_snapshot_id != context.material_snapshot_id
+                    or plan.analysis_snapshot_id != context.analysis_snapshot_id
+                    or plan.system_skill_release != run["system_skill_release"]
+                ):
+                    raise ProjectError(
+                        "planning_snapshot_conflict",
+                        "剪輯計畫與輸入快照不一致。",
+                        status_code=409,
+                    )
+                database.execute(
+                    "INSERT INTO plan_revisions "
+                    "(plan_id, revision, project_id, status, content_hash, "
+                    "material_snapshot_id, analysis_snapshot_id, system_skill_release, "
+                    "payload_json, source_run_id, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        plan.plan_id,
+                        plan.revision,
+                        project_id,
+                        plan.status.value,
+                        plan.content_hash,
+                        plan.material_snapshot_id,
+                        plan.analysis_snapshot_id,
+                        plan.system_skill_release,
+                        payload,
+                        run_id,
+                        now,
+                    ),
+                )
+                database.execute(
+                    "INSERT INTO current_plan(slot, plan_id, revision) VALUES(1, ?, ?) "
+                    "ON CONFLICT(slot) DO UPDATE SET "
+                    "plan_id=excluded.plan_id, revision=excluded.revision",
+                    (plan.plan_id, plan.revision),
+                )
+                database.execute(
+                    "UPDATE planning_runs SET state='succeeded', phase='completed', "
+                    "plan_id=?, plan_revision=?, usage_json=?, error_code=NULL, completed_at=? "
+                    "WHERE run_id=?",
+                    (plan.plan_id, plan.revision, usage_json, now, run_id),
+                )
+                updated = database.execute(
+                    "SELECT * FROM planning_runs WHERE run_id=?", (run_id,)
+                ).fetchone()
+                database.commit()
+                return self._run(updated)
+            except ProjectError:
+                database.rollback()
+                raise
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
+                database.rollback()
+                raise ProjectError(
+                    "storage_corrupt",
+                    "Clipen 無法讀取剪輯計畫輸入。",
+                    status_code=500,
+                ) from error
+            except sqlite3.Error as error:
+                database.rollback()
+                raise ProjectError(
+                    "storage_failed", "Clipen 無法保存剪輯計畫。", status_code=500
+                ) from error
+
+    def mark_terminal(
+        self,
+        project_id: str,
+        run_id: str,
+        state: PlanningRunState,
+        error_code: str,
+        usage: ProviderUsage | None = None,
+    ) -> PlanningRun:
+        if state not in {
+            PlanningRunState.FAILED,
+            PlanningRunState.CANCELLED,
+            PlanningRunState.INTERRUPTED,
+        }:
+            raise ValueError("planning terminal state is invalid")
+        now = utc_now()
+        require_identifier(error_code, "error_code")
+        usage_json = (
+            None
+            if usage is None
+            else json.dumps(usage.to_dict(), separators=(",", ":"))
+        )
+        with self.projects.connect(project_id) as database:
+            database.execute("BEGIN IMMEDIATE")
+            existing = self._get_row_in(database, run_id)
+            if existing["state"] not in {
+                PlanningRunState.QUEUED.value,
+                PlanningRunState.RUNNING.value,
+            }:
+                raise ProjectError(
+                    "planning_state_conflict",
+                    "這次剪輯計畫已經結束。",
+                    status_code=409,
+                )
+            database.execute(
+                "UPDATE planning_runs SET state=?, phase='terminal', usage_json=?, "
+                "error_code=?, completed_at=? WHERE run_id=?",
+                (state.value, usage_json, error_code, now, run_id),
+            )
+            updated = database.execute(
+                "SELECT * FROM planning_runs WHERE run_id=?", (run_id,)
+            ).fetchone()
+            database.commit()
+        return self._run(updated)
+
+    def current_plan(self, project_id: str) -> PlanRevision | None:
+        validate_project_id(project_id)
+        with self.projects.connect(project_id) as database:
+            row = database.execute(
+                "SELECT revisions.payload_json FROM current_plan AS current "
+                "JOIN plan_revisions AS revisions ON revisions.plan_id=current.plan_id "
+                "AND revisions.revision=current.revision WHERE current.slot=1"
+            ).fetchone()
+        if row is None:
+            return None
+        try:
+            return PlanRevision.from_payload(json.loads(row["payload_json"]))
+        except (json.JSONDecodeError, TypeError, ValueError) as error:
+            raise ProjectError(
+                "storage_corrupt", "Clipen 無法讀取剪輯計畫。", status_code=500
+            ) from error
+
+    def interrupt_incomplete(self, project_id: str) -> int:
+        validate_project_id(project_id)
+        with self.projects.connect(project_id) as database:
+            cursor = database.execute(
+                "UPDATE planning_runs SET state='interrupted', phase='terminal', "
+                "error_code='controller_stopped', completed_at=? "
+                "WHERE state IN ('queued','running')",
+                (utc_now(),),
+            )
+            return cursor.rowcount
+
+    def _get_row(self, project_id: str, run_id: str):
+        validate_project_id(project_id)
+        if not isinstance(run_id, str) or _RUN_ID.fullmatch(run_id) is None:
+            raise ProjectError("planning_not_found", "找不到這次剪輯計畫。", status_code=404)
+        with self.projects.connect(project_id) as database:
+            return self._get_row_in(database, run_id)
+
+    @staticmethod
+    def _get_row_in(database: sqlite3.Connection, run_id: str):
+        if not isinstance(run_id, str) or _RUN_ID.fullmatch(run_id) is None:
+            raise ProjectError("planning_not_found", "找不到這次剪輯計畫。", status_code=404)
+        row = database.execute(
+            "SELECT * FROM planning_runs WHERE run_id=?", (run_id,)
+        ).fetchone()
+        if row is None:
+            raise ProjectError("planning_not_found", "找不到這次剪輯計畫。", status_code=404)
+        return row
+
+    @staticmethod
+    def _run(row) -> PlanningRun:
+        try:
+            usage = (
+                None
+                if row["usage_json"] is None
+                else ProviderUsage.from_dict(json.loads(row["usage_json"]))
+            )
+            return PlanningRun(
+                row["run_id"],
+                row["project_id"],
+                row["project_revision"],
+                row["editing_skill_id"],
+                row["system_skill_release"],
+                row["context_hash"],
+                row["estimated_input_tokens"],
+                PlanningRunState(row["state"]),
+                row["phase"],
+                row["plan_id"],
+                row["plan_revision"],
+                usage,
+                row["error_code"],
+                row["created_at"],
+                row["started_at"],
+                row["completed_at"],
+            )
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
+            raise ProjectError(
+                "storage_corrupt", "Clipen 無法讀取剪輯計畫狀態。", status_code=500
+            ) from error
+
+    @staticmethod
+    def _stored_context(row) -> PlanningContext:
+        context = PlanningContext.from_storage(json.loads(row["context_json"]))
+        if context.content_hash != row["context_hash"]:
+            raise ValueError("planning context hash mismatch")
+        return context

@@ -189,6 +189,100 @@ class PlanRevision:
             status,
         )
 
+    @classmethod
+    def from_payload(cls, value: object) -> "PlanRevision":
+        if not isinstance(value, dict) or set(value) != {
+            "schema_version",
+            "plan_id",
+            "project_id",
+            "revision",
+            "status",
+            "content_hash",
+            "material_snapshot_id",
+            "analysis_snapshot_id",
+            "system_skill_release",
+            "title",
+            "summary",
+            "sections",
+        } or value["schema_version"] != 1:
+            raise ValueError("stored plan revision is invalid")
+        raw_sections = value["sections"]
+        if not isinstance(raw_sections, list):
+            raise ValueError("stored plan sections are invalid")
+        for field in (
+            "plan_id",
+            "project_id",
+            "status",
+            "content_hash",
+            "material_snapshot_id",
+            "analysis_snapshot_id",
+            "system_skill_release",
+            "title",
+            "summary",
+        ):
+            if not isinstance(value[field], str):
+                raise ValueError(f"stored plan {field} is invalid")
+        sections = []
+        for raw in raw_sections:
+            if not isinstance(raw, dict) or set(raw) != {
+                "section_id",
+                "title",
+                "purpose",
+                "source_ranges",
+                "edit_notes",
+                "unknowns",
+            }:
+                raise ValueError("stored plan section is invalid")
+            raw_ranges = raw["source_ranges"]
+            unknowns = raw["unknowns"]
+            if not isinstance(raw_ranges, list) or not isinstance(unknowns, list):
+                raise ValueError("stored plan section collections are invalid")
+            for field in ("section_id", "title", "purpose", "edit_notes"):
+                if not isinstance(raw[field], str):
+                    raise ValueError(f"stored plan section {field} is invalid")
+            if any(not isinstance(item, str) for item in unknowns):
+                raise ValueError("stored plan section unknown is invalid")
+            ranges = []
+            for item in raw_ranges:
+                if (
+                    not isinstance(item, dict)
+                    or "candidate_id" not in item
+                    or not isinstance(item["candidate_id"], str)
+                ):
+                    raise ValueError("stored plan source range is invalid")
+                source_payload = {
+                    key: child for key, child in item.items() if key != "candidate_id"
+                }
+                ranges.append(
+                    PlanSourceRange(
+                        item["candidate_id"],
+                        SourceSpan.from_storage(source_payload),
+                    )
+                )
+            sections.append(
+                PlanSection(
+                    raw["section_id"],
+                    raw["title"],
+                    raw["purpose"],
+                    tuple(ranges),
+                    raw["edit_notes"],
+                    tuple(unknowns),
+                )
+            )
+        return cls(
+            value["plan_id"],
+            value["project_id"],
+            value["revision"],
+            value["content_hash"],
+            value["material_snapshot_id"],
+            value["analysis_snapshot_id"],
+            value["system_skill_release"],
+            value["title"],
+            value["summary"],
+            tuple(sections),
+            PlanStatus(value["status"]),
+        )
+
     def transition(self, target: PlanStatus) -> "PlanRevision":
         if not isinstance(target, PlanStatus):
             raise InvalidTransition("plan target status is invalid")

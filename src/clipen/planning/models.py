@@ -74,6 +74,51 @@ class PlanningCandidate:
             },
         }
 
+    def to_storage(self) -> dict[str, object]:
+        return {
+            "candidate_id": self.candidate_id,
+            "source": self.source.to_storage(),
+            "display_name": self.display_name,
+            "media_kind": self.media_kind,
+            "evidence_summary": self.evidence_summary,
+            "transcript_reliability": self.transcript_reliability.value,
+            "transcript_excerpt": self.transcript_excerpt,
+        }
+
+    @classmethod
+    def from_storage(cls, value: object) -> "PlanningCandidate":
+        if not isinstance(value, dict) or set(value) != {
+            "candidate_id",
+            "source",
+            "display_name",
+            "media_kind",
+            "evidence_summary",
+            "transcript_reliability",
+            "transcript_excerpt",
+        }:
+            raise ValueError("stored planning candidate is invalid")
+        excerpt = value["transcript_excerpt"]
+        if excerpt is not None and not isinstance(excerpt, str):
+            raise ValueError("stored planning transcript excerpt is invalid")
+        for field in (
+            "candidate_id",
+            "display_name",
+            "media_kind",
+            "evidence_summary",
+            "transcript_reliability",
+        ):
+            if not isinstance(value[field], str):
+                raise ValueError(f"stored planning candidate {field} is invalid")
+        return cls(
+            value["candidate_id"],
+            SourceSpan.from_storage(value["source"]),
+            value["display_name"],
+            value["media_kind"],
+            value["evidence_summary"],
+            TranscriptReliability(value["transcript_reliability"]),
+            excerpt,
+        )
+
 
 @dataclass(frozen=True)
 class PlanningContext:
@@ -129,6 +174,58 @@ class PlanningContext:
             sort_keys=True,
             separators=(",", ":"),
         ).encode("utf-8")
+
+    def to_storage(self) -> dict[str, object]:
+        return {
+            "project_id": self.project_id,
+            "brief": self.brief,
+            "material_snapshot_id": self.material_snapshot_id,
+            "analysis_snapshot_id": self.analysis_snapshot_id,
+            "candidates": [candidate.to_storage() for candidate in self.candidates],
+            "reference_notes": list(self.reference_notes),
+            "limitations": list(self.limitations),
+        }
+
+    @classmethod
+    def from_storage(cls, value: object) -> "PlanningContext":
+        if not isinstance(value, dict) or set(value) != {
+            "project_id",
+            "brief",
+            "material_snapshot_id",
+            "analysis_snapshot_id",
+            "candidates",
+            "reference_notes",
+            "limitations",
+        }:
+            raise ValueError("stored planning context is invalid")
+        candidates = value["candidates"]
+        notes = value["reference_notes"]
+        limitations = value["limitations"]
+        if (
+            not isinstance(candidates, list)
+            or not isinstance(notes, list)
+            or not isinstance(limitations, list)
+        ):
+            raise ValueError("stored planning context collections are invalid")
+        for field in (
+            "project_id",
+            "brief",
+            "material_snapshot_id",
+            "analysis_snapshot_id",
+        ):
+            if not isinstance(value[field], str):
+                raise ValueError(f"stored planning context {field} is invalid")
+        if any(not isinstance(item, str) for item in (*notes, *limitations)):
+            raise ValueError("stored planning context text is invalid")
+        return cls(
+            value["project_id"],
+            value["brief"],
+            value["material_snapshot_id"],
+            value["analysis_snapshot_id"],
+            tuple(PlanningCandidate.from_storage(item) for item in candidates),
+            tuple(notes),
+            tuple(limitations),
+        )
 
     @property
     def content_hash(self) -> str:
