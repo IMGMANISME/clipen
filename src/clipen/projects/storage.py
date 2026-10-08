@@ -25,9 +25,10 @@ from .models import (
     validate_revision,
 )
 from .evidence_schema import EVIDENCE_SCHEMA, OBSERVATION_SCHEMA
+from .validation_schema import VALIDATION_WORKFLOW_SCHEMA
 
 
-_SCHEMA_VERSION = 7
+_SCHEMA_VERSION = 8
 _PROJECT_DIRECTORY = re.compile(r"prj_[0-9a-f]{32}\Z")
 
 _INVENTORY_SCHEMA = """
@@ -615,8 +616,9 @@ class ProjectRepository:
                 + _ANALYSIS_SCHEMA
                 + EVIDENCE_SCHEMA
                 + OBSERVATION_SCHEMA
+                + VALIDATION_WORKFLOW_SCHEMA
                 + """
-                PRAGMA user_version = 7;
+                PRAGMA user_version = 8;
                 """
             )
             connection.execute(
@@ -685,6 +687,9 @@ class ProjectRepository:
             if version == 6:
                 self._migrate_v6_to_v7(connection)
                 version = 7
+            if version == 7:
+                self._migrate_v7_to_v8(connection)
+                version = 8
             if version != _SCHEMA_VERSION:
                 connection.close()
                 raise ProjectError(
@@ -737,6 +742,66 @@ class ProjectRepository:
             "BEGIN IMMEDIATE;\n"
             + migration_sql
             + "\nPRAGMA user_version = 7;\nCOMMIT;"
+        )
+
+    @staticmethod
+    def _migrate_v7_to_v8(connection: sqlite3.Connection) -> None:
+        """Create or verify the validation workflow after an interrupted migration."""
+
+        expected_columns = {
+            "timeline_validation_reports": (
+                "report_id",
+                "project_id",
+                "timeline_id",
+                "capability_profile_id",
+                "capability_content_hash",
+                "report_digest",
+                "status",
+                "report_json",
+                "created_at",
+            ),
+            "current_timeline_validation": ("slot", "report_id"),
+            "timeline_warning_acceptances": (
+                "request_id",
+                "report_id",
+                "report_digest",
+                "request_hash",
+                "accepted_at",
+            ),
+        }
+        observed = {
+            row["name"]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' "
+                "AND name IN (?, ?, ?)",
+                tuple(expected_columns),
+            )
+        }
+        if observed and observed != set(expected_columns):
+            raise sqlite3.DatabaseError("incomplete validation workflow schema")
+        if observed:
+            for table, expected in expected_columns.items():
+                columns = tuple(
+                    row["name"]
+                    for row in connection.execute(f"PRAGMA table_info({table})")
+                )
+                if columns != expected:
+                    raise sqlite3.DatabaseError("unexpected validation workflow schema")
+            indexes = {
+                row["name"]
+                for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'index'"
+                )
+            }
+            if "timeline_validation_reports_project_created" not in indexes:
+                raise sqlite3.DatabaseError("incomplete validation workflow indexes")
+            migration_sql = ""
+        else:
+            migration_sql = VALIDATION_WORKFLOW_SCHEMA
+        connection.executescript(
+            "BEGIN IMMEDIATE;\n"
+            + migration_sql
+            + "\nPRAGMA user_version = 8;\nCOMMIT;"
         )
 
     @staticmethod

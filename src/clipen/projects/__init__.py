@@ -10,6 +10,7 @@ from .models import (
 from .storage import ProjectRepository, command_digest
 from .picker import MacOSDirectoryPicker, NativeDirectoryPicker, SelectionAuthority
 from .service import ProjectWorkspace
+from .validation_workflow import TimelineValidationRepository, TimelineValidationState
 
 __all__ = [
     "DirectoryAvailability",
@@ -23,4 +24,6 @@ __all__ = [
     "NativeDirectoryPicker",
     "SelectionAuthority",
     "command_digest",
+    "TimelineValidationRepository",
+    "TimelineValidationState",
 ]
