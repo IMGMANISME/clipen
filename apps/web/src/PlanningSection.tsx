@@ -286,13 +286,14 @@ export function PlanningSection({ project, csrf, projectDirty, onStatus }: Props
           </div>
           <dl className="planning-estimate">
             <div><dt>候選片段</dt><dd>{status.preflight.candidate_count.toLocaleString()} 段</dd></div>
-            <div><dt>預估 AI 輸入</dt><dd>{formatTokens(status.preflight.estimated_input_tokens)}</dd></div>
+            <div><dt>素材摘要量</dt><dd>{formatTokens(status.preflight.estimated_input_tokens)}</dd></div>
             <div><dt>AI 呼叫</dt><dd>1 次 Codex</dd></div>
           </dl>
           <div className="planning-privacy">
             <strong>這次不會傳送</strong>
             <span>毛片檔案、硬碟路徑、未核對逐字稿、系統 Skill 原文到 UI</span>
           </div>
+          <p className="planning-estimate-note">開始時會再加上所選系統規則估算完整 input；完成後以 Provider 記錄的實際 usage 為準。</p>
           {projectDirty && <p className="planning-save-first">請先保存上方的作品名稱與剪輯需求，再產生計畫。</p>}
           <label className="consent-check">
             <input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} />

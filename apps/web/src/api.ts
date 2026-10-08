@@ -329,9 +329,6 @@ export type PlanningStatus = {
     candidate_count: number
     estimated_input_tokens: number
     context_hash: string
-    material_snapshot_id: string
-    analysis_snapshot_id: string
-    system_skill_release: string
     candidates: PlanningCandidate[]
   } | null
   latest_run: PlanningRun | null

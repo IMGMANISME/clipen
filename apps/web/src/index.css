@@ -452,6 +452,7 @@ input:focus, textarea:focus { border-color: #6c8b73; box-shadow: 0 0 0 3px rgba(
 .planning-estimate dd { margin: 0; color: #38433a; font-size: 12px; font-weight: 740; }
 .planning-privacy { display: flex; align-items: baseline; gap: 10px; margin-top: 12px; color: #53665a; font-size: 10px; line-height: 1.5; }
 .planning-privacy strong { flex: 0 0 auto; color: #315740; }
+.planning-estimate-note { margin: 7px 0 0; color: #7a8078; font-size: 9px; line-height: 1.5; }
 .planning-save-first { margin: 12px 0 0; color: #87513f; font-size: 11px; }
 .consent-check { display: flex; align-items: flex-start; gap: 9px; margin: 17px 0 14px; color: #434a43; font-size: 11px; line-height: 1.55; cursor: pointer; }
 .consent-check input { flex: 0 0 auto; margin-top: 2px; accent-color: var(--green); }

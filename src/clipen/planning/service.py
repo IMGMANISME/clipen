@@ -94,9 +94,6 @@ class PlanningService:
             "candidate_count": len(context.candidates),
             "estimated_input_tokens": context.estimated_input_tokens,
             "context_hash": context.content_hash,
-            "material_snapshot_id": context.material_snapshot_id,
-            "analysis_snapshot_id": context.analysis_snapshot_id,
-            "system_skill_release": self.system_skills.release_id,
             "latest_run": None if latest is None else latest.to_public(),
             "current_plan": None if current is None else self._public_plan(current),
         }
@@ -127,9 +124,6 @@ class PlanningService:
             "candidate_count": len(context.candidates),
             "estimated_input_tokens": context.estimated_input_tokens,
             "context_hash": context.content_hash,
-            "material_snapshot_id": context.material_snapshot_id,
-            "analysis_snapshot_id": context.analysis_snapshot_id,
-            "system_skill_release": self.system_skills.release_id,
             "candidates": [candidate.to_provider() for candidate in context.candidates],
         }
         return result
@@ -186,6 +180,16 @@ class PlanningService:
                 "素材分析已更新，請確認新的 AI 工作量後再開始。",
                 status_code=409,
             )
+        try:
+            core, preset = self.system_skills.attempt_snapshot(editing_skill_id)
+        except SystemSkillVerificationError as error:
+            raise ProjectError(
+                "system_skill_changed",
+                "系統剪輯規則已改變，請重新啟動 Clipen。",
+                status_code=409,
+            ) from error
+        complete_prompt = self._prompt(core, preset, context.to_provider())
+        estimated_input_tokens = (len(complete_prompt.encode("utf-8")) + 2) // 3
         with self._lock:
             if self._closed or self._queue.full():
                 raise ProjectError(
@@ -198,6 +202,7 @@ class PlanningService:
                 editing_skill_id,
                 self.system_skills.release_id,
                 context,
+                estimated_input_tokens,
             )
             if not created:
                 return run
@@ -399,7 +404,7 @@ class PlanningService:
         for skill in (core_skill, editing_skill):
             for line in skill.splitlines():
                 normalized = " ".join(line.split())
-                if len(normalized) >= 48 and normalized in output:
+                if len(normalized) >= 32 and normalized in output:
                     raise ProviderProtocolError(
                         "provider output disclosed internal system Skill content"
                     )
