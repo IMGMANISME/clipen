@@ -8,6 +8,7 @@ import json
 import re
 import sqlite3
 import uuid
+from collections.abc import Mapping
 
 from clipen.domain import PlanRevision, PlanStatus
 from clipen.domain.validation import require_identifier
@@ -21,6 +22,7 @@ from clipen.projects.storage import ProjectRepository, command_digest, utc_now
 from clipen.providers.recovery import ProviderUsage
 
 from .models import PlanningContext
+from .proposal import PlanProposalError, resolve_plan_proposal
 
 
 _RUN_ID = re.compile(r"planrun_[0-9a-f]{32}\Z")
@@ -400,6 +402,213 @@ class PlanningRepository:
                 "storage_corrupt", "Clipen 無法讀取剪輯計畫。", status_code=500
             ) from error
 
+    def update_plan(
+        self,
+        project_id: str,
+        request_id: object,
+        expected_plan_id: str,
+        expected_revision: object,
+        editable: Mapping[str, object],
+    ) -> tuple[PlanRevision, bool]:
+        """Create a revision using only candidates from the original run context."""
+
+        validate_project_id(project_id)
+        normalized_request = validate_request_id(request_id)
+        require_identifier(expected_plan_id, "expected_plan_id")
+        revision = validate_revision(expected_revision)
+        if not isinstance(editable, Mapping):
+            raise ProjectError(
+                "plan_content_invalid", "剪輯計畫內容格式無效。", status_code=422
+            )
+        request_hash = command_digest(
+            {
+                "plan_id": expected_plan_id,
+                "revision": revision,
+                "editable": editable,
+            }
+        )
+        try:
+            with self.projects.connect(project_id) as database:
+                database.execute("BEGIN IMMEDIATE")
+                replay = self._command_replay(
+                    database, normalized_request, "update_plan", request_hash
+                )
+                if replay is not None:
+                    database.rollback()
+                    return replay, False
+                current_row = self._current_plan_row(database)
+                current = PlanRevision.from_payload(
+                    json.loads(current_row["payload_json"])
+                )
+                if current.plan_id != expected_plan_id or current.revision != revision:
+                    raise ProjectError(
+                        "plan_revision_conflict",
+                        "剪輯計畫已更新，請重新整理後再修改。",
+                        status_code=409,
+                    )
+                if current.status not in {
+                    PlanStatus.READY_FOR_REVIEW,
+                    PlanStatus.CONFIRMED,
+                }:
+                    raise ProjectError(
+                        "plan_not_editable",
+                        "這個剪輯計畫目前不能修改。",
+                        status_code=409,
+                    )
+                source_run_id = current_row["source_run_id"]
+                if source_run_id is None:
+                    raise ValueError("plan source run is missing")
+                context = self._stored_context(
+                    self._get_row_in(database, source_run_id)
+                )
+                updated = resolve_plan_proposal(
+                    editable,
+                    context,
+                    plan_id=current.plan_id,
+                    revision=current.revision + 1,
+                    system_skill_release=current.system_skill_release,
+                )
+                if updated.content_hash == current.content_hash:
+                    raise ProjectError(
+                        "plan_unchanged",
+                        "剪輯計畫沒有需要儲存的變更。",
+                        status_code=409,
+                    )
+                superseded = current.transition(PlanStatus.SUPERSEDED)
+                database.execute(
+                    "UPDATE plan_revisions SET status=?, payload_json=? "
+                    "WHERE plan_id=? AND revision=?",
+                    (
+                        superseded.status.value,
+                        self._encoded_plan(superseded),
+                        current.plan_id,
+                        current.revision,
+                    ),
+                )
+                now = utc_now()
+                database.execute(
+                    "INSERT INTO plan_revisions "
+                    "(plan_id, revision, project_id, status, content_hash, "
+                    "material_snapshot_id, analysis_snapshot_id, system_skill_release, "
+                    "payload_json, source_run_id, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        updated.plan_id,
+                        updated.revision,
+                        project_id,
+                        updated.status.value,
+                        updated.content_hash,
+                        updated.material_snapshot_id,
+                        updated.analysis_snapshot_id,
+                        updated.system_skill_release,
+                        self._encoded_plan(updated),
+                        source_run_id,
+                        now,
+                    ),
+                )
+                database.execute(
+                    "UPDATE current_plan SET revision=? WHERE slot=1",
+                    (updated.revision,),
+                )
+                self._save_command_receipt(
+                    database,
+                    normalized_request,
+                    "update_plan",
+                    request_hash,
+                    updated,
+                    now,
+                )
+                database.commit()
+                return updated, True
+        except ProjectError:
+            raise
+        except PlanProposalError as error:
+            raise ProjectError(
+                "plan_content_invalid",
+                "剪輯計畫引用了無效或重複的素材片段。",
+                status_code=422,
+            ) from error
+        except (json.JSONDecodeError, TypeError, ValueError) as error:
+            raise ProjectError(
+                "storage_corrupt", "Clipen 無法讀取剪輯計畫。", status_code=500
+            ) from error
+        except sqlite3.Error as error:
+            raise ProjectError(
+                "storage_failed", "Clipen 無法儲存剪輯計畫。", status_code=500
+            ) from error
+
+    def confirm_plan(
+        self,
+        project_id: str,
+        request_id: object,
+        expected_plan_id: str,
+        expected_revision: object,
+    ) -> tuple[PlanRevision, bool]:
+        validate_project_id(project_id)
+        normalized_request = validate_request_id(request_id)
+        require_identifier(expected_plan_id, "expected_plan_id")
+        revision = validate_revision(expected_revision)
+        request_hash = command_digest(
+            {"plan_id": expected_plan_id, "revision": revision}
+        )
+        try:
+            with self.projects.connect(project_id) as database:
+                database.execute("BEGIN IMMEDIATE")
+                replay = self._command_replay(
+                    database, normalized_request, "confirm_plan", request_hash
+                )
+                if replay is not None:
+                    database.rollback()
+                    return replay, False
+                current_row = self._current_plan_row(database)
+                current = PlanRevision.from_payload(
+                    json.loads(current_row["payload_json"])
+                )
+                if current.plan_id != expected_plan_id or current.revision != revision:
+                    raise ProjectError(
+                        "plan_revision_conflict",
+                        "剪輯計畫已更新，請重新整理後再確認。",
+                        status_code=409,
+                    )
+                if current.status is not PlanStatus.READY_FOR_REVIEW:
+                    raise ProjectError(
+                        "plan_not_confirmable",
+                        "這個剪輯計畫目前不能確認。",
+                        status_code=409,
+                    )
+                confirmed = current.transition(PlanStatus.CONFIRMED)
+                now = utc_now()
+                database.execute(
+                    "UPDATE plan_revisions SET status=?, payload_json=? "
+                    "WHERE plan_id=? AND revision=?",
+                    (
+                        confirmed.status.value,
+                        self._encoded_plan(confirmed),
+                        confirmed.plan_id,
+                        confirmed.revision,
+                    ),
+                )
+                self._save_command_receipt(
+                    database,
+                    normalized_request,
+                    "confirm_plan",
+                    request_hash,
+                    confirmed,
+                    now,
+                )
+                database.commit()
+                return confirmed, True
+        except ProjectError:
+            raise
+        except (json.JSONDecodeError, TypeError, ValueError) as error:
+            raise ProjectError(
+                "storage_corrupt", "Clipen 無法讀取剪輯計畫。", status_code=500
+            ) from error
+        except sqlite3.Error as error:
+            raise ProjectError(
+                "storage_failed", "Clipen 無法確認剪輯計畫。", status_code=500
+            ) from error
+
     def interrupt_incomplete(self, project_id: str) -> int:
         validate_project_id(project_id)
         with self.projects.connect(project_id) as database:
@@ -410,6 +619,72 @@ class PlanningRepository:
                 (utc_now(),),
             )
             return cursor.rowcount
+
+    @staticmethod
+    def _encoded_plan(plan: PlanRevision) -> str:
+        return json.dumps(
+            plan.to_payload(),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+
+    @staticmethod
+    def _current_plan_row(database: sqlite3.Connection):
+        row = database.execute(
+            "SELECT revisions.* FROM current_plan AS current "
+            "JOIN plan_revisions AS revisions ON revisions.plan_id=current.plan_id "
+            "AND revisions.revision=current.revision WHERE current.slot=1"
+        ).fetchone()
+        if row is None:
+            raise ProjectError(
+                "plan_not_found", "尚未建立可編輯的剪輯計畫。", status_code=404
+            )
+        return row
+
+    @staticmethod
+    def _command_replay(
+        database: sqlite3.Connection,
+        request_id: str,
+        command_type: str,
+        request_hash: str,
+    ) -> PlanRevision | None:
+        row = database.execute(
+            "SELECT command_type, request_hash, response_json "
+            "FROM plan_command_receipts WHERE request_id=?",
+            (request_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        if row["command_type"] != command_type or row["request_hash"] != request_hash:
+            raise ProjectError(
+                "request_conflict",
+                "這次剪輯計畫操作與既有內容衝突。",
+                status_code=409,
+            )
+        return PlanRevision.from_payload(json.loads(row["response_json"]))
+
+    @staticmethod
+    def _save_command_receipt(
+        database: sqlite3.Connection,
+        request_id: str,
+        command_type: str,
+        request_hash: str,
+        plan: PlanRevision,
+        created_at: str,
+    ) -> None:
+        database.execute(
+            "INSERT INTO plan_command_receipts "
+            "(request_id, command_type, request_hash, response_json, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (
+                request_id,
+                command_type,
+                request_hash,
+                PlanningRepository._encoded_plan(plan),
+                created_at,
+            ),
+        )
 
     def _get_row(self, project_id: str, run_id: str):
         validate_project_id(project_id)
