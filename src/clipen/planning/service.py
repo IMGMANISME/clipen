@@ -101,6 +101,64 @@ class PlanningService:
             "current_plan": None if current is None else self._public_plan(current),
         }
 
+    def status(self, project_id: str) -> dict[str, object]:
+        latest = self.repository.latest_run(project_id)
+        current = self.repository.current_plan(project_id)
+        result: dict[str, object] = {
+            "blocked_reason": None,
+            "preflight": None,
+            "latest_run": None if latest is None else latest.to_public(),
+            "current_plan": None if current is None else self._public_plan(current),
+        }
+        try:
+            context = self.context_builder.build(project_id)
+        except ProjectError as error:
+            if error.code not in {
+                "planning_brief_required",
+                "planning_inventory_required",
+                "planning_evidence_required",
+                "planning_scope_too_large",
+                "planning_candidates_empty",
+            }:
+                raise
+            result["blocked_reason"] = error.code
+            return result
+        result["preflight"] = {
+            "candidate_count": len(context.candidates),
+            "estimated_input_tokens": context.estimated_input_tokens,
+            "context_hash": context.content_hash,
+            "material_snapshot_id": context.material_snapshot_id,
+            "analysis_snapshot_id": context.analysis_snapshot_id,
+            "system_skill_release": self.system_skills.release_id,
+            "candidates": [candidate.to_provider() for candidate in context.candidates],
+        }
+        return result
+
+    def update_plan(
+        self,
+        project_id: str,
+        request_id: object,
+        plan_id: str,
+        revision: object,
+        editable: dict[str, object],
+    ) -> dict[str, object]:
+        plan, created = self.repository.update_plan(
+            project_id, request_id, plan_id, revision, editable
+        )
+        return {"plan": self._public_plan(plan), "created": created}
+
+    def confirm_plan(
+        self,
+        project_id: str,
+        request_id: object,
+        plan_id: str,
+        revision: object,
+    ) -> dict[str, object]:
+        plan, changed = self.repository.confirm_plan(
+            project_id, request_id, plan_id, revision
+        )
+        return {"plan": self._public_plan(plan), "changed": changed}
+
     def start(
         self,
         project_id: str,
