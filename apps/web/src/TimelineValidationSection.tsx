@@ -77,7 +77,7 @@ export function TimelineValidationSection({ projectId, csrf }: Props) {
     <section className="timeline-validation-section" aria-labelledby="timeline-validation-title">
       <div className="analysis-heading">
         <div>
-          <p className="eyebrow">03 · 計畫</p>
+          <p className="eyebrow">04 · 剪輯</p>
           <h2 id="timeline-validation-title">剪輯執行檢查</h2>
           <p>Clipen 會在動到素材前，確認剪輯內容、來源與 DaVinci Resolve 可編輯輸出能力是否一致。</p>
         </div>
