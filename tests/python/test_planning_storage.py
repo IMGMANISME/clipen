@@ -92,6 +92,30 @@ class PlanningRepositoryTests(unittest.TestCase):
             status=status,
         )
 
+    @staticmethod
+    def editable(summary: str = "改成較精簡的旅程順序。") -> dict[str, object]:
+        return {
+            "schema_version": 1,
+            "title": "東京旅行初剪",
+            "summary": summary,
+            "sections": [
+                {
+                    "section_id": "section-001",
+                    "title": "抵達",
+                    "purpose": "建立旅程起點。",
+                    "candidate_ids": ["candidate-001"],
+                    "edit_notes": "保留環境聲。",
+                    "unknowns": ["地點需確認"],
+                }
+            ],
+        }
+
+    def publish_plan(self) -> PlanRevision:
+        run, _ = self.create_run()
+        self.planning.mark_running(self.project.project_id, run.run_id)
+        self.planning.publish(self.project.project_id, run.run_id, self.plan(), None)
+        return self.plan()
+
     def test_create_is_idempotent_and_rejects_conflict_or_parallel_run(self) -> None:
         created, is_new = self.create_run()
         replay, replay_is_new = self.create_run()
@@ -199,6 +223,106 @@ class PlanningRepositoryTests(unittest.TestCase):
         self.assertEqual(cancelled.state, PlanningRunState.CANCELLED)
         replay = self.planning.request_cancel(self.project.project_id, run.run_id)
         self.assertEqual(replay, cancelled)
+
+    def test_edit_creates_revision_supersedes_old_and_requires_reconfirmation(self) -> None:
+        original = self.publish_plan()
+        confirmed, _ = self.planning.confirm_plan(
+            self.project.project_id,
+            "request-confirm-original-plan",
+            original.plan_id,
+            original.revision,
+        )
+        self.assertEqual(confirmed.status, PlanStatus.CONFIRMED)
+
+        updated, created = self.planning.update_plan(
+            self.project.project_id,
+            "request-update-confirmed-plan",
+            confirmed.plan_id,
+            confirmed.revision,
+            self.editable(),
+        )
+        self.assertTrue(created)
+        self.assertEqual(updated.revision, 2)
+        self.assertEqual(updated.status, PlanStatus.READY_FOR_REVIEW)
+        self.assertFalse(updated.can_execute)
+        with self.projects.connect(self.project.project_id) as database:
+            old = database.execute(
+                "SELECT status, payload_json FROM plan_revisions "
+                "WHERE plan_id=? AND revision=1",
+                (original.plan_id,),
+            ).fetchone()
+        self.assertEqual(old["status"], PlanStatus.SUPERSEDED.value)
+        self.assertEqual(
+            PlanRevision.from_payload(json.loads(old["payload_json"])).status,
+            PlanStatus.SUPERSEDED,
+        )
+
+        replay, replay_created = self.planning.update_plan(
+            self.project.project_id,
+            "request-update-confirmed-plan",
+            confirmed.plan_id,
+            confirmed.revision,
+            self.editable(),
+        )
+        self.assertFalse(replay_created)
+        self.assertEqual(replay, updated)
+        self.assertEqual(
+            self.planning.current_plan(self.project.project_id), updated
+        )
+
+    def test_confirm_is_idempotent_and_rejects_stale_revision(self) -> None:
+        original = self.publish_plan()
+        confirmed, changed = self.planning.confirm_plan(
+            self.project.project_id,
+            "request-confirm-plan",
+            original.plan_id,
+            original.revision,
+        )
+        self.assertTrue(changed)
+        self.assertTrue(confirmed.can_execute)
+        replay, replay_changed = self.planning.confirm_plan(
+            self.project.project_id,
+            "request-confirm-plan",
+            original.plan_id,
+            original.revision,
+        )
+        self.assertFalse(replay_changed)
+        self.assertEqual(replay, confirmed)
+        with self.assertRaises(ProjectError) as stale:
+            self.planning.confirm_plan(
+                self.project.project_id,
+                "request-confirm-stale-plan",
+                original.plan_id,
+                original.revision + 1,
+            )
+        self.assertEqual(stale.exception.code, "plan_revision_conflict")
+
+    def test_invalid_or_unchanged_edit_leaves_current_revision_intact(self) -> None:
+        original = self.publish_plan()
+        invalid = self.editable()
+        invalid["sections"][0]["candidate_ids"] = ["candidate-unknown"]
+        with self.assertRaises(ProjectError) as rejected:
+            self.planning.update_plan(
+                self.project.project_id,
+                "request-update-invalid-plan",
+                original.plan_id,
+                original.revision,
+                invalid,
+            )
+        self.assertEqual(rejected.exception.code, "plan_content_invalid")
+        self.assertEqual(self.planning.current_plan(self.project.project_id), original)
+
+        unchanged = self.editable(original.summary)
+        with self.assertRaises(ProjectError) as no_change:
+            self.planning.update_plan(
+                self.project.project_id,
+                "request-update-unchanged-plan",
+                original.plan_id,
+                original.revision,
+                unchanged,
+            )
+        self.assertEqual(no_change.exception.code, "plan_unchanged")
+        self.assertEqual(self.planning.current_plan(self.project.project_id), original)
 
 
 if __name__ == "__main__":
