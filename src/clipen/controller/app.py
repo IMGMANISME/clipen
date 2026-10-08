@@ -29,7 +29,12 @@ from clipen.analysis import (
 )
 from clipen.analysis.evidence_service import EvidenceService
 from clipen.media import InventoryCoordinator
-from clipen.projects import DirectoryRole, ProjectError, ProjectWorkspace
+from clipen.projects import (
+    DirectoryRole,
+    ProjectError,
+    ProjectWorkspace,
+    TimelineValidationRepository,
+)
 from clipen.system_skills import SystemSkillSummary
 
 
@@ -248,8 +253,11 @@ def create_app(
     preparation_repository: PreparationRepository | None = None,
     analysis_runtime: ManagedAnalysisRuntime | None = None,
     evidence_service: EvidenceService | None = None,
+    timeline_validations: TimelineValidationRepository | None = None,
 ) -> ASGIApp:
     static_root = config.static_root.resolve(strict=True)
+    if timeline_validations is None and workspace is not None:
+        timeline_validations = TimelineValidationRepository(workspace.repository)
 
     async def health(_: Request) -> Response:
         return JSONResponse({"status": "ok"})
@@ -393,6 +401,15 @@ def create_app(
             )
         return analysis_runtime
 
+    def require_timeline_validations() -> TimelineValidationRepository:
+        if timeline_validations is None:
+            raise ProjectError(
+                "timeline_validation_unavailable",
+                "Clipen 剪輯檢查尚未準備完成。",
+                status_code=503,
+            )
+        return timeline_validations
+
     def require_fields(
         payload: dict[str, object], required: set[str], optional: set[str] | None = None
     ) -> None:
@@ -533,6 +550,30 @@ def create_app(
                 parse_role(payload["role"]),
             )
             return JSONResponse({"project": project.to_public()})
+        except ProjectError as error:
+            return await project_error_response(error)
+
+    async def timeline_validation_status(request: Request) -> Response:
+        try:
+            state = await run_in_threadpool(
+                require_timeline_validations().get_state,
+                request.path_params["project_id"],
+            )
+            return JSONResponse(state.to_public())
+        except ProjectError as error:
+            return await project_error_response(error)
+
+    async def accept_timeline_warnings(request: Request) -> Response:
+        try:
+            payload = await read_json(request)
+            require_fields(payload, {"request_id", "report_id"})
+            state = await run_in_threadpool(
+                require_timeline_validations().accept_current_warnings,
+                request.path_params["project_id"],
+                payload["request_id"],
+                payload["report_id"],
+            )
+            return JSONResponse(state.to_public())
         except ProjectError as error:
             return await project_error_response(error)
 
@@ -882,6 +923,16 @@ def create_app(
             Route(
                 "/api/projects/{project_id}/commands/remove-directory",
                 remove_directory,
+                methods=["POST"],
+            ),
+            Route(
+                "/api/projects/{project_id}/timeline-validation",
+                timeline_validation_status,
+                methods=["GET"],
+            ),
+            Route(
+                "/api/projects/{project_id}/timeline-validation/commands/accept-warnings",
+                accept_timeline_warnings,
                 methods=["POST"],
             ),
             Route(

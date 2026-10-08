@@ -21,6 +21,8 @@ from clipen.media import (
     MediaStream,
 )
 from clipen.projects import DirectoryRole, NativeDirectoryPicker, ProjectWorkspace
+from clipen.projects import TimelineValidationRepository
+from clipen.domain import ValidationIssue, ValidationReport, ValidationSeverity
 
 
 class FakePicker(NativeDirectoryPicker):
@@ -199,6 +201,9 @@ class ProjectApiTests(unittest.TestCase):
         )
         self.preparation_repository = PreparationRepository(self.workspace.repository)
         self.preparations = ApiPreparationCoordinator(self.preparation_repository)
+        self.timeline_validations = TimelineValidationRepository(
+            self.workspace.repository
+        )
         self.app = create_app(
             ControllerConfig(self.static),
             ProviderStatus("Codex", ProviderState.READY, "AI 已連接"),
@@ -430,6 +435,65 @@ class ProjectApiTests(unittest.TestCase):
             )
         )
         self.assertEqual(too_large[0], 413)
+
+    def test_timeline_validation_status_and_warning_acceptance(self) -> None:
+        project = self.create_project()
+        path = f"/api/projects/{project['project_id']}/timeline-validation"
+        status, _, body = self._request("GET", path, headers={"cookie": self.cookie})
+        self.assertEqual(status, 200)
+        self.assertEqual(self.json_body(body)["state"], "not_ready")
+
+        report = ValidationReport(
+            "report_api_warning",
+            "timeline_api_primary",
+            "capability_api_resolve",
+            "b" * 64,
+            (
+                ValidationIssue(
+                    "effect.preview_only",
+                    ValidationSeverity.WARNING,
+                    "/tracks/0/items/0",
+                    "這個效果需要確認。",
+                    "播放預覽後再繼續。",
+                    "clip_api_title",
+                ),
+            ),
+        )
+        self.timeline_validations.publish(project["project_id"], report)
+        status, _, body = self._request("GET", path, headers={"cookie": self.cookie})
+        payload = self.json_body(body)
+        self.assertEqual(payload["state"], "needs_confirmation")
+        self.assertFalse(payload["can_execute"])
+
+        command_path = path + "/commands/accept-warnings"
+        rejected = self._request(
+            "POST",
+            command_path,
+            {"request_id": "request-api-accept-warning", "report_id": report.report_id},
+            headers={
+                "origin": "http://localhost:4200",
+                "sec-fetch-site": "same-origin",
+                "content-type": "application/json",
+                "cookie": self.cookie,
+            },
+        )
+        self.assertEqual(rejected[0], 403)
+
+        accepted = self._request(
+            "POST",
+            command_path,
+            {"request_id": "request-api-accept-warning", "report_id": report.report_id},
+            headers=self.mutation_headers(),
+        )
+        replay = self._request(
+            "POST",
+            command_path,
+            {"request_id": "request-api-accept-warning", "report_id": report.report_id},
+            headers=self.mutation_headers(),
+        )
+        self.assertEqual(accepted[0], 200)
+        self.assertEqual(accepted[2], replay[2])
+        self.assertTrue(self.json_body(accepted[2])["can_execute"])
 
     def test_inventory_api_starts_polls_and_lists_sanitized_results(self) -> None:
         project = self.save_source(self.create_project())
