@@ -13,6 +13,8 @@ from clipen.domain import (
     GraphicClip,
     MediaClip,
     PlanRevision,
+    PlanSection,
+    PlanSourceRange,
     PlanStatus,
     Rational,
     SourceSpan,
@@ -64,15 +66,35 @@ class TimelineValidatorTests(unittest.TestCase):
         )
 
     def plan(self, *, status: PlanStatus = PlanStatus.CONFIRMED) -> PlanRevision:
-        return PlanRevision(
-            "plan-1",
-            "project-1",
-            1,
-            "a" * 64,
-            "materials-1",
-            "analysis-1",
-            "skills-1",
-            status,
+        return PlanRevision.create(
+            plan_id="plan-1",
+            project_id="project-1",
+            revision=1,
+            material_snapshot_id="materials-1",
+            analysis_snapshot_id="analysis-1",
+            system_skill_release="skills-1",
+            title="測試剪輯計畫",
+            summary="用於驗證 timeline gate。",
+            sections=(
+                PlanSection(
+                    "section-1",
+                    "主要內容",
+                    "保留測試來源。",
+                    (
+                        PlanSourceRange(
+                            "candidate-1",
+                            SourceSpan(
+                                "av_" + "a" * 32,
+                                0,
+                                "0",
+                                "180000",
+                                Rational(1, 90000),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+            status=status,
         )
 
     def media(
@@ -106,12 +128,13 @@ class TimelineValidatorTests(unittest.TestCase):
         return Track(f"{kind.value}-1", kind, (clip,))
 
     def timeline(self, *, effect: EffectRequest | None = None) -> EditTimeline:
+        plan = self.plan()
         return EditTimeline(
             "timeline-1",
             "project-1",
             "plan-1",
             1,
-            "a" * 64,
+            plan.content_hash,
             Rational(30, 1),
             1920,
             1080,
@@ -254,6 +277,7 @@ class TimelineValidatorTests(unittest.TestCase):
         )
 
     def test_large_timeline_validation_remains_linear_and_bounded(self) -> None:
+        plan = self.plan()
         version_id = "av_" + "a" * 32
         source = ClipSource(
             SourceSpan(version_id, 0, "0", "3000", Rational(1, 90_000))
@@ -282,7 +306,7 @@ class TimelineValidatorTests(unittest.TestCase):
             "project-1",
             "plan-1",
             1,
-            "a" * 64,
+            plan.content_hash,
             Rational(30, 1),
             1920,
             1080,
