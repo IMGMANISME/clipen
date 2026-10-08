@@ -421,6 +421,24 @@ input:focus, textarea:focus { border-color: #6c8b73; box-shadow: 0 0 0 3px rgba(
 .inventory-outcome small { display: block; margin-top: 7px; color: #77736a; font-size: 11px; }
 
 .analysis-section { margin-top: 38px; padding-top: 38px; border-top: 1px solid var(--line); }
+.timeline-validation-section { margin-top: 38px; padding-top: 38px; border-top: 1px solid var(--line); }
+.validation-card { display: flex; align-items: flex-start; gap: 15px; margin-top: 18px; padding: 20px; border: 1px solid #d4d8d1; border-radius: 14px; background: rgba(248, 248, 244, .88); }
+.validation-card > .button { flex: 0 0 auto; align-self: center; }
+.validation-symbol { display: grid; flex: 0 0 auto; width: 28px; height: 28px; place-items: center; border-radius: 50%; color: #5e665f; background: #e3e6df; font-size: 12px; font-weight: 800; }
+.validation-content { flex: 1; min-width: 0; }
+.validation-content > strong { display: block; margin: 3px 0 5px; font-size: 14px; }
+.validation-content > p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.validation-card.state-ready { border-color: #afc4b3; background: #edf4ea; }
+.validation-card.state-ready .validation-symbol { color: #315740; background: #d9e9d9; }
+.validation-card.state-needs_confirmation { border-color: #d5c8ad; background: #f4ecda; }
+.validation-card.state-needs_confirmation .validation-symbol { color: #775d27; background: #eadbb7; }
+.validation-card.state-blocked { border-color: #dec2bd; background: #f5e6e2; }
+.validation-card.state-blocked .validation-symbol { color: var(--error); background: #eccfca; }
+.validation-issues { display: grid; gap: 8px; margin: 16px 0 0; padding: 0; list-style: none; }
+.validation-issues li { padding: 11px 13px; border: 1px solid rgba(75, 70, 55, .13); border-radius: 9px; background: rgba(255, 255, 252, .6); }
+.validation-issues strong, .validation-issues span { display: block; font-size: 11px; line-height: 1.5; }
+.validation-issues span { margin-top: 3px; color: #73766f; }
+.validation-content .validation-overflow { margin-top: 12px; font-size: 10px; }
 .analysis-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 34px; }
 .analysis-heading h2 { margin-bottom: 8px; font-size: 23px; letter-spacing: -.03em; }
 .analysis-heading > div > p:last-child { max-width: 620px; margin-bottom: 0; color: var(--muted); font-size: 13px; line-height: 1.65; }
