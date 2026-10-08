@@ -86,6 +86,7 @@ class PlanningRepository:
         editing_skill_id: str,
         system_skill_release: str,
         context: PlanningContext,
+        estimated_input_tokens: int | None = None,
     ) -> tuple[PlanningRun, bool]:
         validate_project_id(project_id)
         normalized_request = validate_request_id(request_id)
@@ -94,12 +95,20 @@ class PlanningRepository:
         require_identifier(system_skill_release, "system_skill_release")
         if context.project_id != project_id:
             raise ValueError("planning context belongs to another project")
+        estimate = (
+            context.estimated_input_tokens
+            if estimated_input_tokens is None
+            else estimated_input_tokens
+        )
+        if isinstance(estimate, bool) or not isinstance(estimate, int) or estimate < 1:
+            raise ValueError("planning token estimate is invalid")
         command_hash = command_digest(
             {
                 "project_revision": revision,
                 "editing_skill_id": editing_skill_id,
                 "system_skill_release": system_skill_release,
                 "context_hash": context.content_hash,
+                "estimated_input_tokens": estimate,
             }
         )
         run_id = "planrun_" + uuid.uuid4().hex
@@ -124,6 +133,7 @@ class PlanningRepository:
                             "editing_skill_id": existing["editing_skill_id"],
                             "system_skill_release": existing["system_skill_release"],
                             "context_hash": existing["context_hash"],
+                            "estimated_input_tokens": existing["estimated_input_tokens"],
                         }
                     )
                     if stored_hash != command_hash:
@@ -164,7 +174,7 @@ class PlanningRepository:
                         system_skill_release,
                         context.content_hash,
                         encoded_context,
-                        context.estimated_input_tokens,
+                        estimate,
                         now,
                     ),
                 )

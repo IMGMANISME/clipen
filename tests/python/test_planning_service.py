@@ -146,6 +146,7 @@ class PlanningServiceTests(unittest.TestCase):
         self.assertEqual(preflight["candidate_count"], 1)
         self.assertGreater(preflight["estimated_input_tokens"], 0)
         run = self.start()
+        self.assertGreater(run.estimated_input_tokens, self.context.estimated_input_tokens)
         completed = self.wait(run.run_id)
         self.assertEqual(completed.state, PlanningRunState.SUCCEEDED)
         self.assertEqual(completed.usage, ProviderUsage(600, 100, 80))
@@ -222,9 +223,10 @@ class PlanningServiceTests(unittest.TestCase):
                 raise SystemSkillVerificationError("changed")
 
         self.service.system_skills = ChangedSkills()
-        run = self.start()
-        failed = self.wait(run.run_id)
-        self.assertEqual(failed.error_code, "system_skill_changed")
+        with self.assertRaises(ProjectError) as changed:
+            self.start()
+        self.assertEqual(changed.exception.code, "system_skill_changed")
+        self.assertIsNone(self.repository.latest_run(self.project.project_id))
         self.assertEqual(FakeProvider.calls, [])
 
     def test_recovery_interrupts_without_replaying_provider(self) -> None:
