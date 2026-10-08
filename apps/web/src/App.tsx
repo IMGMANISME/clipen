@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { EvidenceSection } from './EvidenceSection'
 import { TranscriptResults } from './TranscriptResults'
+import { TimelineValidationSection } from './TimelineValidationSection'
 import type { FormEvent } from 'react'
 import {
   ApiError,
@@ -1014,14 +1015,18 @@ function MaterialsWorkspace({
                 className={
                   index === 0
                     ? currentInventoryId ? 'completed' : 'active'
-                    : index === 1 && currentInventoryId ? 'active' : 'locked'
+                    : index === 1
+                      ? visibleAnalysis?.current ? 'completed' : currentInventoryId ? 'active' : 'locked'
+                      : index === 2 && visibleAnalysis?.current ? 'active' : 'locked'
                 }
               >
                 <span>{String(index + 1).padStart(2, '0')}</span>
                 <div>
                   <strong>{stage}</strong>
                   {index === 0 && currentInventoryId && <small>已檢查</small>}
-                  {index > 1 && <small>尚未開放</small>}
+                  {index === 1 && visibleAnalysis?.current && <small>已分析</small>}
+                  {index === 2 && visibleAnalysis?.current && <small>尚待產生計畫</small>}
+                  {index > 2 && <small>尚未開放</small>}
                 </div>
               </li>
             ))}
@@ -1117,6 +1122,9 @@ function MaterialsWorkspace({
               onResume={(run) => void continueAnalysis(run)}
               onRemoveRuntime={() => void removeLocalASR()}
             />
+          )}
+          {visibleAnalysis?.current && (
+            <TimelineValidationSection projectId={project.project_id} csrf={csrf} />
           )}
         </section>
       </div>

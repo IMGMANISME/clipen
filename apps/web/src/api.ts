@@ -242,6 +242,34 @@ export type TranscriptPage = {
   next_offset: number | null
 }
 
+export type TimelineValidationIssue = {
+  rule_id: string
+  severity: 'warning' | 'blocking'
+  location: string
+  item_id: string | null
+  message: string
+  suggestion: string
+  evidence_refs: string[]
+}
+
+export type TimelineValidationReport = {
+  schema_version: 1
+  report_id: string
+  timeline_id: string
+  capability_profile_id: string
+  capability_content_hash: string
+  status: 'pass' | 'warning' | 'blocking'
+  issues: TimelineValidationIssue[]
+}
+
+export type TimelineValidationState = {
+  state: 'not_ready' | 'ready' | 'needs_confirmation' | 'blocked'
+  can_execute: boolean
+  report: TimelineValidationReport | null
+  warnings_accepted: boolean
+  accepted_at: string | null
+}
+
 export class ApiError extends Error {
   code: string
   status: number
@@ -429,6 +457,26 @@ export async function cancelInventory(
 
 export async function getAnalysis(projectId: string): Promise<AnalysisSummary> {
   return request<AnalysisSummary>(`/api/projects/${projectId}/analysis`)
+}
+
+export async function getTimelineValidation(
+  projectId: string,
+): Promise<TimelineValidationState> {
+  return request<TimelineValidationState>(
+    `/api/projects/${projectId}/timeline-validation`,
+  )
+}
+
+export async function acceptTimelineWarnings(
+  csrf: string,
+  projectId: string,
+  reportId: string,
+): Promise<TimelineValidationState> {
+  return command<TimelineValidationState>(
+    `/api/projects/${projectId}/timeline-validation/commands/accept-warnings`,
+    csrf,
+    { request_id: crypto.randomUUID(), report_id: reportId },
+  )
 }
 
 export async function getAnalysisResults(
