@@ -193,6 +193,13 @@ class PlanningRepositoryTests(unittest.TestCase):
         )
         self.assertEqual(self.planning.interrupt_incomplete(self.project.project_id), 0)
 
+    def test_cancel_is_immediate_for_queued_and_idempotent_for_terminal(self) -> None:
+        run, _ = self.create_run()
+        cancelled = self.planning.request_cancel(self.project.project_id, run.run_id)
+        self.assertEqual(cancelled.state, PlanningRunState.CANCELLED)
+        replay = self.planning.request_cancel(self.project.project_id, run.run_id)
+        self.assertEqual(replay, cancelled)
+
 
 if __name__ == "__main__":
     unittest.main()

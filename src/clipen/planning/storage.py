@@ -220,6 +220,33 @@ class PlanningRepository:
             database.commit()
         return self._run(updated)
 
+    def request_cancel(self, project_id: str, run_id: str) -> PlanningRun:
+        """Cancel queued work immediately; running work stops through its token."""
+
+        with self.projects.connect(project_id) as database:
+            database.execute("BEGIN IMMEDIATE")
+            existing = self._get_row_in(database, run_id)
+            if existing["state"] == PlanningRunState.QUEUED.value:
+                now = utc_now()
+                database.execute(
+                    "UPDATE planning_runs SET state='cancelled', phase='terminal', "
+                    "error_code='user_cancelled', completed_at=? WHERE run_id=?",
+                    (now, run_id),
+                )
+                existing = database.execute(
+                    "SELECT * FROM planning_runs WHERE run_id=?", (run_id,)
+                ).fetchone()
+            elif existing["state"] == PlanningRunState.RUNNING.value:
+                database.execute(
+                    "UPDATE planning_runs SET phase='cancelling' WHERE run_id=?",
+                    (run_id,),
+                )
+                existing = database.execute(
+                    "SELECT * FROM planning_runs WHERE run_id=?", (run_id,)
+                ).fetchone()
+            database.commit()
+        return self._run(existing)
+
     def publish(
         self,
         project_id: str,

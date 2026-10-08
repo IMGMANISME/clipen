@@ -24,6 +24,10 @@ def resolve_plan_proposal(
     """Bind candidate IDs to exact spans without trusting provider timestamps."""
 
     try:
+        if set(payload) != {"schema_version", "title", "summary", "sections"}:
+            raise TypeError("proposal fields are invalid")
+        if payload["schema_version"] != 1:
+            raise TypeError("proposal schema version is invalid")
         title = payload["title"]
         summary = payload["summary"]
         raw_sections = payload["sections"]
@@ -35,12 +39,24 @@ def resolve_plan_proposal(
         used: set[str] = set()
         sections: list[PlanSection] = []
         for raw in raw_sections:
-            if not isinstance(raw, dict):
+            if not isinstance(raw, dict) or set(raw) != {
+                "section_id",
+                "title",
+                "purpose",
+                "candidate_ids",
+                "edit_notes",
+                "unknowns",
+            }:
                 raise TypeError("proposal section is invalid")
             candidate_ids = raw["candidate_ids"]
             unknowns = raw["unknowns"]
             if not isinstance(candidate_ids, list) or not isinstance(unknowns, list):
                 raise TypeError("proposal section lists are invalid")
+            for field in ("section_id", "title", "purpose", "edit_notes"):
+                if not isinstance(raw[field], str):
+                    raise TypeError("proposal section text is invalid")
+            if any(not isinstance(value, str) for value in unknowns):
+                raise TypeError("proposal section unknown is invalid")
             ranges = []
             for candidate_id in candidate_ids:
                 if not isinstance(candidate_id, str) or candidate_id not in available:
@@ -51,12 +67,12 @@ def resolve_plan_proposal(
                 ranges.append(PlanSourceRange(candidate_id, available[candidate_id].source))
             sections.append(
                 PlanSection(
-                    str(raw["section_id"]),
-                    str(raw["title"]),
-                    str(raw["purpose"]),
+                    raw["section_id"],
+                    raw["title"],
+                    raw["purpose"],
                     tuple(ranges),
-                    str(raw["edit_notes"]),
-                    tuple(str(value) for value in unknowns),
+                    raw["edit_notes"],
+                    tuple(unknowns),
                 )
             )
         return PlanRevision.create(
