@@ -82,6 +82,7 @@ class PlanningContext:
     material_snapshot_id: str
     analysis_snapshot_id: str
     candidates: tuple[PlanningCandidate, ...]
+    reference_notes: tuple[str, ...] = ()
     limitations: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
@@ -89,6 +90,7 @@ class PlanningContext:
             require_identifier(getattr(self, field), field)
         _bounded_text(self.brief, "planning brief", 8_000)
         candidates = tuple(self.candidates)
+        reference_notes = tuple(self.reference_notes)
         limitations = tuple(self.limitations)
         if not candidates or len(candidates) > _MAX_CANDIDATES:
             raise ValueError("planning candidates are empty or exceed the bound")
@@ -99,9 +101,14 @@ class PlanningContext:
             raise ValueError("planning candidate IDs must be unique")
         if len(limitations) > 128:
             raise ValueError("planning context has too many limitations")
+        if len(reference_notes) > 32:
+            raise ValueError("planning context has too many reference notes")
+        for note in reference_notes:
+            _bounded_text(note, "planning reference note", 1_000)
         for limitation in limitations:
             _bounded_text(limitation, "planning limitation", 500)
         object.__setattr__(self, "candidates", candidates)
+        object.__setattr__(self, "reference_notes", reference_notes)
         object.__setattr__(self, "limitations", limitations)
         if len(self.encoded()) > _MAX_CONTEXT_BYTES:
             raise ValueError("planning context exceeds the provider input bound")
@@ -111,6 +118,7 @@ class PlanningContext:
             "schema_version": 1,
             "brief": self.brief,
             "candidates": [candidate.to_provider() for candidate in self.candidates],
+            "reference_notes": list(self.reference_notes),
             "limitations": list(self.limitations),
         }
 
