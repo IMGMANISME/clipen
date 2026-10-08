@@ -288,6 +288,42 @@ class PlanningRepository:
                         "剪輯計畫與輸入快照不一致。",
                         status_code=409,
                     )
+                previous_row = database.execute(
+                    "SELECT revisions.* FROM current_plan AS current "
+                    "JOIN plan_revisions AS revisions "
+                    "ON revisions.plan_id=current.plan_id "
+                    "AND revisions.revision=current.revision WHERE current.slot=1"
+                ).fetchone()
+                if previous_row is not None:
+                    previous = PlanRevision.from_payload(
+                        json.loads(previous_row["payload_json"])
+                    )
+                    if previous.status in {
+                        PlanStatus.READY_FOR_REVIEW,
+                        PlanStatus.CONFIRMED,
+                    }:
+                        previous = previous.transition(PlanStatus.SUPERSEDED)
+                        database.execute(
+                            "UPDATE plan_revisions SET status=?, payload_json=? "
+                            "WHERE plan_id=? AND revision=?",
+                            (
+                                previous.status.value,
+                                self._encoded_plan(previous),
+                                previous.plan_id,
+                                previous.revision,
+                            ),
+                        )
+                    elif previous.status in {
+                        PlanStatus.EXECUTING,
+                        PlanStatus.REVIEWED,
+                    }:
+                        raise ProjectError(
+                            "planning_execution_active",
+                            "目前的剪輯版本仍在執行或檢查，不能取代計畫。",
+                            status_code=409,
+                        )
+                    elif previous.status is PlanStatus.SUPERSEDED:
+                        raise ValueError("current plan is already superseded")
                 database.execute(
                     "INSERT INTO plan_revisions "
                     "(plan_id, revision, project_id, status, content_hash, "

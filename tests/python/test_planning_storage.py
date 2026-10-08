@@ -69,9 +69,13 @@ class PlanningRepositoryTests(unittest.TestCase):
             self.context,
         )
 
-    def plan(self, status: PlanStatus = PlanStatus.READY_FOR_REVIEW) -> PlanRevision:
+    def plan(
+        self,
+        status: PlanStatus = PlanStatus.READY_FOR_REVIEW,
+        plan_id: str = "plan-" + "d" * 32,
+    ) -> PlanRevision:
         return PlanRevision.create(
-            plan_id="plan-" + "d" * 32,
+            plan_id=plan_id,
             project_id=self.project.project_id,
             revision=1,
             material_snapshot_id=self.context.material_snapshot_id,
@@ -199,6 +203,26 @@ class PlanningRepositoryTests(unittest.TestCase):
                 self.project.project_id, run.run_id, self.plan(), None
             )
         self.assertEqual(corrupt.exception.code, "storage_corrupt")
+
+    def test_regeneration_supersedes_the_previous_editable_plan(self) -> None:
+        first = self.publish_plan()
+        second_run, _ = self.create_run("request-planning-regenerate")
+        self.planning.mark_running(self.project.project_id, second_run.run_id)
+        second = self.plan(plan_id="plan-" + "e" * 32)
+        self.planning.publish(
+            self.project.project_id, second_run.run_id, second, None
+        )
+        self.assertEqual(self.planning.current_plan(self.project.project_id), second)
+        with self.projects.connect(self.project.project_id) as database:
+            old_payload = database.execute(
+                "SELECT payload_json FROM plan_revisions "
+                "WHERE plan_id=? AND revision=?",
+                (first.plan_id, first.revision),
+            ).fetchone()[0]
+        self.assertEqual(
+            PlanRevision.from_payload(json.loads(old_payload)).status,
+            PlanStatus.SUPERSEDED,
+        )
 
     def test_interrupt_only_changes_incomplete_runs(self) -> None:
         first, _ = self.create_run()

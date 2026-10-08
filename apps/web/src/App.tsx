@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { EvidenceSection } from './EvidenceSection'
 import { TranscriptResults } from './TranscriptResults'
 import { TimelineValidationSection } from './TimelineValidationSection'
+import { PlanningSection } from './PlanningSection'
 import type { FormEvent } from 'react'
 import {
   ApiError,
@@ -35,6 +36,7 @@ import type {
   AnalysisRun,
   AnalysisSummary,
   Project,
+  PlanningStatus,
   ProviderState,
   StatusPayload,
 } from './api'
@@ -709,6 +711,7 @@ function MaterialsWorkspace({
   const [inventoryActionBusy, setInventoryActionBusy] = useState(false)
   const [analysis, setAnalysis] = useState<AnalysisSummary | null>(null)
   const [analysisActionBusy, setAnalysisActionBusy] = useState(false)
+  const [planning, setPlanning] = useState<PlanningStatus | null>(null)
 
   const source = project.directories.find((directory) => directory.role === 'source')
   const reference = project.directories.find((directory) => directory.role === 'reference')
@@ -1016,17 +1019,27 @@ function MaterialsWorkspace({
                   index === 0
                     ? currentInventoryId ? 'completed' : 'active'
                     : index === 1
-                      ? visibleAnalysis?.current ? 'completed' : currentInventoryId ? 'active' : 'locked'
-                      : index === 2 && visibleAnalysis?.current ? 'active' : 'locked'
+                      ? planning?.preflight || planning?.current_plan
+                        ? 'completed'
+                        : currentInventoryId ? 'active' : 'locked'
+                      : index === 2
+                        ? planning?.current_plan?.status === 'confirmed'
+                          ? 'completed'
+                          : planning?.preflight || planning?.current_plan ? 'active' : 'locked'
+                        : index === 3 && planning?.current_plan?.status === 'confirmed'
+                          ? 'active'
+                          : 'locked'
                 }
               >
                 <span>{String(index + 1).padStart(2, '0')}</span>
                 <div>
                   <strong>{stage}</strong>
                   {index === 0 && currentInventoryId && <small>已檢查</small>}
-                  {index === 1 && visibleAnalysis?.current && <small>已分析</small>}
-                  {index === 2 && visibleAnalysis?.current && <small>尚待產生計畫</small>}
-                  {index > 2 && <small>尚未開放</small>}
+                  {index === 1 && (planning?.preflight || planning?.current_plan) && <small>已準備</small>}
+                  {index === 2 && planning?.current_plan?.status === 'confirmed' && <small>已確認</small>}
+                  {index === 2 && planning?.current_plan?.status !== 'confirmed' && currentInventoryId && <small>{planning?.current_plan ? '待確認' : '尚待產生'}</small>}
+                  {index === 3 && planning?.current_plan?.status === 'confirmed' && <small>執行前檢查</small>}
+                  {index > 2 && !(index === 3 && planning?.current_plan?.status === 'confirmed') && <small>尚未開放</small>}
                 </div>
               </li>
             ))}
@@ -1123,7 +1136,15 @@ function MaterialsWorkspace({
               onRemoveRuntime={() => void removeLocalASR()}
             />
           )}
-          {visibleAnalysis?.current && (
+          {currentInventoryId && (
+            <PlanningSection
+              project={project}
+              csrf={csrf}
+              projectDirty={dirty}
+              onStatus={setPlanning}
+            />
+          )}
+          {planning?.current_plan?.status === 'confirmed' && (
             <TimelineValidationSection projectId={project.project_id} csrf={csrf} />
           )}
         </section>

@@ -270,6 +270,74 @@ export type TimelineValidationState = {
   accepted_at: string | null
 }
 
+export type SystemSkillSummary = {
+  id: string
+  name: string
+  purpose: string
+  adjustable_parameters: string[]
+}
+
+export type PlanningCandidate = {
+  candidate_id: string
+  display_name: string
+  media_kind: 'video' | 'audio'
+  duration_seconds: number
+  evidence_summary: string
+  transcript: {
+    reliability: 'trusted' | 'needs_review' | 'unavailable'
+    excerpt: string | null
+  }
+}
+
+export type EditablePlanSection = {
+  section_id: string
+  title: string
+  purpose: string
+  candidate_ids: string[]
+  edit_notes: string
+  unknowns: string[]
+}
+
+export type EditablePlan = {
+  plan_id: string
+  revision: number
+  status: 'ready_for_review' | 'confirmed' | 'superseded'
+  title: string
+  summary: string
+  sections: EditablePlanSection[]
+}
+
+export type PlanningRun = {
+  run_id: string
+  project_revision: number
+  editing_skill_id: string
+  estimated_input_tokens: number
+  state: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted'
+  phase: string
+  plan_id: string | null
+  plan_revision: number | null
+  usage: { input_tokens: number; cached_input_tokens: number; output_tokens: number } | null
+  error_code: string | null
+  created_at: string
+  started_at: string | null
+  completed_at: string | null
+}
+
+export type PlanningStatus = {
+  blocked_reason: string | null
+  preflight: {
+    candidate_count: number
+    estimated_input_tokens: number
+    context_hash: string
+    material_snapshot_id: string
+    analysis_snapshot_id: string
+    system_skill_release: string
+    candidates: PlanningCandidate[]
+  } | null
+  latest_run: PlanningRun | null
+  current_plan: EditablePlan | null
+}
+
 export class ApiError extends Error {
   code: string
   status: number
@@ -323,6 +391,91 @@ export async function connectLocalSession(): Promise<void> {
 
 export async function getStatus(): Promise<StatusPayload> {
   return request<StatusPayload>('/api/status')
+}
+
+export async function getSystemSkills(): Promise<SystemSkillSummary[]> {
+  return (await request<{ skills: SystemSkillSummary[] }>('/api/system-skills')).skills
+}
+
+export async function getPlanning(projectId: string): Promise<PlanningStatus> {
+  return request<PlanningStatus>(`/api/projects/${projectId}/planning`)
+}
+
+export async function startPlanning(
+  csrf: string,
+  project: Project,
+  editingSkillId: string,
+  contextHash: string,
+): Promise<PlanningRun> {
+  return (
+    await command<{ run: PlanningRun }>(
+      `/api/projects/${project.project_id}/planning/commands/start`,
+      csrf,
+      {
+        request_id: crypto.randomUUID(),
+        expected_revision: project.revision,
+        editing_skill_id: editingSkillId,
+        consent: true,
+        expected_context_hash: contextHash,
+      },
+    )
+  ).run
+}
+
+export async function cancelPlanning(
+  csrf: string,
+  projectId: string,
+  runId: string,
+): Promise<PlanningRun> {
+  return (
+    await command<{ run: PlanningRun }>(
+      `/api/projects/${projectId}/planning/${runId}/commands/cancel`,
+      csrf,
+      {},
+    )
+  ).run
+}
+
+export async function updatePlan(
+  csrf: string,
+  projectId: string,
+  plan: EditablePlan,
+): Promise<EditablePlan> {
+  return (
+    await command<{ plan: EditablePlan }>(
+      `/api/projects/${projectId}/plan/commands/update`,
+      csrf,
+      {
+        request_id: crypto.randomUUID(),
+        plan_id: plan.plan_id,
+        expected_revision: plan.revision,
+        plan: {
+          schema_version: 1,
+          title: plan.title,
+          summary: plan.summary,
+          sections: plan.sections,
+        },
+      },
+    )
+  ).plan
+}
+
+export async function confirmPlan(
+  csrf: string,
+  projectId: string,
+  plan: EditablePlan,
+): Promise<EditablePlan> {
+  return (
+    await command<{ plan: EditablePlan }>(
+      `/api/projects/${projectId}/plan/commands/confirm`,
+      csrf,
+      {
+        request_id: crypto.randomUUID(),
+        plan_id: plan.plan_id,
+        expected_revision: plan.revision,
+      },
+    )
+  ).plan
 }
 
 export async function listProjects(): Promise<Project[]> {
