@@ -73,6 +73,12 @@ class EvidenceExtractionTests(unittest.TestCase):
         self.assertLess(pts[-1], int(source.source_span.end_pts))
         scene = self.extractor.scenes(source, threading.Event())
         self.assertLessEqual(len(scene['candidate_pts']), 64)
+        self.assertEqual(
+            scene['candidate_pts'], [candidate['pts'] for candidate in scene['candidates']]
+        )
+        self.assertTrue(
+            all(0 <= candidate['score'] <= 1 for candidate in scene['candidates'])
+        )
         self.assertEqual(hashlib.sha256(self.source.read_bytes()).hexdigest(), original)
 
     def test_real_audio_energy_and_coverage_window(self):
@@ -111,6 +117,7 @@ class EvidenceExtractionTests(unittest.TestCase):
             os.close(fd)
         result = self.extractor.scenes(self.source_input('video'), threading.Event())
         self.assertEqual(result['candidate_pts'], [])
+        self.assertEqual(result['candidates'], [])
 
     def test_vfr_samples_use_actual_decoded_timestamps(self):
         vfr = self.root / 'vfr.mov'

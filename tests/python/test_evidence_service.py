@@ -99,6 +99,12 @@ class EvidenceServiceTests(unittest.TestCase):
         self.assertEqual(len(run['results']), 3)
         video = next(r for r in run['results'] if r['kind'] == 'video')
         self.assertEqual(len(video['frames']), 8)
+        self.assertEqual(video['keyframe_selection']['candidate_count'], 32)
+        self.assertEqual(video['keyframe_selection']['method'], 'adaptive_relevance_coverage_v1')
+        self.assertFalse(video['keyframe_selection']['semantic_relevance'])
+        self.assertTrue(
+            all(item['source'] == 'uniform' for item in video['keyframe_selection']['selected'])
+        )
         self.assertFalse(video['coverage']['complete'])
         audio = next(r for r in run['results'] if r['kind'] == 'audio')
         self.assertEqual(audio['coverage']['inspected'], [{'start_pts': '48000', 'end_pts': '96000'}])
@@ -173,6 +179,35 @@ class EvidenceServiceTests(unittest.TestCase):
         self.service.start(self.pid, 'evidence-request-2', scope['project_revision'], scope['scope_id'])
         second = self.wait()['latest']
         self.assertEqual(second['results'], first['results'])
+
+    def test_scene_scores_feed_adaptive_selection_without_extra_ai_calls(self):
+        class SceneExtractor(FakeExtractor):
+            def scenes(self, source, cancel):
+                span = source.source_span
+                start = int(span.start_pts)
+                duration = span.duration_pts
+                candidates = [
+                    {"pts": str(start + duration * numerator // 8), "score": score}
+                    for numerator, score in ((1, 0.8), (3, 0.7), (5, 0.9), (7, 0.85))
+                ]
+                return {
+                    "candidate_pts": [item["pts"] for item in candidates],
+                    "candidates": candidates,
+                    "maximum_window_seconds": 120,
+                    "candidate_limit_reached": False,
+                }
+
+        self.service.extractor_factory = SceneExtractor
+        self.start()
+        video = next(
+            result
+            for result in self.wait()["latest"]["results"]
+            if result["kind"] == "video"
+        )
+        selected = video["keyframe_selection"]["selected"]
+        self.assertGreater(video["keyframe_selection"]["candidate_count"], 32)
+        self.assertTrue(any(item["source"] == "scene" for item in selected))
+        self.assertEqual(FakeProvider.calls, [])
 
     def test_invalid_command_identity_and_start_idempotency(self):
         initial = self.start()['latest']['run_id']

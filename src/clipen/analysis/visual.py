@@ -85,15 +85,30 @@ class LocalEvidenceExtractor(FFmpegAudioAdapter):
                 self.executable, "-nostdin", "-hide_banner", "-loglevel", "info",
                 "-copyts", "-t", str(self.WINDOW_SECONDS), "-i", f"/dev/fd/{descriptor}", "-map", f"0:{source.stream_index}",
                 "-an", "-vf",
-                f"scale=160:-2,settb={tb.numerator}/{tb.denominator},trim=start_pts={span.start_pts}:end_pts={end_pts},select=gt(scene\\,0.35),showinfo",
+                f"scale=160:-2,settb={tb.numerator}/{tb.denominator},trim=start_pts={span.start_pts}:end_pts={end_pts},select=gt(scene\\,0.35),metadata=print:key=lavfi.scene_score,showinfo",
                 "-frames:v", "64", "-f", "null", "-",
             ), (descriptor,), cancel)
         if code:
             raise AudioPreparationError("scene_decode_failed")
-        points = sorted(set(int(p) for p in re.findall(rb"\bn:\s*\d+\s+pts:\s*(-?\d+)", stderr)))
+        metadata_points = [
+            int(point)
+            for point in re.findall(rb"\bframe:\d+\s+pts:\s*(-?\d+)", stderr)
+        ]
+        scores = [
+            float(score)
+            for score in re.findall(rb"\blavfi\.scene_score=([0-9]+(?:\.[0-9]+)?)", stderr)
+        ]
+        if len(metadata_points) != len(scores):
+            raise AudioPreparationError("scene_score_parse_failed")
+        scored = {}
+        for point, score in zip(metadata_points, scores):
+            scored[point] = max(scored.get(point, 0.0), min(1.0, score))
+        points = sorted(scored)
         if any(not int(span.start_pts) <= p < int(span.end_pts) for p in points):
             raise AudioPreparationError("frame_time_mapping_invalid")
-        return {"candidate_pts": [str(p) for p in points], "threshold": 0.35,
+        return {"candidate_pts": [str(p) for p in points],
+                "candidates": [{"pts": str(point), "score": round(scored[point], 6)} for point in points],
+                "threshold": 0.35,
                 "maximum_window_seconds": self.WINDOW_SECONDS, "candidate_limit_reached": len(points) >= 64,
                 "method": "local_pixel_change_not_semantic_scene"}
 
