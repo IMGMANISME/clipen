@@ -23,6 +23,7 @@ from .models import (
     PreparationState,
     TimelineSegment,
 )
+from .keyframes import AdaptiveKeyframeSelector, KeyframeCandidate, KeyframeSelection
 from .storage import (
     PreparationChunk,
     PreparationRepository,
@@ -55,6 +56,7 @@ __all__ = [
     "ASRSetupStatus",
     "AudioPreparationError",
     "AudioPreparationInput",
+    "AdaptiveKeyframeSelector",
     "FFmpegAudioAdapter",
     "PCMChunker",
     "PreparedAudio",
@@ -77,6 +79,8 @@ __all__ = [
     "LocalModelSnapshot",
     "Qwen3ASRAdapter",
     "ManagedAnalysisRuntime",
+    "KeyframeCandidate",
+    "KeyframeSelection",
     "TranscriptSegment",
     "TranscriptWord",
     "TranscriptionError",
