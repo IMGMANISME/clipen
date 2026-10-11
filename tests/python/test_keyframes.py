@@ -34,11 +34,23 @@ class AdaptiveKeyframeSelectorTests(unittest.TestCase):
     def test_scene_candidates_are_preferred_without_destroying_coverage(self):
         candidates = list(self.selector.uniform(0, 800, 16))
         candidates.extend(
-            KeyframeCandidate(point, score, "scene")
+            KeyframeCandidate(point, score, "codec")
             for point, score in ((50, 0.4), (250, 0.8), (450, 0.7), (650, 0.9))
         )
         selection = self.selector.select(0, 800, candidates, 4)
         self.assertEqual([item.pts for item in selection.candidates], [50, 250, 450, 650])
+
+    def test_codec_complexity_never_collapses_whole_timeline_coverage(self):
+        candidates = list(self.selector.uniform(0, 2_000, 32))
+        candidates.extend(
+            KeyframeCandidate(point, 1.0, "codec")
+            for point in range(50, 1_000, 50)
+        )
+        selection = self.selector.select(0, 2_000, candidates, 8)
+        points = [item.pts for item in selection.candidates]
+        self.assertLess(points[0], 250)
+        self.assertGreater(points[-1], 1_750)
+        self.assertFalse(selection.semantic_relevance)
 
     def test_duplicate_pts_keep_the_more_informative_candidate(self):
         selection = self.selector.select(
@@ -46,20 +58,20 @@ class AdaptiveKeyframeSelectorTests(unittest.TestCase):
             100,
             (
                 KeyframeCandidate(50, 0.1, "uniform"),
-                KeyframeCandidate(50, 0.8, "scene"),
+                KeyframeCandidate(50, 0.8, "codec"),
             ),
             1,
         )
-        self.assertEqual(selection.candidates[0].source, "scene")
+        self.assertEqual(selection.candidates[0].source, "codec")
 
     def test_invalid_inputs_are_rejected(self):
         invalid = (
-            lambda: KeyframeCandidate(True, 0.5, "scene"),
-            lambda: KeyframeCandidate(1, float("nan"), "scene"),
+            lambda: KeyframeCandidate(True, 0.5, "codec"),
+            lambda: KeyframeCandidate(1, float("nan"), "codec"),
             lambda: KeyframeCandidate(1, 0.5, "other"),
             lambda: self.selector.select(10, 10, (), 1),
-            lambda: self.selector.select(0, 10, (KeyframeCandidate(10, 0.5, "scene"),), 1),
-            lambda: self.selector.select(0, 10, (KeyframeCandidate(1, 0.5, "scene"),), 0),
+            lambda: self.selector.select(0, 10, (KeyframeCandidate(10, 0.5, "codec"),), 1),
+            lambda: self.selector.select(0, 10, (KeyframeCandidate(1, 0.5, "codec"),), 0),
         )
         for operation in invalid:
             with self.subTest(operation=operation), self.assertRaises(ValueError):

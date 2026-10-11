@@ -32,8 +32,8 @@ class FakeExtractor:
         span = source.source_span
         return int(span.start_pts) + int(offset * span.time_base.denominator / span.time_base.numerator)
 
-    def scenes(self, source, cancel):
-        return {'candidate_pts': [], 'maximum_window_seconds': 120, 'candidate_limit_reached': False}
+    def keyframe_candidates(self, source, cancel):
+        return {'candidate_pts': [], 'probe_count': 32, 'probe_interval_seconds': 0.02, 'candidate_limit_reached': False}
 
     def audio_features(self, source, output, cancel):
         return {'sample_rate': 16000, 'windows': [{'start_sample': 0, 'end_sample': 16000, 'rms_dbfs': -120, 'peak': 0, 'low_energy': True}]}
@@ -182,7 +182,7 @@ class EvidenceServiceTests(unittest.TestCase):
 
     def test_scene_scores_feed_adaptive_selection_without_extra_ai_calls(self):
         class SceneExtractor(FakeExtractor):
-            def scenes(self, source, cancel):
+            def keyframe_candidates(self, source, cancel):
                 span = source.source_span
                 start = int(span.start_pts)
                 duration = span.duration_pts
@@ -193,7 +193,8 @@ class EvidenceServiceTests(unittest.TestCase):
                 return {
                     "candidate_pts": [item["pts"] for item in candidates],
                     "candidates": candidates,
-                    "maximum_window_seconds": 120,
+                    "probe_count": 32,
+                    "probe_interval_seconds": 0.02,
                     "candidate_limit_reached": False,
                 }
 
@@ -206,7 +207,7 @@ class EvidenceServiceTests(unittest.TestCase):
         )
         selected = video["keyframe_selection"]["selected"]
         self.assertGreater(video["keyframe_selection"]["candidate_count"], 32)
-        self.assertTrue(any(item["source"] == "scene" for item in selected))
+        self.assertTrue(any(item["source"] == "codec" for item in selected))
         self.assertEqual(FakeProvider.calls, [])
 
     def test_invalid_command_identity_and_start_idempotency(self):

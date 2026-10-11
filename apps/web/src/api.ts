@@ -735,7 +735,15 @@ export type EvidenceItem = {
   error_code: string | null; frames: EvidenceFrame[]
   source: { start_pts: string; end_pts: string; time_base: { num: number; den: number } } | null
   scene_error_code?: string
-  scene_fallback_code?: string
+  keyframe_fallback_code?: string
+  keyframe_candidates?: {
+    candidate_pts: string[]
+    candidates?: { pts: string; score: number }[]
+    probe_count: number
+    probe_interval_seconds: number
+    candidate_limit_reached: boolean
+  }
+  // Read-only compatibility for evidence created before adaptive keyframe sampling.
   scenes?: {
     candidate_pts: string[]
     candidates?: { pts: string; score: number }[]
@@ -747,7 +755,7 @@ export type EvidenceItem = {
     candidate_count: number
     semantic_relevance: boolean
     fallback_code?: string
-    selected: { pts: string; score: number; source: 'uniform' | 'scene' | 'semantic' }[]
+    selected: { pts: string; score: number; source: 'uniform' | 'codec' | 'semantic' }[]
   }
   coverage?: { complete: boolean; uncovered: { start_pts: string; end_pts: string }[] }
   audio_features?: { windows: { rms_dbfs: number; low_energy: boolean }[] }

@@ -8,6 +8,7 @@ import math
 import os
 from pathlib import Path
 import re
+import shutil
 import sys
 import threading
 import wave
@@ -15,6 +16,7 @@ import wave
 from clipen.media import bounded_file_fingerprint
 from clipen.media.discovery import open_file_beneath
 from .audio import AudioPreparationInput, AudioPreparationError, FFmpegAudioAdapter
+from .keyframes import AdaptiveKeyframeSelector
 
 
 @contextmanager
@@ -43,12 +45,16 @@ def verified_source(source: AudioPreparationInput):
 
 
 class LocalEvidenceExtractor(FFmpegAudioAdapter):
-    """At most eight 512px frames and a 120-second audio/scene window per stream."""
+    """Bounded sparse video evidence plus a 120-second audio window per stream."""
     MAX_FRAMES = 8
     WINDOW_SECONDS = 120
 
-    def __init__(self, executable: str | None = None):
+    def __init__(self, executable: str | None = None, probe_executable: str | None = None):
         super().__init__(executable, timeout_seconds=120, maximum_output_bytes=8 * 1024**2)
+        sibling = Path(self.executable).with_name("ffprobe")
+        self.probe_executable = probe_executable or (
+            str(sibling) if sibling.is_file() else shutil.which("ffprobe")
+        )
 
     def frame(self, source, offset: Fraction, output: Path, cancel: threading.Event):
         output = self._validate_empty_output(output)
@@ -76,41 +82,65 @@ class LocalEvidenceExtractor(FFmpegAudioAdapter):
             raise AudioPreparationError("frame_time_mapping_invalid")
         return pts
 
-    def scenes(self, source, cancel: threading.Event):
+    def keyframe_candidates(self, source, cancel: threading.Event):
+        if self.probe_executable is None:
+            raise AudioPreparationError("ffprobe_not_found")
         span = source.source_span
-        tb = span.time_base
-        end_pts = min(int(span.end_pts), int(span.start_pts) + math.floor(Fraction(self.WINDOW_SECONDS) / Fraction(tb.numerator, tb.denominator)))
+        time_base = Fraction(span.time_base.numerator, span.time_base.denominator)
+        anchors = AdaptiveKeyframeSelector.uniform(
+            int(span.start_pts), int(span.end_pts), 32
+        )
+        intervals = ",".join(
+            f"{float(Fraction(candidate.pts) * time_base):.9f}%+0.02"
+            for candidate in anchors
+        )
         with verified_source(source) as descriptor:
-            _, stderr, code = self._run((
-                self.executable, "-nostdin", "-hide_banner", "-loglevel", "info",
-                "-copyts", "-t", str(self.WINDOW_SECONDS), "-i", f"/dev/fd/{descriptor}", "-map", f"0:{source.stream_index}",
-                "-an", "-vf",
-                f"scale=160:-2,settb={tb.numerator}/{tb.denominator},trim=start_pts={span.start_pts}:end_pts={end_pts},select=gt(scene\\,0.35),metadata=print:key=lavfi.scene_score,showinfo",
-                "-frames:v", "64", "-f", "null", "-",
+            stdout, _, code = self._run((
+                self.probe_executable, "-v", "error", "-read_intervals", intervals,
+                "-select_streams", str(source.stream_index),
+                "-show_packets", "-show_entries", "packet=pts,size,flags",
+                "-of", "csv=p=0", f"/dev/fd/{descriptor}",
             ), (descriptor,), cancel)
         if code:
-            raise AudioPreparationError("scene_decode_failed")
-        metadata_points = [
-            int(point)
-            for point in re.findall(rb"\bframe:\d+\s+pts:\s*(-?\d+)", stderr)
+            raise AudioPreparationError("keyframe_packet_probe_failed")
+        packets = {}
+        try:
+            for raw_line in stdout.decode("utf-8", "strict").splitlines():
+                fields = raw_line.split(",")
+                if len(fields) != 3 or "K" not in fields[2]:
+                    continue
+                point, size = int(fields[0]), int(fields[1])
+                if int(span.start_pts) <= point < int(span.end_pts):
+                    packets[point] = max(packets.get(point, 0), size)
+        except (UnicodeDecodeError, ValueError) as error:
+            raise AudioPreparationError("keyframe_packet_parse_failed") from error
+        ordered = sorted(packets.items())
+        limited = len(ordered) > 256
+        if limited:
+            ordered = [
+                ordered[index * len(ordered) // 256]
+                for index in range(256)
+            ]
+        sizes = [size for _, size in ordered]
+        minimum, maximum = (min(sizes), max(sizes)) if sizes else (0, 0)
+        candidates = [
+            {
+                "pts": str(point),
+                "score": round((size - minimum) / (maximum - minimum), 6)
+                if maximum > minimum
+                else 0.0,
+            }
+            for point, size in ordered
         ]
-        scores = [
-            float(score)
-            for score in re.findall(rb"\blavfi\.scene_score=([0-9]+(?:\.[0-9]+)?)", stderr)
-        ]
-        if len(metadata_points) != len(scores):
-            raise AudioPreparationError("scene_score_parse_failed")
-        scored = {}
-        for point, score in zip(metadata_points, scores):
-            scored[point] = max(scored.get(point, 0.0), min(1.0, score))
-        points = sorted(scored)
-        if any(not int(span.start_pts) <= p < int(span.end_pts) for p in points):
-            raise AudioPreparationError("frame_time_mapping_invalid")
-        return {"candidate_pts": [str(p) for p in points],
-                "candidates": [{"pts": str(point), "score": round(scored[point], 6)} for point in points],
-                "threshold": 0.35,
-                "maximum_window_seconds": self.WINDOW_SECONDS, "candidate_limit_reached": len(points) >= 64,
-                "method": "local_pixel_change_not_semantic_scene"}
+        return {
+            "candidate_pts": [item["pts"] for item in candidates],
+            "candidates": candidates,
+            "probe_count": len(anchors),
+            "probe_interval_seconds": 0.02,
+            "candidate_limit_reached": limited,
+            "method": "sparse_codec_keyframe_packet_complexity_v2",
+            "decoded_frames": False,
+        }
 
     def audio_features(self, source, output: Path, cancel: threading.Event):
         output = self._validate_empty_output(output)

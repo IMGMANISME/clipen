@@ -71,7 +71,7 @@ class EvidenceExtractionTests(unittest.TestCase):
         self.assertGreaterEqual(pts[0], int(source.source_span.start_pts))
         self.assertGreater(pts[0], 0)
         self.assertLess(pts[-1], int(source.source_span.end_pts))
-        scene = self.extractor.scenes(source, threading.Event())
+        scene = self.extractor.keyframe_candidates(source, threading.Event())
         self.assertLessEqual(len(scene['candidate_pts']), 64)
         self.assertEqual(
             scene['candidate_pts'], [candidate['pts'] for candidate in scene['candidates']]
@@ -79,6 +79,8 @@ class EvidenceExtractionTests(unittest.TestCase):
         self.assertTrue(
             all(0 <= candidate['score'] <= 1 for candidate in scene['candidates'])
         )
+        self.assertEqual(scene['method'], 'sparse_codec_keyframe_packet_complexity_v2')
+        self.assertFalse(scene['decoded_frames'])
         self.assertEqual(hashlib.sha256(self.source.read_bytes()).hexdigest(), original)
 
     def test_real_audio_energy_and_coverage_window(self):
@@ -100,7 +102,7 @@ class EvidenceExtractionTests(unittest.TestCase):
             self.extractor.frame(source, Fraction(0), output, threading.Event())
         self.assertEqual(output.read_bytes(), b'keep this')
 
-    def test_scene_limit_does_not_scan_to_first_change_after_window(self):
+    def test_packet_candidates_use_sparse_anchors_across_the_timeline(self):
         long_clip = self.root / 'long.mov'
         subprocess.run([shutil.which('ffmpeg'), '-nostdin', '-loglevel', 'error',
             '-f', 'lavfi', '-i', 'color=red:size=64x64:rate=1:duration=121',
@@ -115,9 +117,15 @@ class EvidenceExtractionTests(unittest.TestCase):
             self.fingerprint = bounded_file_fingerprint(fd, long_clip.stat().st_size)
         finally:
             os.close(fd)
-        result = self.extractor.scenes(self.source_input('video'), threading.Event())
-        self.assertEqual(result['candidate_pts'], [])
-        self.assertEqual(result['candidates'], [])
+        result = self.extractor.keyframe_candidates(self.source_input('video'), threading.Event())
+        source = self.source_input('video').source_span
+        cutoff = int(source.start_pts) + int(
+            Fraction(120) * source.time_base.denominator / source.time_base.numerator
+        )
+        self.assertTrue(result['candidate_pts'])
+        self.assertTrue(any(int(point) >= cutoff for point in result['candidate_pts']))
+        self.assertLessEqual(len(result['candidates']), 256)
+        self.assertEqual(result['probe_count'], 32)
 
     def test_vfr_samples_use_actual_decoded_timestamps(self):
         vfr = self.root / 'vfr.mov'
