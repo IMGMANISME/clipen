@@ -735,7 +735,20 @@ export type EvidenceItem = {
   error_code: string | null; frames: EvidenceFrame[]
   source: { start_pts: string; end_pts: string; time_base: { num: number; den: number } } | null
   scene_error_code?: string
-  scenes?: { candidate_pts: string[]; maximum_window_seconds: number; candidate_limit_reached: boolean }
+  scene_fallback_code?: string
+  scenes?: {
+    candidate_pts: string[]
+    candidates?: { pts: string; score: number }[]
+    maximum_window_seconds: number
+    candidate_limit_reached: boolean
+  }
+  keyframe_selection?: {
+    method: string
+    candidate_count: number
+    semantic_relevance: boolean
+    fallback_code?: string
+    selected: { pts: string; score: number; source: 'uniform' | 'scene' | 'semantic' }[]
+  }
   coverage?: { complete: boolean; uncovered: { start_pts: string; end_pts: string }[] }
   audio_features?: { windows: { rms_dbfs: number; low_energy: boolean }[] }
 }

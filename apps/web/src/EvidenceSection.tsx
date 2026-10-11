@@ -71,7 +71,7 @@ export function EvidenceSection({ projectId, csrf, inventoryId }: { projectId: s
   const availableCalls = Math.max(0, (summary?.limits.ai_calls_per_run ?? 3) - (latest?.observations.length ?? 0))
   return <section className="analysis-section evidence-section" aria-labelledby="evidence-title">
     <div className="analysis-heading"><div><p className="eyebrow">畫面與聲音證據</p><h2 id="evidence-title">先看取樣，再決定是否交給 AI</h2></div></div>
-    <p>本機擷取不消耗 AI 額度，也不修改毛片；未變更的成果會重用。每個影片串流最多取 8 張縮圖；場景變化與音訊能量僅檢查前 120 秒。這不是完整影片理解。本機語音辨識若正在執行，擷取會等待資源。</p>
+    <p>本機擷取不消耗 AI 額度，也不修改毛片；未變更的成果會重用。每個影片會先建立有界候選，再依場景顯著度與整段時間覆蓋選出最多 8 張縮圖；場景變化與音訊能量僅檢查前 120 秒。這還不是語意理解或完整影片理解。本機語音辨識若正在執行，擷取會等待資源。</p>
     {error && <div role="alert"><p>{error}</p><button className="button secondary" type="button" onClick={() => setRetry(v => v + 1)}>重新讀取狀態</button></div>}
     {!summary && !error && <p role="status">正在讀取證據分析狀態…</p>}
     {summary?.blocked_reason && <p>{summary.blocked_reason}</p>}
@@ -105,7 +105,8 @@ export function EvidenceSection({ projectId, csrf, inventoryId }: { projectId: s
                 <img loading="lazy" width="240" height="160" src={`/api/projects/${projectId}/evidence/${latest.run_id}/images/${frame.artifact_id}`} alt={`${item.display_name}，${timeAt(item, frame.pts)}的取樣畫面`} />
                 <figcaption>{index + 1} · {timeAt(item, frame.pts)}</figcaption>
               </figure>)}</div>
-              <p>{item.scene_error_code ? '場景變化分析未完成；已取得的畫面取樣仍保留。' : <>前 120 秒內偵測到 {item.scenes?.candidate_pts.length ?? 0} 個像素變化候選點{item.scenes?.candidate_limit_reached ? '（已達 64 點上限）' : ''}，不代表語意換場。</>}</p>
+              <p>{item.scene_error_code ? '舊版場景變化分析未完成；已取得的畫面取樣仍保留。' : item.scene_fallback_code ? '場景顯著度無法使用，已自動改用整段時間覆蓋取樣。' : <>前 120 秒內偵測到 {item.scenes?.candidate_pts.length ?? 0} 個像素變化候選點{item.scenes?.candidate_limit_reached ? '（已達 64 點上限）' : ''}，再與整段時間錨點共同選擇；不代表語意換場。</>}</p>
+              {item.keyframe_selection && <p>這次從 {item.keyframe_selection.candidate_count} 個候選時間點選出 {item.frames.length} 張；{item.keyframe_selection.semantic_relevance ? '包含本機語意相關性訊號。' : '目前僅使用本機時間與畫面變化訊號。'}</p>}
             </> : <p>聲音：已量測 {item.audio_features?.windows.length ?? 0} 個音訊能量視窗，其中 {item.audio_features?.windows.filter(w => w.low_energy).length ?? 0} 個低能量視窗；未判斷音樂、人聲或音效種類。</p>}
             <p>連續覆蓋：{item.coverage?.complete ? '此聲音串流的能量量測完成' : '仍有未分析範圍'}。</p>
             {!!item.coverage?.uncovered.length && <p>未連續分析：{item.coverage.uncovered.map(r => `${timeAt(item, r.start_pts)}～${timeAt(item, r.end_pts)}`).join('、')}</p>}
