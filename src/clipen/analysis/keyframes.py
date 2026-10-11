@@ -26,7 +26,7 @@ class KeyframeCandidate:
             raise ValueError("keyframe score must be numeric")
         if not math.isfinite(float(self.score)) or not 0 <= float(self.score) <= 1:
             raise ValueError("keyframe score must be between zero and one")
-        if self.source not in {"scene", "uniform", "semantic"}:
+        if self.source not in {"codec", "uniform", "semantic"}:
             raise ValueError("unknown keyframe candidate source")
 
 
@@ -77,7 +77,15 @@ class AdaptiveKeyframeSelector:
         if not ordered:
             raise ValueError("at least one keyframe candidate is required")
 
-        chosen = self._choose(ordered, min(budget, len(ordered)), start_pts, end_pts, 0)
+        semantic_available = any(item.source == "semantic" for item in ordered)
+        chosen = self._choose(
+            ordered,
+            min(budget, len(ordered)),
+            start_pts,
+            end_pts,
+            0,
+            semantic_available,
+        )
         semantic = any(item.source == "semantic" for item in chosen)
         method = "adaptive_relevance_coverage_v1" if len(ordered) > budget else "bounded_all_v1"
         return KeyframeSelection(tuple(sorted(chosen, key=lambda item: item.pts)), method, semantic)
@@ -100,6 +108,7 @@ class AdaptiveKeyframeSelector:
         lower: int,
         upper: int,
         depth: int,
+        allow_relevance_focus: bool,
     ) -> tuple[KeyframeCandidate, ...]:
         if quota >= len(candidates):
             return candidates
@@ -111,7 +120,7 @@ class AdaptiveKeyframeSelector:
         advantage = sum(item.score for item in top) / quota - sum(
             item.score for item in candidates
         ) / len(candidates)
-        if advantage >= self.split_threshold or depth >= self.maximum_depth:
+        if (allow_relevance_focus and advantage >= self.split_threshold) or depth >= self.maximum_depth:
             return tuple(top)
 
         midpoint = lower + (upper - lower) // 2
@@ -128,12 +137,14 @@ class AdaptiveKeyframeSelector:
         if len(right) < right_quota:
             left_quota += right_quota - len(right)
             right_quota = len(right)
-        return self._choose(left, left_quota, lower, midpoint, depth + 1) + self._choose(
-            right, right_quota, midpoint, upper, depth + 1
+        return self._choose(
+            left, left_quota, lower, midpoint, depth + 1, allow_relevance_focus
+        ) + self._choose(
+            right, right_quota, midpoint, upper, depth + 1, allow_relevance_focus
         )
 
     @staticmethod
     def _priority(candidate: KeyframeCandidate) -> tuple[float, int]:
-        source_priority = {"uniform": 0, "scene": 1, "semantic": 2}
+        source_priority = {"uniform": 0, "codec": 1, "semantic": 2}
         return float(candidate.score), source_priority[candidate.source]
 

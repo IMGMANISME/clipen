@@ -23,7 +23,7 @@ from .models import ArtifactKind, SourceSpan
 from .storage import _source_span
 from .visual import LocalEvidenceExtractor, verified_source
 
-RECIPE = "evidence.local.rgb8-512.adaptive-v2"
+RECIPE = "evidence.local.rgb8-512.codec-adaptive-v4"
 MAX_STREAMS = 2000
 PAGE_SIZE = 25
 MAX_OBSERVATIONS = 3
@@ -419,22 +419,26 @@ class EvidenceService:
                         candidates = list(selector.uniform(start_pts, end_pts, 32))
                         self._progress(project_id, run_id, item["display_name"], "scenes", 0)
                         try:
-                            result["scenes"] = extractor.scenes(source, cancel)
-                            raw_candidates = result["scenes"].get("candidates", ())
+                            result["keyframe_candidates"] = extractor.keyframe_candidates(
+                                source, cancel
+                            )
+                            raw_candidates = result["keyframe_candidates"].get(
+                                "candidates", ()
+                            )
                             if isinstance(raw_candidates, list):
                                 for raw in raw_candidates:
                                     if not isinstance(raw, dict):
                                         continue
                                     candidates.append(
                                         KeyframeCandidate(
-                                            int(raw["pts"]), float(raw["score"]), "scene"
+                                            int(raw["pts"]), float(raw["score"]), "codec"
                                         )
                                     )
                         except (AudioPreparationError, KeyError, TypeError, ValueError) as error:
                             if getattr(error, "code", None) == "cancelled":
                                 raise
-                            result["scene_fallback_code"] = getattr(
-                                error, "code", "scene_candidates_invalid"
+                            result["keyframe_fallback_code"] = getattr(
+                                error, "code", "codec_candidates_invalid"
                             )
                         selection = selector.select(start_pts, end_pts, candidates, 8)
                         result["keyframe_selection"] = {
@@ -450,9 +454,9 @@ class EvidenceService:
                                 for candidate in selection.candidates
                             ],
                         }
-                        if "scene_fallback_code" in result:
+                        if "keyframe_fallback_code" in result:
                             result["keyframe_selection"]["fallback_code"] = result[
-                                "scene_fallback_code"
+                                "keyframe_fallback_code"
                             ]
                         for ordinal, candidate in enumerate(selection.candidates):
                             if cancel.is_set():
