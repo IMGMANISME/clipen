@@ -27,12 +27,22 @@ Clipen 是由 terminal 啟動、在本機桌面瀏覽器操作的 AI 剪輯工�
 設定完成後：
 
 ```sh
+cd "/想存放 Clipen 作品資料的目錄"
 clipen codex
 ```
 
 `codex` 表示本次選用的 AI provider。Clipen 啟動 Controller 與本機 UI，但不開啟
 Codex 互動式 TUI、不注入對話、不建立 MCP 輪詢，也不要求使用者手動架設服務。
 AI 只在 UI 明確授權一個分析、規劃或修改步驟後，以單次、有界的 Attempt 執行。
+目前目錄是本次工作區；Clipen 只在其中的 `.clipen/` 管理作品資料。切換目錄後再
+執行相同指令會開啟另一個工作區，每個工作區使用自己的 Controller instance lock。
+每次 `clipen codex` 都先驗證工作區識別檔，以及其中每個作品的目錄名稱、資料庫
+身分、版本與完整性。空工作區是合法狀態；無法辨識或損壞的作品會讓啟動 fail
+closed，原資料保持不變，也不會開始 Provider 或 Controller。
+搬動整個工作區時，使用者先關閉 Clipen，再搬動包含 `.clipen/` 的目錄，並從新位置
+重新執行 `clipen codex`。未來若提供單一作品的跨工作區移動，入口應位於 UI，流程
+必須先複製至目的工作區的 staging、完整驗證、原子發布，最後才另外詢問是否移除
+舊副本；毛片與參考作品維持外部路徑參照，不隨作品資料自動搬動。
 
 Terminal 只顯示產品狀態：
 
@@ -355,7 +365,8 @@ Source checkout 的 `./install` 是首次設定入口。執行後先顯示 runti
 Homebrew 或簽章 installer 提供該指令。
 
 Source checkout 的對稱移除入口是 `./uninstall`。它只移除 Clipen 管理的 runtime、
-本機模型、全域指令與 PATH 區塊，保留 `projects/`、provider Attempt 紀錄、毛片、
+本機模型、全域指令與 PATH 區塊，保留各工作區 `.clipen/projects/`、provider Attempt
+紀錄、毛片、
 參考作品與匯出檔案。若 Controller 尚未停止、管理路徑不安全或同名指令不屬於
 Clipen，uninstaller 必須拒絕執行；移除程式不等於刪除作品。
 
@@ -374,11 +385,20 @@ Launcher 不使用 `sudo`、不修改系統 Python、不設定 MCP，也不把 r
 ```text
 ~/Library/Application Support/Clipen/
 ├── runtimes/
-├── projects/<project-id>/
 ├── models/
 ├── cache/
 ├── logs/
+├── workspace-instances/<workspace-id>/
 └── install-receipt.json
+```
+
+每個使用者選擇的工作目錄只保存該工作區的作品：
+
+```text
+<workspace>/
+└── .clipen/
+    ├── workspace.json
+    └── projects/<project-id>/
 ```
 
 `clipen doctor` 永遠唯讀。Update 不在作品處理中自動執行；資料 migration 前建立
