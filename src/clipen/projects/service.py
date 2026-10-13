@@ -141,6 +141,20 @@ class ProjectWorkspace:
             )
         )
 
+    def delete_project(
+        self,
+        project_id: str,
+        request_id: object,
+        expected_revision: object,
+        confirmation_name: object,
+    ) -> str:
+        return self.repository.delete_project(
+            project_id,
+            request_id,
+            expected_revision,
+            confirmation_name,
+        )
+
     @staticmethod
     def _overlaps(first: DirectoryReference, second: DirectoryReference) -> bool:
         first_path = Path(first.canonical_path)

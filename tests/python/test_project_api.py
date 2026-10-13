@@ -370,6 +370,43 @@ class ProjectApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(self.json_body(body)["project"]["directories"], [])
 
+    def test_delete_project_requires_name_and_removes_it_from_list(self) -> None:
+        project = self.create_project()
+        mismatch = self._request(
+            "POST",
+            f"/api/projects/{project['project_id']}/commands/delete",
+            {
+                "request_id": "request-api-delete-wrong",
+                "expected_revision": project["revision"],
+                "confirmation_name": "錯誤名稱",
+            },
+            headers=self.mutation_headers(),
+        )
+        self.assertEqual(mismatch[0], 422)
+        self.assertEqual(
+            self.json_body(mismatch[2])["error"]["code"], "confirmation_mismatch"
+        )
+
+        deleted = self._request(
+            "POST",
+            f"/api/projects/{project['project_id']}/commands/delete",
+            {
+                "request_id": "request-api-delete-project",
+                "expected_revision": project["revision"],
+                "confirmation_name": project["name"],
+            },
+            headers=self.mutation_headers(),
+        )
+        self.assertEqual(deleted[0], 200)
+        self.assertEqual(
+            self.json_body(deleted[2])["deleted_project_id"], project["project_id"]
+        )
+        status, _, body = self._request(
+            "GET", "/api/projects", headers={"cookie": self.cookie}
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(self.json_body(body)["projects"], [])
+
     def test_stale_revision_and_request_reuse_return_conflicts(self) -> None:
         project = self.create_project()
         command = {

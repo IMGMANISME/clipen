@@ -562,6 +562,24 @@ export async function removeDirectory(
   ).project
 }
 
+export async function deleteProject(
+  csrf: string,
+  project: Project,
+  confirmationName: string,
+): Promise<string> {
+  return (
+    await command<{ deleted_project_id: string }>(
+      `/api/projects/${project.project_id}/commands/delete`,
+      csrf,
+      {
+        request_id: crypto.randomUUID(),
+        expected_revision: project.revision,
+        confirmation_name: confirmationName,
+      },
+    )
+  ).deleted_project_id
+}
+
 export async function getInventory(projectId: string): Promise<InventorySummary> {
   return request<InventorySummary>(`/api/projects/${projectId}/inventory`)
 }

@@ -564,6 +564,28 @@ def create_app(
         except ProjectError as error:
             return await project_error_response(error)
 
+    async def delete_project(request: Request) -> Response:
+        try:
+            payload = await read_json(request)
+            require_fields(
+                payload,
+                {
+                    "request_id",
+                    "expected_revision",
+                    "confirmation_name",
+                },
+            )
+            project_id = await run_in_threadpool(
+                require_workspace().delete_project,
+                request.path_params["project_id"],
+                payload["request_id"],
+                payload["expected_revision"],
+                payload["confirmation_name"],
+            )
+            return JSONResponse({"deleted_project_id": project_id})
+        except ProjectError as error:
+            return await project_error_response(error)
+
     async def timeline_validation_status(request: Request) -> Response:
         try:
             state = await run_in_threadpool(
@@ -1026,6 +1048,11 @@ def create_app(
             Route(
                 "/api/projects/{project_id}/commands/remove-directory",
                 remove_directory,
+                methods=["POST"],
+            ),
+            Route(
+                "/api/projects/{project_id}/commands/delete",
+                delete_project,
                 methods=["POST"],
             ),
             Route(
