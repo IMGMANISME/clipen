@@ -8,6 +8,7 @@ import {
   ApiError,
   connectLocalSession,
   createProject,
+  deleteProject,
   cancelInventory,
   cancelAnalysis,
   getAnalysis,
@@ -692,14 +693,19 @@ function MaterialsWorkspace({
   csrf,
   onProject,
   onBack,
+  onDeleted,
 }: {
   project: Project
   csrf: string
   onProject: (project: Project) => void
   onBack: () => void
+  onDeleted: (projectId: string) => void
 }) {
   const [name, setName] = useState(project.name)
   const [brief, setBrief] = useState(project.brief)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteConfirmation, setDeleteConfirmation] = useState('')
+  const [deleteError, setDeleteError] = useState<string | null>(null)
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
   const [busyRole, setBusyRole] = useState<DirectoryRole | null>(null)
@@ -964,6 +970,19 @@ function MaterialsWorkspace({
     }
   }
 
+  async function removeProject() {
+    if (deleting || deleteConfirmation !== project.name) return
+    setDeleting(true)
+    setDeleteError(null)
+    try {
+      const deletedProjectId = await deleteProject(csrf, project, deleteConfirmation)
+      onDeleted(deletedProjectId)
+    } catch (caught) {
+      setDeleteError(errorMessage(caught))
+      setDeleting(false)
+    }
+  }
+
   async function choose(role: DirectoryRole) {
     if (busyRole) return
     setBusyRole(role)
@@ -1147,6 +1166,32 @@ function MaterialsWorkspace({
           {planning?.current_plan?.status === 'confirmed' && (
             <TimelineValidationSection projectId={project.project_id} csrf={csrf} />
           )}
+          <section className="danger-zone" aria-labelledby="delete-project-title">
+            <div>
+              <h2 id="delete-project-title">刪除作品</h2>
+              <p>刪除縮圖、逐字稿、分析與剪輯計畫。毛片、參考作品及工作區其他檔案不會被刪除。</p>
+            </div>
+            <label htmlFor="delete-project-confirmation">
+              輸入作品名稱「{project.name}」以確認
+            </label>
+            {deleteError && <p className="form-error" role="alert">{deleteError}</p>}
+            <div className="danger-actions">
+              <input
+                id="delete-project-confirmation"
+                value={deleteConfirmation}
+                onChange={(event) => setDeleteConfirmation(event.target.value)}
+                disabled={deleting}
+              />
+              <button
+                className="button danger-button"
+                type="button"
+                disabled={deleteConfirmation !== project.name || deleting}
+                onClick={() => void removeProject()}
+              >
+                {deleting ? '正在刪除…' : '永久刪除作品'}
+              </button>
+            </div>
+          </section>
         </section>
       </div>
     </main>
@@ -1205,6 +1250,14 @@ function App() {
     })
   }
 
+  function removeProject(projectId: string) {
+    setApplication((current) => {
+      if (current.kind !== 'ready') return current
+      return { ...current, projects: current.projects.filter((project) => project.project_id !== projectId) }
+    })
+    navigate(null)
+  }
+
   const ready = application.kind === 'ready'
   const providerReady = ready && application.status.provider.state === 'ready'
 
@@ -1234,7 +1287,7 @@ function App() {
           {selectedProjectId && !selectedProject ? (
             <main className="system-main"><section className="system-card warning"><span className="notice-symbol">!</span><div><p className="eyebrow">找不到作品</p><h1>這個作品不存在或無法讀取</h1><button className="button primary" onClick={() => navigate(null)}>回到作品首頁</button></div></section></main>
           ) : selectedProject ? (
-            <MaterialsWorkspace key={selectedProject.project_id} project={selectedProject} csrf={application.status.session.csrf_token} onProject={replaceProject} onBack={() => navigate(null)} />
+            <MaterialsWorkspace key={selectedProject.project_id} project={selectedProject} csrf={application.status.session.csrf_token} onProject={replaceProject} onBack={() => navigate(null)} onDeleted={removeProject} />
           ) : (
             <ProjectHome
               projects={application.projects}
