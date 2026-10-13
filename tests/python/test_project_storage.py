@@ -240,6 +240,91 @@ class ProjectStorageTests(unittest.TestCase):
                 "x" * 8001,
             )
 
+    def test_delete_project_removes_only_managed_data_and_is_idempotent(self) -> None:
+        created = self.repository.create_project("request-create-delete-1", "東京作品")
+        source = self.root / "external-source"
+        source.mkdir()
+        media = source / "original.mov"
+        media.write_bytes(b"raw-media")
+        managed_artifact = self.projects / created.project_id / "artifacts" / "thumb.jpg"
+        managed_artifact.parent.mkdir()
+        managed_artifact.write_bytes(b"derived")
+
+        deleted = self.repository.delete_project(
+            created.project_id,
+            "request-delete-project-1",
+            created.revision,
+            created.name,
+        )
+        replay = self.repository.delete_project(
+            created.project_id,
+            "request-delete-project-1",
+            created.revision,
+            created.name,
+        )
+
+        self.assertEqual(deleted, created.project_id)
+        self.assertEqual(replay, created.project_id)
+        self.assertFalse((self.projects / created.project_id).exists())
+        self.assertEqual(media.read_bytes(), b"raw-media")
+
+    def test_delete_project_requires_exact_name_and_no_active_work(self) -> None:
+        created = self.repository.create_project("request-create-delete-2", "不能誤刪")
+        with self.assertRaises(ProjectError) as mismatch:
+            self.repository.delete_project(
+                created.project_id,
+                "request-delete-project-2",
+                created.revision,
+                "名稱錯誤",
+            )
+        self.assertEqual(mismatch.exception.code, "confirmation_mismatch")
+
+        with self.repository.connect(created.project_id) as connection:
+            connection.execute(
+                "INSERT INTO inventory_runs "
+                "(run_id, project_id, request_id, project_revision, input_fingerprint, "
+                "roots_json, state, phase, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    "inv_delete_busy",
+                    created.project_id,
+                    "request-delete-busy-run",
+                    created.revision,
+                    "fingerprint",
+                    "[]",
+                    "running",
+                    "probing",
+                    "2026-10-13T00:00:00+00:00",
+                ),
+            )
+        with self.assertRaises(ProjectError) as busy:
+            self.repository.delete_project(
+                created.project_id,
+                "request-delete-project-3",
+                created.revision,
+                created.name,
+            )
+        self.assertEqual(busy.exception.code, "project_busy")
+        self.assertTrue((self.projects / created.project_id).is_dir())
+
+    def test_delete_project_rejects_symlink_and_preserves_external_file(self) -> None:
+        created = self.repository.create_project("request-create-delete-3", "安全刪除")
+        external = self.root / "external-original.mov"
+        external.write_bytes(b"original")
+        link = self.projects / created.project_id / "unsafe-link"
+        link.symlink_to(external)
+
+        with self.assertRaises(ProjectError) as unsafe:
+            self.repository.delete_project(
+                created.project_id,
+                "request-delete-project-4",
+                created.revision,
+                created.name,
+            )
+
+        self.assertEqual(unsafe.exception.code, "storage_unsafe")
+        self.assertEqual(external.read_bytes(), b"original")
+        self.assertTrue((self.projects / created.project_id).is_dir())
+
 
 if __name__ == "__main__":
     unittest.main()

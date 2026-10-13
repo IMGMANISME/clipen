@@ -13,6 +13,8 @@ import sqlite3
 import uuid
 from typing import Iterator, Mapping, Any
 
+from clipen.filesystem import restrict_permissions
+
 from .models import (
     DirectoryReference,
     DirectoryRole,
@@ -27,9 +29,10 @@ from .models import (
 from .evidence_schema import EVIDENCE_SCHEMA, OBSERVATION_SCHEMA
 from .validation_schema import VALIDATION_WORKFLOW_SCHEMA
 from .planning_schema import PLANNING_SCHEMA
+from .deletion import ProjectDeletion
 
 
-_SCHEMA_VERSION = 9
+PROJECT_SCHEMA_VERSION = 9
 _PROJECT_DIRECTORY = re.compile(r"prj_[0-9a-f]{32}\Z")
 
 _INVENTORY_SCHEMA = """
@@ -282,7 +285,8 @@ class ProjectRepository:
         self.root = projects_root.resolve(strict=True)
         if not self.root.is_dir():
             raise ProjectError("storage_unavailable", "Clipen 無法使用作品儲存位置。", status_code=500)
-        os.chmod(self.root, 0o700)
+        restrict_permissions(self.root, 0o700)
+        self._deletion = ProjectDeletion(self)
 
     def create_project(self, request_id: object, name: object) -> ProjectSnapshot:
         normalized_request = validate_request_id(request_id)
@@ -492,6 +496,20 @@ class ProjectRepository:
             mutation,
         )
 
+    def delete_project(
+        self,
+        project_id: str,
+        request_id: object,
+        expected_revision: object,
+        confirmation_name: object,
+    ) -> str:
+        return self._deletion.delete(
+            project_id,
+            request_id,
+            expected_revision,
+            confirmation_name,
+        )
+
     def _mutate(
         self,
         project_id: str,
@@ -649,7 +667,7 @@ class ProjectRepository:
             raise
         finally:
             connection.close()
-        os.chmod(database, 0o600)
+        restrict_permissions(database, 0o600)
         return snapshot
 
     @contextmanager
@@ -695,7 +713,7 @@ class ProjectRepository:
             if version == 8:
                 self._migrate_v8_to_v9(connection)
                 version = 9
-            if version != _SCHEMA_VERSION:
+            if version != PROJECT_SCHEMA_VERSION:
                 connection.close()
                 raise ProjectError(
                     "migration_required",
