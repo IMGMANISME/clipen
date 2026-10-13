@@ -38,7 +38,9 @@ class KeyframeSelection:
 
 
 class AdaptiveKeyframeSelector:
-    """Balance scored moments with temporal coverage under a fixed budget."""
+    """Balance scored moments with temporal coverage under a bounded budget."""
+
+    MAXIMUM_BUDGET = 48
 
     def __init__(self, *, split_threshold: float = 0.22, maximum_depth: int = 6):
         if not 0 <= split_threshold <= 1:
@@ -63,7 +65,11 @@ class AdaptiveKeyframeSelector:
             or end_pts <= start_pts
         ):
             raise ValueError("keyframe source span is invalid")
-        if isinstance(budget, bool) or not isinstance(budget, int) or not 1 <= budget <= 64:
+        if (
+            isinstance(budget, bool)
+            or not isinstance(budget, int)
+            or not 1 <= budget <= self.MAXIMUM_BUDGET
+        ):
             raise ValueError("keyframe budget is invalid")
 
         deduplicated: dict[int, KeyframeCandidate] = {}
@@ -89,6 +95,21 @@ class AdaptiveKeyframeSelector:
         semantic = any(item.source == "semantic" for item in chosen)
         method = "adaptive_relevance_coverage_v1" if len(ordered) > budget else "bounded_all_v1"
         return KeyframeSelection(tuple(sorted(chosen, key=lambda item: item.pts)), method, semantic)
+
+    @staticmethod
+    def budget_for_duration(duration_seconds: float) -> int:
+        """Return a bounded upper limit; visual deduplication may retain fewer frames."""
+
+        if not isinstance(duration_seconds, (int, float)) or isinstance(duration_seconds, bool):
+            raise ValueError("keyframe duration must be numeric")
+        if not math.isfinite(float(duration_seconds)) or duration_seconds <= 0:
+            raise ValueError("keyframe duration must be positive")
+        if duration_seconds <= 2:
+            return 1
+        return min(
+            AdaptiveKeyframeSelector.MAXIMUM_BUDGET,
+            math.ceil(duration_seconds / 8) + 1,
+        )
 
     @staticmethod
     def uniform(start_pts: int, end_pts: int, count: int) -> tuple[KeyframeCandidate, ...]:

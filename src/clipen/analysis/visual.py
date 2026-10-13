@@ -46,7 +46,7 @@ def verified_source(source: AudioPreparationInput):
 
 class LocalEvidenceExtractor(FFmpegAudioAdapter):
     """Bounded sparse video evidence plus a 120-second audio window per stream."""
-    MAX_FRAMES = 8
+    MAX_FRAMES = AdaptiveKeyframeSelector.MAXIMUM_BUDGET
     WINDOW_SECONDS = 120
 
     def __init__(self, executable: str | None = None, probe_executable: str | None = None):
