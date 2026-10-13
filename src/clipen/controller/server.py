@@ -132,6 +132,7 @@ class ServerPaths:
     static_root: Path
     attempt_root: Path
     projects_root: Path | None = None
+    instance_root: Path | None = None
     asr_requirements: Path | None = None
     plan_schema: Path | None = None
 
@@ -149,6 +150,11 @@ class ServerPaths:
         self.attempt_root.chmod(0o700)
         if self.projects_root is not None and self.projects_root.is_symlink():
             raise ValueError("projects root cannot be a symbolic link")
+        if self.instance_root is not None:
+            self.instance_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+            if self.instance_root.is_symlink() or not self.instance_root.is_dir():
+                raise ValueError("instance root cannot be a symbolic link")
+            self.instance_root.chmod(0o700)
         if self.asr_requirements is not None and not self.asr_requirements.resolve(
             strict=True
         ).is_file():
@@ -448,9 +454,10 @@ def run_server(
     browser_open: Callable[[str], bool] = webbrowser.open,
 ) -> int:
     paths.prepare()
-    lease = _InstanceLease.acquire(paths.attempt_root.parent)
+    instance_root = paths.instance_root or paths.attempt_root.parent
+    lease = _InstanceLease.acquire(instance_root)
     if lease is None:
-        existing = _find_existing_controller(paths.attempt_root.parent / ".controller.json")
+        existing = _find_existing_controller(instance_root / ".controller.json")
         if existing is None:
             print("Clipen 無法連接正在啟動的本機工作台。請稍後再試。")
             return 1

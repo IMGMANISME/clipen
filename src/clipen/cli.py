@@ -10,6 +10,11 @@ from typing import Sequence
 from clipen.controller import LocalSessionAuthority
 from clipen.controller.server import ServerPaths, probe_codex, run_server
 from clipen.system_skills import verify_system_skill_release
+from clipen.workspace import (
+    WorkspaceError,
+    inspect_workspace_projects,
+    prepare_workspace,
+)
 
 
 def _repo_root() -> Path:
@@ -36,6 +41,14 @@ def main(arguments: Sequence[str] | None = None) -> int:
     try:
         repo_root = _repo_root()
         data_root = _data_root()
+        workspace = prepare_workspace(Path.cwd())
+        print(f"工作區：{workspace.root}", flush=True)
+        print("正在檢查目前目錄的 Clipen 作品…", flush=True)
+        inspection = inspect_workspace_projects(workspace)
+        if inspection.project_count:
+            print(f"✓ 找到 {inspection.project_count} 個可用作品", flush=True)
+        else:
+            print("目前沒有作品，可在 UI 建立第一個作品。", flush=True)
         attempt_root = data_root / "provider-attempts"
         attempt_root.mkdir(mode=0o700, parents=True, exist_ok=True)
         print("正在驗證系統剪輯規則…", flush=True)
@@ -48,7 +61,8 @@ def main(arguments: Sequence[str] | None = None) -> int:
             ServerPaths(
                 static_root=repo_root / "apps" / "web" / "dist",
                 attempt_root=attempt_root,
-                projects_root=data_root / "projects",
+                projects_root=workspace.projects_root,
+                instance_root=data_root / "workspace-instances" / workspace.workspace_id,
                 asr_requirements=repo_root / "requirements" / "asr-runtime.txt",
                 plan_schema=repo_root
                 / "schemas"
@@ -62,7 +76,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
     except KeyboardInterrupt:
         print("\nClipen 已停止", flush=True)
         return 130
-    except (OSError, RuntimeError, ValueError) as error:
+    except (OSError, RuntimeError, ValueError, WorkspaceError) as error:
         print(f"Clipen 無法啟動：{error}", file=sys.stderr)
         return 1
 

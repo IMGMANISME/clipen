@@ -13,6 +13,7 @@ import stat
 import threading
 from typing import Callable, Iterable, Mapping, TypeVar
 
+from clipen.filesystem import restrict_permissions
 from clipen.projects.models import ProjectError, validate_project_id
 from clipen.projects.storage import ProjectRepository, utc_now
 
@@ -155,7 +156,7 @@ class ArtifactStore:
             resolved.unlink()
         else:
             os.replace(resolved, destination)
-            os.chmod(destination, 0o600)
+            restrict_permissions(destination, 0o600)
         relative_path = destination.relative_to(self._project_root(project_id)).as_posix()
         created_at = utc_now()
         source_json = (
@@ -294,7 +295,7 @@ class ArtifactStore:
                 "Clipen 的分析成果儲存位置不安全。",
                 status_code=500,
             )
-        os.chmod(path, 0o700)
+        restrict_permissions(path, 0o700)
         return path.resolve(strict=True)
 
     @staticmethod
@@ -314,7 +315,7 @@ class ArtifactStore:
                 "Clipen 的分析成果儲存位置不安全。",
                 status_code=500,
             )
-        os.chmod(resolved, 0o700)
+        restrict_permissions(resolved, 0o700)
         return resolved
 
     def _sha256(self, path: Path) -> str:
