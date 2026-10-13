@@ -21,6 +21,29 @@ class AdaptiveKeyframeSelectorTests(unittest.TestCase):
         self.assertGreater(points[-1], 875)
         self.assertTrue(all(b > a for a, b in zip(points, points[1:])))
 
+    def test_duration_budget_is_dynamic_and_bounded(self):
+        cases = (
+            (1, 1),
+            (6, 2),
+            (10, 3),
+            (45, 7),
+            (90, 13),
+            (240, 31),
+            (376, 48),
+            (500, 48),
+            (1_000, 48),
+            (2_000, 48),
+            (4_000, 48),
+        )
+        for duration, expected in cases:
+            with self.subTest(duration=duration):
+                self.assertEqual(self.selector.budget_for_duration(duration), expected)
+
+    def test_duration_budget_rejects_invalid_values(self):
+        for duration in (True, 0, -1, float("inf"), "10"):
+            with self.subTest(duration=duration), self.assertRaises(ValueError):
+                self.selector.budget_for_duration(duration)
+
     def test_strong_relevance_can_focus_selection(self):
         candidates = list(self.selector.uniform(0, 1_000, 32))
         candidates.extend(
@@ -72,6 +95,7 @@ class AdaptiveKeyframeSelectorTests(unittest.TestCase):
             lambda: self.selector.select(10, 10, (), 1),
             lambda: self.selector.select(0, 10, (KeyframeCandidate(10, 0.5, "codec"),), 1),
             lambda: self.selector.select(0, 10, (KeyframeCandidate(1, 0.5, "codec"),), 0),
+            lambda: self.selector.select(0, 10, (KeyframeCandidate(1, 0.5, "codec"),), 49),
         )
         for operation in invalid:
             with self.subTest(operation=operation), self.assertRaises(ValueError):

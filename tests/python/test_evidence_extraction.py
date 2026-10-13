@@ -12,6 +12,7 @@ import threading
 import unittest
 
 from clipen.analysis.audio import AudioPreparationError, AudioPreparationInput
+from clipen.analysis.image_similarity import fingerprint_png
 from clipen.analysis.models import Rational, SourceSpan
 from clipen.analysis.visual import LocalEvidenceExtractor
 from clipen.media import InventoryRoot, bounded_file_fingerprint
@@ -67,6 +68,7 @@ class EvidenceExtractionTests(unittest.TestCase):
             self.assertLessEqual(max(width, height), 512)
             self.assertEqual((bit_depth, color_type), (8, 2))
             self.assertLess(len(data), 1024**2)
+            self.assertEqual(len(fingerprint_png(output).cells), 64)
         self.assertEqual(pts, sorted(set(pts)))
         self.assertGreaterEqual(pts[0], int(source.source_span.start_pts))
         self.assertGreater(pts[0], 0)
