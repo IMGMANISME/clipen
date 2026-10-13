@@ -71,19 +71,19 @@ export function EvidenceSection({ projectId, csrf, inventoryId }: { projectId: s
   const availableCalls = Math.max(0, (summary?.limits.ai_calls_per_run ?? 3) - (latest?.observations.length ?? 0))
   return <section className="analysis-section evidence-section" aria-labelledby="evidence-title">
     <div className="analysis-heading"><div><p className="eyebrow">畫面與聲音證據</p><h2 id="evidence-title">先看取樣，再決定是否交給 AI</h2></div></div>
-    <p>本機擷取不消耗 AI 額度，也不修改毛片；未變更的成果會重用。每個影片會在全片最多 32 個時間點讀取極短的壓縮關鍵幀資訊，再依內容複雜度與時間覆蓋選出最多 8 張縮圖；音訊能量只檢查前 120 秒。這不會逐幀掃描影片，也還不是語意理解或完整影片理解。本機語音辨識若正在執行，擷取會等待資源。</p>
+    <p>本機擷取不消耗 AI 額度，也不修改毛片；未變更的成果會重用。每個影片會先依片長選擇候選畫面，略過視覺近似的縮圖，再從其他時間點有限度補取；最後保留 1～48 張代表畫面。音訊能量只檢查前 120 秒。這不會逐幀掃描影片，也還不是語意理解或完整影片理解。本機語音辨識若正在執行，擷取會等待資源。</p>
     {error && <div role="alert"><p>{error}</p><button className="button secondary" type="button" onClick={() => setRetry(v => v + 1)}>重新讀取狀態</button></div>}
     {!summary && !error && <p role="status">正在讀取證據分析狀態…</p>}
     {summary?.blocked_reason && <p>{summary.blocked_reason}</p>}
     {summary?.scope && <div className="evidence-actions">
-      <span>{summary.scope.total} 個影音串流 · 最多 {summary.scope.video_streams * 8} 張縮圖</span>
+      <span>{summary.scope.total} 個影音串流 · 每支影片動態取樣，最多 {summary.limits.frames_per_stream} 張</span>
       <button className="button primary" type="button" disabled={busy || running} onClick={() => void act('start')}>{latest ? '更新本機證據' : '擷取本機證據'}</button>
       {running && <button className="button secondary" type="button" disabled={busy} onClick={() => void act('cancel')}>停止分析</button>}
       {latest && !latest.stale && ['interrupted', 'cancelled'].includes(latest.state) && <button className="button secondary" type="button" disabled={busy || running} onClick={() => void act('resume')}>接續本機擷取</button>}
     </div>}
     {latest && <>
       <p role="status">本機擷取：{states[latest.state] ?? latest.state} · {latest.completed_count} / {latest.total} 個串流已處理 · {latest.issue_count} 個需注意</p>
-      {latest.state === 'running' && latest.progress.display_name && <p role="status">正在處理 {latest.progress.display_name}：{latest.progress.phase === 'frames' ? `取樣畫面 ${latest.progress.frames} / 8` : latest.progress.phase === 'scenes' ? '讀取全片的稀疏壓縮關鍵幀資訊' : '量測前 120 秒的音訊能量'}</p>}
+      {latest.state === 'running' && latest.progress.display_name && <p role="status">正在處理 {latest.progress.display_name}：{latest.progress.phase === 'frames' ? `取樣畫面 ${latest.progress.frames}（動態，上限 ${summary.limits.frames_per_stream}）` : latest.progress.phase === 'scenes' ? '讀取全片的稀疏壓縮關鍵幀資訊' : '量測前 120 秒的音訊能量'}</p>}
       {latest.state === 'running' && <progress value={latest.completed_count} max={latest.total} aria-label="本機證據擷取進度" />}
       {latest.error_code && <p>{errors[latest.error_code] ?? '未完成，已保存的成果仍保留。'}</p>}
       {latest.stale && <p role="alert">以下是舊素材範圍的結果，不能再送出 AI 觀察。請重新擷取。</p>}
@@ -106,13 +106,13 @@ export function EvidenceSection({ projectId, csrf, inventoryId }: { projectId: s
                 <figcaption>{index + 1} · {timeAt(item, frame.pts)}</figcaption>
               </figure>)}</div>
               <p>{item.scene_error_code ? '舊版場景變化分析未完成；已取得的畫面取樣仍保留。' : item.keyframe_fallback_code ? '壓縮關鍵幀資訊無法使用，已自動改用整段時間覆蓋取樣。' : <>在全片 {item.keyframe_candidates?.probe_count ?? 0} 個稀疏時間點讀到 {item.keyframe_candidates?.candidate_pts.length ?? 0} 個 codec 關鍵幀候選點{item.keyframe_candidates?.candidate_limit_reached ? '（已達 256 點上限）' : ''}，再與整段時間錨點共同選擇；封包大小只代表壓縮內容複雜度，不代表語意或真正換場。</>}</p>
-              {item.keyframe_selection && <p>這次從 {item.keyframe_selection.candidate_count} 個候選時間點選出 {item.frames.length} 張；{item.keyframe_selection.semantic_relevance ? '包含本機語意相關性訊號。' : '目前僅使用本機時間與壓縮內容複雜度訊號。'}</p>}
+              {item.keyframe_selection && <p>這支影片去除相似畫面後最多保留 {item.keyframe_selection.retained_limit ?? item.keyframe_selection.frame_budget ?? 8} 張；從 {item.keyframe_selection.candidate_count} 個候選時間點解出 {item.keyframe_selection.decoded_count ?? item.keyframe_selection.selected.length} 張，略過 {item.keyframe_selection.duplicate_count ?? 0} 張相似畫面，並補取 {item.keyframe_selection.backfill_attempts ?? 0} 張後，保留 {item.frames.length} 張代表畫面。{item.keyframe_selection.semantic_relevance ? '包含本機語意相關性訊號。' : '目前僅使用本機時間、壓縮內容複雜度與縮圖相似度訊號。'}</p>}
             </> : <p>聲音：已量測 {item.audio_features?.windows.length ?? 0} 個音訊能量視窗，其中 {item.audio_features?.windows.filter(w => w.low_energy).length ?? 0} 個低能量視窗；未判斷音樂、人聲或音效種類。</p>}
             <p>連續覆蓋：{item.coverage?.complete ? '此聲音串流的能量量測完成' : '仍有未分析範圍'}。</p>
             {!!item.coverage?.uncovered.length && <p>未連續分析：{item.coverage.uncovered.map(r => `${timeAt(item, r.start_pts)}～${timeAt(item, r.end_pts)}`).join('、')}</p>}
             {item.kind === 'video' && !observation && !latest.stale && <>
               {approvedItem === item.key ? <div className="evidence-consent">
-                <p>將傳送上方 {item.frames.length} 張縮圖給 Codex，包含圖片中可見的私人資訊。不會傳送原始影片、音訊、完整逐字稿或 Repo。這會使用 AI 額度；失敗不會自動重試。</p>
+                <p>將從上方 {item.frames.length} 張本機縮圖中，依時間平均選出最多 {summary.limits.ai_images_per_call} 張傳給 Codex，包含圖片中可見的私人資訊。不會傳送原始影片、音訊、完整逐字稿或 Repo。這會使用 AI 額度；失敗不會自動重試。</p>
                 <button className="button primary" type="button" disabled={busy || running} onClick={() => void act('observe', item.key)}>同意傳送並開始觀察</button>
                 <button className="button secondary" type="button" disabled={busy} onClick={() => setApprovedItem(null)}>先不要</button>
               </div> : <button className="button secondary" type="button" disabled={busy || running || latest.state !== 'succeeded' || availableCalls === 0 || !summary?.provider_available} onClick={() => setApprovedItem(item.key)}>讓 AI 觀察這批畫面</button>}

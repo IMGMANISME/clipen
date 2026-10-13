@@ -752,8 +752,14 @@ export type EvidenceItem = {
   }
   keyframe_selection?: {
     method: string
+    frame_budget?: number
+    retained_limit?: number
     candidate_count: number
     semantic_relevance: boolean
+    decoded_count?: number
+    duplicate_count?: number
+    backfill_attempts?: number
+    retained_count?: number
     fallback_code?: string
     selected: { pts: string; score: number; source: 'uniform' | 'codec' | 'semantic' }[]
   }
