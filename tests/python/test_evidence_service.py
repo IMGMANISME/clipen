@@ -10,9 +10,11 @@ import threading
 import time
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 import test_analysis_storage as preparation_fixtures
-from clipen.analysis.evidence_service import EvidenceService
+from clipen.analysis.evidence_service import EvidenceService, _observation_evidence
+from clipen.analysis.keyframes import AdaptiveKeyframeSelector
 from clipen.media import bounded_file_fingerprint
 from clipen.projects import ProjectError
 from clipen.providers.recovery import ProviderUsage
@@ -20,7 +22,10 @@ from clipen.providers.recovery import ProviderUsage
 def png_chunk(kind, data):
     return struct.pack('!I', len(data)) + kind + data + struct.pack('!I', zlib.crc32(kind + data) & 0xffffffff)
 
-PNG = b'\x89PNG\r\n\x1a\n' + png_chunk(b'IHDR', struct.pack('!2I5B', 32, 32, 8, 2, 0, 0, 0)) + png_chunk(b'IDAT', zlib.compress((b'\0' + b'\xff\0\0' * 32) * 32)) + png_chunk(b'IEND', b'')
+def solid_png(color):
+    return b'\x89PNG\r\n\x1a\n' + png_chunk(b'IHDR', struct.pack('!2I5B', 32, 32, 8, 2, 0, 0, 0)) + png_chunk(b'IDAT', zlib.compress((b'\0' + bytes(color) * 32) * 32)) + png_chunk(b'IEND', b'')
+
+PNG = solid_png((255, 0, 0))
 
 
 class FakeExtractor:
@@ -96,10 +101,20 @@ class EvidenceServiceTests(unittest.TestCase):
         status = self.wait()
         run = status['latest']
         self.assertEqual(run['state'], 'succeeded')
+        self.assertEqual(status['limits']['frames_per_stream'], 48)
+        self.assertEqual(status['limits']['ai_images_per_call'], 8)
         self.assertEqual(len(run['results']), 3)
         video = next(r for r in run['results'] if r['kind'] == 'video')
-        self.assertEqual(len(video['frames']), 8)
-        self.assertEqual(video['keyframe_selection']['candidate_count'], 32)
+        self.assertEqual(len(video['frames']), 1)
+        self.assertLessEqual(
+            video['keyframe_selection']['retained_count'],
+            video['keyframe_selection']['retained_limit'],
+        )
+        self.assertEqual(
+            video['keyframe_selection']['duplicate_count'],
+            video['keyframe_selection']['decoded_count'] - 1,
+        )
+        self.assertEqual(video['keyframe_selection']['candidate_count'], 48)
         self.assertEqual(video['keyframe_selection']['method'], 'adaptive_relevance_coverage_v1')
         self.assertFalse(video['keyframe_selection']['semantic_relevance'])
         self.assertTrue(
@@ -112,6 +127,43 @@ class EvidenceServiceTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(self.clip.read_bytes()).hexdigest(), original)
         self.assertEqual(self.service.image(self.pid, run['run_id'], video['frames'][0]['artifact_id']).read_bytes(), PNG)
         self.assertEqual(FakeProvider.calls, [])
+
+    def test_similar_primary_frames_are_backfilled_until_retained_limit(self):
+        class BackfillExtractor(FakeExtractor):
+            calls = 0
+
+            def frame(self, source, offset, output, cancel):
+                self.__class__.calls += 1
+                colors = ((255, 0, 0), (255, 0, 0), (255, 0, 0), (0, 0, 255), (0, 255, 0))
+                output.write_bytes(solid_png(colors[min(self.calls - 1, len(colors) - 1)]))
+                span = source.source_span
+                return int(span.start_pts) + int(offset * span.time_base.denominator / span.time_base.numerator)
+
+        BackfillExtractor.calls = 0
+        self.service.extractor_factory = BackfillExtractor
+        with patch.object(AdaptiveKeyframeSelector, 'budget_for_duration', return_value=3):
+            self.start()
+            video = next(
+                result for result in self.wait()['latest']['results']
+                if result['kind'] == 'video'
+            )
+        self.assertEqual(video['keyframe_selection']['retained_limit'], 3)
+        self.assertEqual(video['keyframe_selection']['decoded_count'], 5)
+        self.assertEqual(video['keyframe_selection']['duplicate_count'], 2)
+        self.assertEqual(video['keyframe_selection']['backfill_attempts'], 2)
+        self.assertEqual(len(video['frames']), 3)
+        self.assertEqual(
+            [int(frame['pts']) for frame in video['frames']],
+            sorted(int(frame['pts']) for frame in video['frames']),
+        )
+
+    def test_ai_observation_uses_at_most_eight_frames_across_the_timeline(self):
+        evidence = {"frames": [{"pts": str(index)} for index in range(48)]}
+        selected = _observation_evidence(evidence)["frames"]
+        self.assertEqual(len(selected), 8)
+        self.assertEqual(selected[0]["pts"], "0")
+        self.assertEqual(selected[-1]["pts"], "47")
+        self.assertTrue(all(int(a["pts"]) < int(b["pts"]) for a, b in zip(selected, selected[1:])))
 
     def test_consent_idempotency_and_duplicate_observation(self):
         self.start()
