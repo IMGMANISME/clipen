@@ -380,7 +380,9 @@ class BootstrapTests(unittest.TestCase):
         setup.assert_called_once_with(self.repo)
         execute.assert_not_called()
         self.assertIn("Clipen 已安裝完成", output.getvalue())
+        self.assertIn("存放 Clipen 作品資料的目錄", output.getvalue())
         self.assertIn("clipen codex", output.getvalue())
+        self.assertIn("不需要回到 Clipen 程式碼目錄", output.getvalue())
 
     def test_codex_command_requires_completed_install_without_running_setup(self) -> None:
         errors = io.StringIO()

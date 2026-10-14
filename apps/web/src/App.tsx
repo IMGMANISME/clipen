@@ -14,6 +14,7 @@ import {
   getAnalysis,
   getInventory,
   getInventoryItems,
+  getPlanning,
   getProject,
   getStatus,
   listProjects,
@@ -48,7 +49,15 @@ type ApplicationState =
   | { kind: 'failed'; message: string; serverUnavailable: boolean }
   | { kind: 'ready'; status: StatusPayload; projects: Project[] }
 
-const stages = ['素材', '分析', '計畫', '剪輯', '匯出']
+type WorkspaceStage = 'materials' | 'analysis' | 'planning' | 'editing' | 'export'
+
+const stages: Array<{ id: WorkspaceStage; label: string }> = [
+  { id: 'materials', label: '素材' },
+  { id: 'analysis', label: '分析' },
+  { id: 'planning', label: '計畫' },
+  { id: 'editing', label: '剪輯' },
+  { id: 'export', label: '匯出' },
+]
 
 const providerHelp: Record<Exclude<ProviderState, 'ready'>, string> = {
   login_required: '完成 Codex 登入後再重啟 Clipen。你仍可先建立作品與整理素材位置。',
@@ -718,6 +727,7 @@ function MaterialsWorkspace({
   const [analysis, setAnalysis] = useState<AnalysisSummary | null>(null)
   const [analysisActionBusy, setAnalysisActionBusy] = useState(false)
   const [planning, setPlanning] = useState<PlanningStatus | null>(null)
+  const [selectedStage, setSelectedStage] = useState<WorkspaceStage | null>(null)
 
   const source = project.directories.find((directory) => directory.role === 'source')
   const reference = project.directories.find((directory) => directory.role === 'reference')
@@ -772,6 +782,34 @@ function MaterialsWorkspace({
     || analysis.latest?.inventory_run_id === currentInventoryId
     || analysis.current?.inventory_run_id === currentInventoryId
   ) ? analysis : null
+
+  useEffect(() => {
+    if (!currentInventoryId) return
+    let mounted = true
+    getPlanning(project.project_id)
+      .then((result) => { if (mounted) setPlanning(result) })
+      .catch((caught) => { if (mounted) setError(errorMessage(caught)) })
+    return () => { mounted = false }
+  }, [currentInventoryId, project.project_id])
+
+  const recommendedStage: WorkspaceStage = !currentInventoryId
+    ? 'materials'
+    : planning?.current_plan?.status === 'confirmed'
+      ? 'editing'
+      : planning?.preflight || planning?.current_plan
+        ? 'planning'
+        : 'analysis'
+
+  function stageAvailable(stage: WorkspaceStage): boolean {
+    if (stage === 'materials') return true
+    if (stage === 'analysis' || stage === 'planning') return Boolean(currentInventoryId)
+    if (stage === 'editing') return planning?.current_plan?.status === 'confirmed'
+    return false
+  }
+
+  const activeStage = selectedStage && stageAvailable(selectedStage)
+    ? selectedStage
+    : recommendedStage
 
   const latestAnalysisState = analysis?.latest?.state
   useEffect(() => {
@@ -1031,42 +1069,38 @@ function MaterialsWorkspace({
             <strong>{project.name}</strong>
           </div>
           <ol>
-            {stages.map((stage, index) => (
+            {stages.map((stage, index) => {
+              const available = stageAvailable(stage.id)
+              const completed = (
+                (stage.id === 'materials' && Boolean(currentInventoryId))
+                || (stage.id === 'analysis' && Boolean(currentInventoryId && (planning?.preflight || planning?.current_plan)))
+                || (stage.id === 'planning' && Boolean(currentInventoryId && planning?.current_plan?.status === 'confirmed'))
+              )
+              return (
               <li
-                key={stage}
-                className={
-                  index === 0
-                    ? currentInventoryId ? 'completed' : 'active'
-                    : index === 1
-                      ? planning?.preflight || planning?.current_plan
-                        ? 'completed'
-                        : currentInventoryId ? 'active' : 'locked'
-                      : index === 2
-                        ? planning?.current_plan?.status === 'confirmed'
-                          ? 'completed'
-                          : planning?.preflight || planning?.current_plan ? 'active' : 'locked'
-                        : index === 3 && planning?.current_plan?.status === 'confirmed'
-                          ? 'active'
-                          : 'locked'
-                }
+                key={stage.id}
+                className={activeStage === stage.id ? 'active' : completed ? 'completed' : available ? '' : 'locked'}
               >
-                <span>{String(index + 1).padStart(2, '0')}</span>
-                <div>
-                  <strong>{stage}</strong>
-                  {index === 0 && currentInventoryId && <small>已檢查</small>}
-                  {index === 1 && (planning?.preflight || planning?.current_plan) && <small>已準備</small>}
-                  {index === 2 && planning?.current_plan?.status === 'confirmed' && <small>已確認</small>}
-                  {index === 2 && planning?.current_plan?.status !== 'confirmed' && currentInventoryId && <small>{planning?.current_plan ? '待確認' : '尚待產生'}</small>}
-                  {index === 3 && planning?.current_plan?.status === 'confirmed' && <small>執行前檢查</small>}
-                  {index > 2 && !(index === 3 && planning?.current_plan?.status === 'confirmed') && <small>尚未開放</small>}
-                </div>
+                <button type="button" disabled={!available} aria-current={activeStage === stage.id ? 'step' : undefined} onClick={() => setSelectedStage(stage.id)}>
+                  <span>{String(index + 1).padStart(2, '0')}</span>
+                  <div>
+                    <strong>{stage.label}</strong>
+                    {stage.id === 'materials' && currentInventoryId && <small>已檢查</small>}
+                    {stage.id === 'analysis' && (planning?.preflight || planning?.current_plan) && <small>已準備</small>}
+                    {stage.id === 'planning' && planning?.current_plan?.status === 'confirmed' && <small>已確認</small>}
+                    {stage.id === 'planning' && planning?.current_plan?.status !== 'confirmed' && currentInventoryId && <small>{planning?.current_plan ? '待確認' : '尚待產生'}</small>}
+                    {stage.id === 'editing' && available && <small>建立剪輯版本</small>}
+                    {!available && stage.id !== 'materials' && <small>尚未開放</small>}
+                  </div>
+                </button>
               </li>
-            ))}
+              )
+            })}
           </ol>
         </aside>
 
-        <section className="materials-panel" aria-labelledby="materials-title">
-          <div className="panel-heading">
+        <section className="materials-panel" aria-label="作品工作區">
+          {activeStage === 'materials' && <div className="panel-heading">
             <div>
               <p className="eyebrow">01 · 素材</p>
               <h1 id="materials-title">準備這次剪輯</h1>
@@ -1075,7 +1109,7 @@ function MaterialsWorkspace({
             <div className={`save-state ${dirty ? 'unsaved' : ''}`} aria-live="polite">
               <span aria-hidden="true" />{saving ? '保存中' : dirty ? '尚未保存' : '已保存'}
             </div>
-          </div>
+          </div>}
 
           {(error || notice) && (
             <div className={error ? 'inline-message error' : 'inline-message success'} role={error ? 'alert' : 'status'}>
@@ -1083,7 +1117,7 @@ function MaterialsWorkspace({
             </div>
           )}
 
-          <form className="project-form" onSubmit={saveDetails}>
+          {activeStage === 'materials' && <div className="stage-view"><form className="project-form" onSubmit={saveDetails}>
             <label htmlFor="workspace-name">作品名稱</label>
             <input
               id="workspace-name"
@@ -1142,30 +1176,7 @@ function MaterialsWorkspace({
             onStart={() => void inspectMedia()}
             onCancel={(run) => void stopInventory(run)}
           />
-          {currentInventoryId && <EvidenceSection key={`${project.project_id}:${currentInventoryId}`} projectId={project.project_id} csrf={csrf} inventoryId={currentInventoryId} />}
-          {currentInventoryId && (
-            <AnalysisSection
-              projectId={project.project_id}
-              summary={visibleAnalysis}
-              loading={!visibleAnalysis}
-              actionBusy={analysisActionBusy}
-              onStart={() => void analyzeMedia()}
-              onCancel={(run) => void stopAnalysis(run)}
-              onResume={(run) => void continueAnalysis(run)}
-              onRemoveRuntime={() => void removeLocalASR()}
-            />
-          )}
-          {currentInventoryId && (
-            <PlanningSection
-              project={project}
-              csrf={csrf}
-              projectDirty={dirty}
-              onStatus={setPlanning}
-            />
-          )}
-          {planning?.current_plan?.status === 'confirmed' && (
-            <TimelineValidationSection projectId={project.project_id} csrf={csrf} />
-          )}
+          {currentInventoryId && <div className="stage-next"><span>素材已經整理完成</span><button className="button primary" type="button" onClick={() => setSelectedStage('analysis')}>前往分析</button></div>}
           <section className="danger-zone" aria-labelledby="delete-project-title">
             <div>
               <h2 id="delete-project-title">刪除作品</h2>
@@ -1191,7 +1202,38 @@ function MaterialsWorkspace({
                 {deleting ? '正在刪除…' : '永久刪除作品'}
               </button>
             </div>
-          </section>
+          </section></div>}
+          {activeStage === 'analysis' && currentInventoryId && <div className="stage-view">
+            <EvidenceSection key={`${project.project_id}:${currentInventoryId}`} projectId={project.project_id} csrf={csrf} inventoryId={currentInventoryId} />
+            <AnalysisSection
+              projectId={project.project_id}
+              summary={visibleAnalysis}
+              loading={!visibleAnalysis}
+              actionBusy={analysisActionBusy}
+              onStart={() => void analyzeMedia()}
+              onCancel={(run) => void stopAnalysis(run)}
+              onResume={(run) => void continueAnalysis(run)}
+              onRemoveRuntime={() => void removeLocalASR()}
+            />
+            <div className="stage-next"><span>可隨時使用目前已保存的分析結果</span><button className="button primary" type="button" onClick={() => setSelectedStage('planning')}>前往剪輯計畫</button></div>
+          </div>}
+          {activeStage === 'planning' && currentInventoryId && (
+            <div className="stage-view">
+            <PlanningSection
+              project={project}
+              csrf={csrf}
+              projectDirty={dirty}
+              onStatus={setPlanning}
+              onConfirmed={() => setSelectedStage('editing')}
+            />
+            {planning?.current_plan?.status === 'confirmed' && <div className="stage-next"><span>計畫已確認</span><button className="button primary" type="button" onClick={() => setSelectedStage('editing')}>建立剪輯版本</button></div>}
+            </div>
+          )}
+          {activeStage === 'editing' && planning?.current_plan?.status === 'confirmed' && (
+            <div className="stage-view">
+            <TimelineValidationSection projectId={project.project_id} csrf={csrf} />
+            </div>
+          )}
         </section>
       </div>
     </main>
