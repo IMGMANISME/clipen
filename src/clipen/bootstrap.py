@@ -810,7 +810,11 @@ def main(repo_root: Path, arguments: Sequence[str]) -> int:
             runtime = ensure_installation(repo_root)
             if runtime is not None:
                 print("✓ Clipen 已安裝完成")
-                print("開啟新的 Terminal 後執行：clipen codex")
+                print("\n接下來：")
+                print("1. 開啟新的 Terminal")
+                print("2. cd 到你想存放 Clipen 作品資料的目錄")
+                print("3. 執行：clipen codex")
+                print("\n不需要回到 Clipen 程式碼目錄；毛片也可以放在其他位置。")
             return 0
         if list(arguments) == ["uninstall"]:
             uninstall_installation()

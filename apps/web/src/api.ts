@@ -270,6 +270,31 @@ export type TimelineValidationState = {
   accepted_at: string | null
 }
 
+export type EditTimelineSummary = {
+  timeline_id: string
+  plan_id: string
+  plan_revision: number
+  plan_content_hash: string
+  output: {
+    preset: 'landscape_1080p' | 'portrait_1080p'
+    frame_rate: 24 | 25 | 30 | 60
+    width: number
+    height: number
+  }
+  duration_frames: number
+  duration_seconds: number
+  tracks: Array<{ track_id: string; kind: 'video' | 'audio' | 'title' | 'graphic'; item_count: number }>
+  markers: Array<{ marker_id: string; frame: number; label: string; note: string }>
+  created_at: string
+}
+
+export type EditTimelineState = {
+  state: 'not_ready' | 'stale' | 'validation_required' | 'ready' | 'needs_confirmation' | 'blocked'
+  can_execute: boolean
+  timeline: EditTimelineSummary | null
+  validation: TimelineValidationState | null
+}
+
 export type SystemSkillSummary = {
   id: string
   name: string
@@ -333,6 +358,12 @@ export type PlanningStatus = {
   } | null
   latest_run: PlanningRun | null
   current_plan: EditablePlan | null
+  plan_quality?: {
+    target_duration_seconds: number | null
+    selected_video_duration_seconds: number
+    selected_video_count: number
+    issue_code: string | null
+  } | null
 }
 
 export class ApiError extends Error {
@@ -632,6 +663,30 @@ export async function getTimelineValidation(
 ): Promise<TimelineValidationState> {
   return request<TimelineValidationState>(
     `/api/projects/${projectId}/timeline-validation`,
+  )
+}
+
+export async function getEditTimeline(projectId: string): Promise<EditTimelineState> {
+  return request<EditTimelineState>(`/api/projects/${projectId}/timeline`)
+}
+
+export async function buildEditTimeline(
+  csrf: string,
+  projectId: string,
+  plan: Pick<EditablePlan, 'plan_id' | 'revision'>,
+  outputPreset: 'landscape_1080p' | 'portrait_1080p',
+  frameRate: 24 | 25 | 30 | 60,
+): Promise<EditTimelineState> {
+  return command<EditTimelineState>(
+    `/api/projects/${projectId}/timeline/commands/build`,
+    csrf,
+    {
+      request_id: crypto.randomUUID(),
+      plan_id: plan.plan_id,
+      plan_revision: plan.revision,
+      output_preset: outputPreset,
+      frame_rate: frameRate,
+    },
   )
 }
 
