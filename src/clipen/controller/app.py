@@ -28,6 +28,7 @@ from clipen.analysis import (
     PreparationRepository,
 )
 from clipen.analysis.evidence_service import EvidenceService
+from clipen.editing import TimelineService
 from clipen.media import InventoryCoordinator
 from clipen.planning import PlanningService
 from clipen.projects import (
@@ -256,6 +257,7 @@ def create_app(
     evidence_service: EvidenceService | None = None,
     timeline_validations: TimelineValidationRepository | None = None,
     planning_service: PlanningService | None = None,
+    timeline_service: TimelineService | None = None,
 ) -> ASGIApp:
     static_root = config.static_root.resolve(strict=True)
     if timeline_validations is None and workspace is not None:
@@ -420,6 +422,15 @@ def create_app(
                 status_code=503,
             )
         return planning_service
+
+    def require_timeline() -> TimelineService:
+        if timeline_service is None:
+            raise ProjectError(
+                "timeline_unavailable",
+                "Clipen 剪輯版本尚未準備完成。",
+                status_code=503,
+            )
+        return timeline_service
 
     def require_fields(
         payload: dict[str, object], required: set[str], optional: set[str] | None = None
@@ -607,6 +618,42 @@ def create_app(
                 payload["report_id"],
             )
             return JSONResponse(state.to_public())
+        except ProjectError as error:
+            return await project_error_response(error)
+
+    async def timeline_status(request: Request) -> Response:
+        try:
+            result = await run_in_threadpool(
+                require_timeline().status,
+                request.path_params["project_id"],
+            )
+            return JSONResponse(result)
+        except ProjectError as error:
+            return await project_error_response(error)
+
+    async def build_timeline(request: Request) -> Response:
+        try:
+            payload = await read_json(request)
+            require_fields(
+                payload,
+                {
+                    "request_id",
+                    "plan_id",
+                    "plan_revision",
+                    "output_preset",
+                    "frame_rate",
+                },
+            )
+            result = await run_in_threadpool(
+                require_timeline().build,
+                request.path_params["project_id"],
+                payload["request_id"],
+                payload["plan_id"],
+                payload["plan_revision"],
+                payload["output_preset"],
+                payload["frame_rate"],
+            )
+            return JSONResponse(result, status_code=201)
         except ProjectError as error:
             return await project_error_response(error)
 
@@ -1053,6 +1100,16 @@ def create_app(
             Route(
                 "/api/projects/{project_id}/commands/delete",
                 delete_project,
+                methods=["POST"],
+            ),
+            Route(
+                "/api/projects/{project_id}/timeline",
+                timeline_status,
+                methods=["GET"],
+            ),
+            Route(
+                "/api/projects/{project_id}/timeline/commands/build",
+                build_timeline,
                 methods=["POST"],
             ),
             Route(

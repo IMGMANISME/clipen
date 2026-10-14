@@ -90,6 +90,15 @@ class TimelineTests(unittest.TestCase):
             ["video", "title", "graphic"],
         )
 
+    def test_persisted_payload_round_trips_through_validation(self) -> None:
+        timeline = self.timeline()
+        self.assertEqual(EditTimeline.from_payload(timeline.to_payload()), timeline)
+
+        tampered = timeline.to_payload()
+        tampered["tracks"][0]["items"][0]["source"]["handle_before_pts"] = -1
+        with self.assertRaises(ValueError):
+            EditTimeline.from_payload(tampered)
+
     def test_rejects_overlap_and_wrong_item_kind(self) -> None:
         with self.assertRaisesRegex(ValueError, "cannot overlap"):
             Track(

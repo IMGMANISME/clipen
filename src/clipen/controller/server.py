@@ -33,10 +33,12 @@ from clipen.analysis import (
     PreparationRepository,
 )
 from clipen.media import InventoryCoordinator, InventoryRepository
+from clipen.domain import CapabilityProfile
+from clipen.editing import TimelineRepository, TimelineService
 from clipen.planning import PlanningRepository, PlanningService
 from clipen.providers import CodexExecAdapter, ProviderUnavailable
 from clipen.analysis.evidence_service import EvidenceService
-from clipen.projects import ProjectWorkspace
+from clipen.projects import ProjectWorkspace, TimelineValidationRepository
 from clipen.system_skills import VerifiedSystemSkillRelease
 
 from .app import (
@@ -326,6 +328,8 @@ async def _serve(
     analysis_runtime = None
     evidence_service = None
     planning_service = None
+    timeline_service = None
+    timeline_validations = None
     try:
         workspace = (
             ProjectWorkspace(paths.projects_root)
@@ -333,6 +337,14 @@ async def _serve(
             else None
         )
         if workspace is not None:
+            planning_repository = PlanningRepository(workspace.repository)
+            timeline_validations = TimelineValidationRepository(workspace.repository)
+            timeline_service = TimelineService(
+                TimelineRepository(workspace.repository),
+                planning_repository,
+                timeline_validations,
+                CapabilityProfile("clipen-export-unverified", 1),
+            )
             repository = InventoryRepository(workspace.repository)
             inventories = InventoryCoordinator(repository)
             inventories.recover_incomplete(
@@ -342,7 +354,7 @@ async def _serve(
             evidence_service.recover()
             if paths.plan_schema is not None:
                 planning_service = PlanningService(
-                    PlanningRepository(workspace.repository),
+                    planning_repository,
                     paths.attempt_root,
                     paths.plan_schema,
                     system_skills,
@@ -375,7 +387,9 @@ async def _serve(
             preparation_repository=preparation_repository,
             analysis_runtime=analysis_runtime,
             evidence_service=evidence_service,
+            timeline_validations=timeline_validations,
             planning_service=planning_service,
+            timeline_service=timeline_service,
         )
         config = uvicorn.Config(
             app,

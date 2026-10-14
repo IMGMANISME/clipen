@@ -29,10 +29,11 @@ from .models import (
 from .evidence_schema import EVIDENCE_SCHEMA, OBSERVATION_SCHEMA
 from .validation_schema import VALIDATION_WORKFLOW_SCHEMA
 from .planning_schema import PLANNING_SCHEMA
+from .timeline_schema import TIMELINE_SCHEMA
 from .deletion import ProjectDeletion
 
 
-PROJECT_SCHEMA_VERSION = 9
+PROJECT_SCHEMA_VERSION = 10
 _PROJECT_DIRECTORY = re.compile(r"prj_[0-9a-f]{32}\Z")
 
 _INVENTORY_SCHEMA = """
@@ -637,8 +638,9 @@ class ProjectRepository:
                 + OBSERVATION_SCHEMA
                 + VALIDATION_WORKFLOW_SCHEMA
                 + PLANNING_SCHEMA
+                + TIMELINE_SCHEMA
                 + """
-                PRAGMA user_version = 9;
+                PRAGMA user_version = 10;
                 """
             )
             connection.execute(
@@ -713,6 +715,9 @@ class ProjectRepository:
             if version == 8:
                 self._migrate_v8_to_v9(connection)
                 version = 9
+            if version == 9:
+                self._migrate_v9_to_v10(connection)
+                version = 10
             if version != PROJECT_SCHEMA_VERSION:
                 connection.close()
                 raise ProjectError(
@@ -885,6 +890,57 @@ class ProjectRepository:
             "BEGIN IMMEDIATE;\n"
             + migration_sql
             + "\nPRAGMA user_version = 9;\nCOMMIT;"
+        )
+
+    @staticmethod
+    def _migrate_v9_to_v10(connection: sqlite3.Connection) -> None:
+        """Create or verify immutable timeline tables after interruption."""
+
+        expected_columns = {
+            "edit_timelines": (
+                "timeline_id", "project_id", "plan_id", "plan_revision",
+                "plan_content_hash", "output_preset", "frame_rate",
+                "payload_digest", "payload_json", "created_at",
+            ),
+            "current_timeline": ("slot", "timeline_id"),
+            "timeline_command_receipts": (
+                "request_id", "command_type", "request_hash", "timeline_id",
+                "created_at",
+            ),
+        }
+        observed = {
+            row["name"]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' "
+                "AND name IN (?, ?, ?)",
+                tuple(expected_columns),
+            )
+        }
+        if observed and observed != set(expected_columns):
+            raise sqlite3.DatabaseError("incomplete timeline schema")
+        if observed:
+            for table, expected in expected_columns.items():
+                columns = tuple(
+                    row["name"]
+                    for row in connection.execute(f"PRAGMA table_info({table})")
+                )
+                if columns != expected:
+                    raise sqlite3.DatabaseError("unexpected timeline schema")
+            indexes = {
+                row["name"]
+                for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'index'"
+                )
+            }
+            if "edit_timelines_project_created" not in indexes:
+                raise sqlite3.DatabaseError("incomplete timeline indexes")
+            migration_sql = ""
+        else:
+            migration_sql = TIMELINE_SCHEMA
+        connection.executescript(
+            "BEGIN IMMEDIATE;\n"
+            + migration_sql
+            + "\nPRAGMA user_version = 10;\nCOMMIT;"
         )
 
     @staticmethod
