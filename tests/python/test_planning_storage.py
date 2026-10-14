@@ -207,6 +207,17 @@ class PlanningRepositoryTests(unittest.TestCase):
     def test_regeneration_supersedes_the_previous_editable_plan(self) -> None:
         first = self.publish_plan()
         second_run, _ = self.create_run("request-planning-regenerate")
+        self.assertIsNone(self.planning.current_plan(self.project.project_id))
+        with self.projects.connect(self.project.project_id) as database:
+            retired_payload = database.execute(
+                "SELECT payload_json FROM plan_revisions "
+                "WHERE plan_id=? AND revision=?",
+                (first.plan_id, first.revision),
+            ).fetchone()[0]
+        self.assertEqual(
+            PlanRevision.from_payload(json.loads(retired_payload)).status,
+            PlanStatus.SUPERSEDED,
+        )
         self.planning.mark_running(self.project.project_id, second_run.run_id)
         second = self.plan(plan_id="plan-" + "e" * 32)
         self.planning.publish(
@@ -320,6 +331,34 @@ class PlanningRepositoryTests(unittest.TestCase):
                 original.revision + 1,
             )
         self.assertEqual(stale.exception.code, "plan_revision_conflict")
+
+    def test_confirm_rejects_plan_far_below_explicit_target_runtime(self) -> None:
+        context = PlanningContext(
+            self.project.project_id,
+            "把旅行素材剪成約十分鐘的 Vlog。",
+            self.context.material_snapshot_id,
+            self.context.analysis_snapshot_id,
+            self.context.candidates,
+        )
+        run, _ = self.planning.create_run(
+            self.project.project_id,
+            "request-targeted-plan-run",
+            self.project.revision,
+            "travel-natural",
+            "skills-release-1",
+            context,
+        )
+        self.planning.mark_running(self.project.project_id, run.run_id)
+        plan = self.plan()
+        self.planning.publish(self.project.project_id, run.run_id, plan, None)
+        with self.assertRaises(ProjectError) as rejected:
+            self.planning.confirm_plan(
+                self.project.project_id,
+                "request-confirm-short-plan",
+                plan.plan_id,
+                plan.revision,
+            )
+        self.assertEqual(rejected.exception.code, "plan_video_coverage_too_short")
 
     def test_invalid_or_unchanged_edit_leaves_current_revision_intact(self) -> None:
         original = self.publish_plan()

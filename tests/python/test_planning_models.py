@@ -11,6 +11,8 @@ from clipen.planning import (
     PlanningContext,
     TranscriptReliability,
     resolve_plan_proposal,
+    assess_plan_quality,
+    requested_duration_seconds,
 )
 
 
@@ -93,6 +95,23 @@ class PlanningModelsTests(unittest.TestCase):
             Path("schemas/v1/plan-proposal.schema.json").read_text(encoding="utf-8")
         )
         Draft202012Validator(schema).validate(self.proposal())
+        patterns: list[str] = []
+
+        def collect_patterns(value: object) -> None:
+            if isinstance(value, dict):
+                pattern = value.get("pattern")
+                if isinstance(pattern, str):
+                    patterns.append(pattern)
+                for child in value.values():
+                    collect_patterns(child)
+            elif isinstance(value, list):
+                for child in value:
+                    collect_patterns(child)
+
+        collect_patterns(schema)
+        self.assertTrue(patterns)
+        self.assertTrue(all("(?" not in pattern for pattern in patterns))
+        self.assertNotIn("uniqueItems", json.dumps(schema, sort_keys=True))
         invalid = self.proposal()
         invalid["unexpected"] = True
         self.assertTrue(list(Draft202012Validator(schema).iter_errors(invalid)))
@@ -124,6 +143,28 @@ class PlanningModelsTests(unittest.TestCase):
                 revision=1,
                 system_skill_release="skills-1",
             )
+
+    def test_quality_reads_explicit_chinese_runtime_and_flags_short_video(self) -> None:
+        self.assertEqual(requested_duration_seconds("總時長約莫十分鐘"), 600)
+        self.assertIsNone(requested_duration_seconds("每 10 分鐘休息一次"))
+        context = PlanningContext(
+            "prj_" + "1" * 32,
+            "依旅程順序剪成約 10 分鐘的自然 Vlog。",
+            "inventory-1",
+            "analysis-1",
+            (self.candidate(1), self.candidate(2)),
+        )
+        plan = resolve_plan_proposal(
+            self.proposal(),
+            context,
+            plan_id="plan-1",
+            revision=1,
+            system_skill_release="skills-1",
+        )
+        quality = assess_plan_quality(plan, context)
+        self.assertEqual(quality.target_duration_seconds, 600)
+        self.assertEqual(quality.selected_video_duration_seconds, 4)
+        self.assertEqual(quality.issue_code, "plan_video_coverage_too_short")
 
         reused = self.proposal()
         reused["sections"].append(

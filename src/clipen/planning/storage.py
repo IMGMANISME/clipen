@@ -23,6 +23,7 @@ from clipen.providers.recovery import ProviderUsage
 
 from .models import PlanningContext
 from .proposal import PlanProposalError, resolve_plan_proposal
+from .quality import assess_plan_quality
 
 
 _RUN_ID = re.compile(r"planrun_[0-9a-f]{32}\Z")
@@ -159,6 +160,37 @@ class PlanningRepository:
                     raise ProjectError(
                         "planning_busy", "目前已有剪輯計畫正在產生。", status_code=409
                     )
+                current_plan = database.execute(
+                    "SELECT revisions.* FROM current_plan AS current "
+                    "JOIN plan_revisions AS revisions "
+                    "ON revisions.plan_id=current.plan_id "
+                    "AND revisions.revision=current.revision WHERE current.slot=1"
+                ).fetchone()
+                if current_plan is not None:
+                    previous = PlanRevision.from_payload(
+                        json.loads(current_plan["payload_json"])
+                    )
+                    if previous.status not in {
+                        PlanStatus.READY_FOR_REVIEW,
+                        PlanStatus.CONFIRMED,
+                    }:
+                        raise ProjectError(
+                            "planning_execution_active",
+                            "目前的剪輯版本仍在執行或檢查，不能重新產生計畫。",
+                            status_code=409,
+                        )
+                    retired = previous.transition(PlanStatus.SUPERSEDED)
+                    database.execute(
+                        "UPDATE plan_revisions SET status=?, payload_json=? "
+                        "WHERE plan_id=? AND revision=?",
+                        (
+                            retired.status.value,
+                            self._encoded_plan(retired),
+                            retired.plan_id,
+                            retired.revision,
+                        ),
+                    )
+                    database.execute("DELETE FROM current_plan WHERE slot=1")
                 database.execute(
                     "INSERT INTO planning_runs "
                     "(run_id, project_id, request_id, project_revision, editing_skill_id, "
@@ -185,6 +217,10 @@ class PlanningRepository:
                 return self._run(row), True
         except ProjectError:
             raise
+        except (json.JSONDecodeError, TypeError, ValueError) as error:
+            raise ProjectError(
+                "storage_corrupt", "Clipen 無法讀取既有剪輯計畫。", status_code=500
+            ) from error
         except sqlite3.Error as error:
             raise ProjectError(
                 "storage_failed", "Clipen 無法建立剪輯計畫工作。", status_code=500
@@ -448,6 +484,44 @@ class PlanningRepository:
                 "storage_corrupt", "Clipen 無法讀取剪輯計畫。", status_code=500
             ) from error
 
+    def execution_input(
+        self, project_id: str
+    ) -> tuple[PlanRevision, PlanningContext]:
+        """Return the confirmed plan and the immutable context that resolved it."""
+
+        validate_project_id(project_id)
+        try:
+            with self.projects.connect(project_id) as database:
+                row = self._current_plan_row(database)
+                plan = PlanRevision.from_payload(json.loads(row["payload_json"]))
+                if plan.status is not PlanStatus.CONFIRMED:
+                    raise ProjectError(
+                        "plan_not_confirmed",
+                        "請先確認一份剪輯計畫。",
+                        status_code=409,
+                    )
+                source_run_id = row["source_run_id"]
+                if not isinstance(source_run_id, str):
+                    raise ValueError("plan source run is missing")
+                context = self._stored_context(
+                    self._get_row_in(database, source_run_id)
+                )
+                if (
+                    context.project_id != project_id
+                    or context.material_snapshot_id != plan.material_snapshot_id
+                    or context.analysis_snapshot_id != plan.analysis_snapshot_id
+                ):
+                    raise ValueError("plan context does not match the confirmed plan")
+                return plan, context
+        except ProjectError:
+            raise
+        except (json.JSONDecodeError, TypeError, ValueError) as error:
+            raise ProjectError(
+                "storage_corrupt",
+                "Clipen 無法讀取已確認的剪輯計畫。",
+                status_code=500,
+            ) from error
+
     def update_plan(
         self,
         project_id: str,
@@ -621,6 +695,19 @@ class PlanningRepository:
                         "plan_not_confirmable",
                         "這個剪輯計畫目前不能確認。",
                         status_code=409,
+                    )
+                source_run_id = current_row["source_run_id"]
+                if not isinstance(source_run_id, str):
+                    raise ValueError("plan source run is missing")
+                context = self._stored_context(
+                    self._get_row_in(database, source_run_id)
+                )
+                quality = assess_plan_quality(current, context)
+                if quality.issue_code == "plan_video_coverage_too_short":
+                    raise ProjectError(
+                        quality.issue_code,
+                        "所選影像長度遠低於你要求的成片長度，請增加影像片段或重新產生計畫。",
+                        status_code=422,
                     )
                 confirmed = current.transition(PlanStatus.CONFIRMED)
                 now = utc_now()
