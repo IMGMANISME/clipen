@@ -400,3 +400,173 @@ class EditTimeline:
             "tracks": [track.to_payload() for track in self.tracks],
             "markers": [marker.to_payload() for marker in self.markers],
         }
+
+    @classmethod
+    def from_payload(cls, value: object) -> "EditTimeline":
+        """Rebuild a validated timeline from its canonical persisted payload."""
+
+        if not isinstance(value, dict) or set(value) != {
+            "schema_version",
+            "timeline_id",
+            "project_id",
+            "plan_id",
+            "plan_revision",
+            "plan_content_hash",
+            "frame_rate",
+            "canvas",
+            "duration_frames",
+            "tracks",
+            "markers",
+        } or value["schema_version"] != 1:
+            raise ValueError("stored timeline is invalid")
+        canvas = value["canvas"]
+        tracks = value["tracks"]
+        markers = value["markers"]
+        if (
+            not isinstance(canvas, dict)
+            or set(canvas) != {"width", "height"}
+            or not isinstance(tracks, list)
+            or not isinstance(markers, list)
+        ):
+            raise ValueError("stored timeline collections are invalid")
+        parsed_tracks: list[Track] = []
+        for raw_track in tracks:
+            if not isinstance(raw_track, dict) or set(raw_track) != {
+                "track_id",
+                "kind",
+                "items",
+            } or not isinstance(raw_track["items"], list):
+                raise ValueError("stored timeline track is invalid")
+            kind = TrackKind(raw_track["kind"])
+            parsed_items: list[TimelineItem] = []
+            for raw_item in raw_track["items"]:
+                if not isinstance(raw_item, dict):
+                    raise ValueError("stored timeline item is invalid")
+                item_kind = raw_item.get("kind")
+                if item_kind == "media" and set(raw_item) == {
+                    "kind",
+                    "item_id",
+                    "start_frame",
+                    "duration_frames",
+                    "source",
+                    "effects",
+                }:
+                    source = raw_item["source"]
+                    effects = raw_item["effects"]
+                    if not isinstance(source, dict) or not isinstance(effects, list):
+                        raise ValueError("stored media clip is invalid")
+                    if set(source) != {
+                        "version_id",
+                        "stream_index",
+                        "start_pts",
+                        "end_pts",
+                        "time_base",
+                        "handle_before_pts",
+                        "handle_after_pts",
+                    }:
+                        raise ValueError("stored media source is invalid")
+                    span_payload = {
+                        key: child
+                        for key, child in source.items()
+                        if key not in {"handle_before_pts", "handle_after_pts"}
+                    }
+                    parsed_effects = []
+                    for effect in effects:
+                        if not isinstance(effect, dict) or set(effect) != {
+                            "effect_id", "version", "parameters",
+                        }:
+                            raise ValueError("stored effect is invalid")
+                        parsed_effects.append(
+                            EffectRequest(
+                                effect["effect_id"],
+                                effect["parameters"],
+                                version=effect["version"],
+                            )
+                        )
+                    parsed_items.append(
+                        MediaClip(
+                            raw_item["item_id"],
+                            raw_item["start_frame"],
+                            raw_item["duration_frames"],
+                            ClipSource(
+                                SourceSpan.from_storage(span_payload),
+                                _stored_non_negative_integer(
+                                    source["handle_before_pts"], "handle_before_pts"
+                                ),
+                                _stored_non_negative_integer(
+                                    source["handle_after_pts"], "handle_after_pts"
+                                ),
+                            ),
+                            tuple(parsed_effects),
+                        )
+                    )
+                elif item_kind == "text" and set(raw_item) == {
+                    "kind",
+                    "item_id",
+                    "start_frame",
+                    "duration_frames",
+                    "text",
+                    "style_id",
+                }:
+                    parsed_items.append(
+                        TextClip(
+                            raw_item["item_id"],
+                            raw_item["start_frame"],
+                            raw_item["duration_frames"],
+                            raw_item["text"],
+                            raw_item["style_id"],
+                        )
+                    )
+                elif item_kind == "graphic" and set(raw_item) == {
+                    "kind",
+                    "item_id",
+                    "start_frame",
+                    "duration_frames",
+                    "artifact_id",
+                }:
+                    parsed_items.append(
+                        GraphicClip(
+                            raw_item["item_id"],
+                            raw_item["start_frame"],
+                            raw_item["duration_frames"],
+                            raw_item["artifact_id"],
+                        )
+                    )
+                else:
+                    raise ValueError("stored timeline item is invalid")
+            parsed_tracks.append(Track(raw_track["track_id"], kind, tuple(parsed_items)))
+        parsed_markers = []
+        for marker in markers:
+            if not isinstance(marker, dict) or set(marker) != {
+                "marker_id", "frame", "label", "note",
+            }:
+                raise ValueError("stored timeline marker is invalid")
+            parsed_markers.append(
+                Marker(
+                    marker["marker_id"],
+                    marker["frame"],
+                    marker["label"],
+                    marker["note"],
+                )
+            )
+        return cls(
+            value["timeline_id"],
+            value["project_id"],
+            value["plan_id"],
+            value["plan_revision"],
+            value["plan_content_hash"],
+            Rational.from_storage(value["frame_rate"]),
+            canvas["width"],
+            canvas["height"],
+            value["duration_frames"],
+            tuple(parsed_tracks),
+            tuple(parsed_markers),
+        )
+
+
+def _stored_non_negative_integer(value: object, field: str) -> int:
+    if not isinstance(value, str) or re.fullmatch(r"(?:0|[1-9][0-9]*)", value) is None:
+        raise ValueError(f"stored {field} is invalid")
+    parsed = int(value)
+    _non_negative_integer(parsed, field)
+    return parsed

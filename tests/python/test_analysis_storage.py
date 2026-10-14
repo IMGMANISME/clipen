@@ -887,7 +887,7 @@ class PreparationStorageTests(unittest.TestCase):
 
         migrated = ProjectRepository(self.root / "projects")
         with migrated.connect(self.project.project_id) as connection:
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 9)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 10)
             run = connection.execute(
                 "SELECT project_revision, scope_id, operation_id, attempt_id, "
                 "attempt_number FROM preparation_runs WHERE run_id = ?",
