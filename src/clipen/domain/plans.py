@@ -9,6 +9,7 @@ import json
 from typing import AbstractSet, Mapping
 
 from .errors import InvalidTransition
+from .blueprints import EditBlueprint
 from .media_time import SourceSpan
 from .validation import require_identifier
 
@@ -102,12 +103,19 @@ class PlanSection:
         }
 
 
-def plan_content_hash(title: str, summary: str, sections: tuple[PlanSection, ...]) -> str:
+def plan_content_hash(
+    title: str,
+    summary: str,
+    sections: tuple[PlanSection, ...],
+    blueprint: EditBlueprint | None = None,
+) -> str:
     payload = {
         "title": title,
         "summary": summary,
         "sections": [section.to_payload() for section in sections],
     }
+    if blueprint is not None:
+        payload["blueprint"] = blueprint.to_payload()
     encoded = json.dumps(
         payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
     ).encode("utf-8")
@@ -127,6 +135,7 @@ class PlanRevision:
     summary: str
     sections: tuple[PlanSection, ...]
     status: PlanStatus = PlanStatus.DRAFT
+    blueprint: EditBlueprint | None = None
 
     def __post_init__(self) -> None:
         for field in (
@@ -156,7 +165,20 @@ class PlanRevision:
         if len(identifiers) != len(set(identifiers)):
             raise ValueError("plan section IDs must be unique")
         object.__setattr__(self, "sections", sections)
-        if self.content_hash != plan_content_hash(self.title, self.summary, sections):
+        if self.blueprint is not None:
+            if not isinstance(self.blueprint, EditBlueprint):
+                raise ValueError("plan edit blueprint is invalid")
+            blueprint_sections = self.blueprint.sections
+            if [section.section_id for section in blueprint_sections] != identifiers:
+                raise ValueError("plan and blueprint section order must match")
+            for section, blueprint_section in zip(sections, blueprint_sections):
+                if [item.candidate_id for item in section.source_ranges] != [
+                    clip.candidate_id for clip in blueprint_section.clips
+                ]:
+                    raise ValueError("plan and blueprint clip order must match")
+        if self.content_hash != plan_content_hash(
+            self.title, self.summary, sections, self.blueprint
+        ):
             raise ValueError("content_hash does not match plan content")
 
     @classmethod
@@ -173,13 +195,14 @@ class PlanRevision:
         summary: str,
         sections: tuple[PlanSection, ...],
         status: PlanStatus = PlanStatus.DRAFT,
+        blueprint: EditBlueprint | None = None,
     ) -> "PlanRevision":
         normalized_sections = tuple(sections)
         return cls(
             plan_id,
             project_id,
             revision,
-            plan_content_hash(title, summary, normalized_sections),
+            plan_content_hash(title, summary, normalized_sections, blueprint),
             material_snapshot_id,
             analysis_snapshot_id,
             system_skill_release,
@@ -187,11 +210,14 @@ class PlanRevision:
             summary,
             normalized_sections,
             status,
+            blueprint,
         )
 
     @classmethod
     def from_payload(cls, value: object) -> "PlanRevision":
-        if not isinstance(value, dict) or set(value) != {
+        if not isinstance(value, dict) or value.get("schema_version") not in {1, 2}:
+            raise ValueError("stored plan revision is invalid")
+        expected = {
             "schema_version",
             "plan_id",
             "project_id",
@@ -204,7 +230,10 @@ class PlanRevision:
             "title",
             "summary",
             "sections",
-        } or value["schema_version"] != 1:
+        }
+        if value["schema_version"] == 2:
+            expected.add("blueprint")
+        if set(value) != expected:
             raise ValueError("stored plan revision is invalid")
         raw_sections = value["sections"]
         if not isinstance(raw_sections, list):
@@ -269,6 +298,11 @@ class PlanRevision:
                     tuple(unknowns),
                 )
             )
+        blueprint = (
+            EditBlueprint.from_payload(value["blueprint"])
+            if value["schema_version"] == 2
+            else None
+        )
         return cls(
             value["plan_id"],
             value["project_id"],
@@ -281,6 +315,7 @@ class PlanRevision:
             value["summary"],
             tuple(sections),
             PlanStatus(value["status"]),
+            blueprint,
         )
 
     def transition(self, target: PlanStatus) -> "PlanRevision":
@@ -295,8 +330,8 @@ class PlanRevision:
         return self.status is PlanStatus.CONFIRMED
 
     def to_payload(self) -> dict[str, object]:
-        return {
-            "schema_version": 1,
+        payload: dict[str, object] = {
+            "schema_version": 2 if self.blueprint is not None else 1,
             "plan_id": self.plan_id,
             "project_id": self.project_id,
             "revision": self.revision,
@@ -309,3 +344,6 @@ class PlanRevision:
             "summary": self.summary,
             "sections": [section.to_payload() for section in self.sections],
         }
+        if self.blueprint is not None:
+            payload["blueprint"] = self.blueprint.to_payload()
+        return payload
