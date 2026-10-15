@@ -16,7 +16,7 @@ from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response, StreamingResponse
+from starlette.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -32,6 +32,7 @@ from clipen.annotations import AnnotationRepository
 from clipen.editing import TimelineService
 from clipen.media import InventoryCoordinator, MediaPreviewRepository
 from clipen.planning import PlanningService
+from clipen.rendering import PreviewRenderService
 from clipen.projects import (
     DirectoryRole,
     ProjectError,
@@ -288,6 +289,7 @@ def create_app(
     timeline_service: TimelineService | None = None,
     annotations: AnnotationRepository | None = None,
     media_previews: MediaPreviewRepository | None = None,
+    preview_renders: PreviewRenderService | None = None,
 ) -> ASGIApp:
     static_root = config.static_root.resolve(strict=True)
     if timeline_validations is None and workspace is not None:
@@ -479,6 +481,15 @@ def create_app(
                 status_code=503,
             )
         return media_previews
+
+    def require_preview_renders() -> PreviewRenderService:
+        if preview_renders is None:
+            raise ProjectError(
+                "preview_unavailable",
+                "Clipen 初剪輸出尚未準備完成。",
+                status_code=503,
+            )
+        return preview_renders
 
     def require_fields(
         payload: dict[str, object], required: set[str], optional: set[str] | None = None
@@ -759,6 +770,58 @@ def create_app(
                 status_code=206 if partial else 200,
                 media_type=preview.media_type,
                 headers=headers,
+            )
+        except ProjectError as error:
+            return await project_error_response(error)
+
+    async def preview_render_status(request: Request) -> Response:
+        try:
+            result = await run_in_threadpool(
+                require_preview_renders().status,
+                request.path_params["project_id"],
+            )
+            return JSONResponse(result)
+        except ProjectError as error:
+            return await project_error_response(error)
+
+    async def start_preview_render(request: Request) -> Response:
+        try:
+            payload = await read_json(request)
+            require_fields(payload, {"request_id", "timeline_id"})
+            result = await run_in_threadpool(
+                require_preview_renders().start,
+                request.path_params["project_id"],
+                payload["request_id"],
+                payload["timeline_id"],
+            )
+            return JSONResponse(result, status_code=202)
+        except ProjectError as error:
+            return await project_error_response(error)
+
+    async def cancel_preview_render(request: Request) -> Response:
+        try:
+            payload = await read_json(request)
+            require_fields(payload, set())
+            result = await run_in_threadpool(
+                require_preview_renders().cancel,
+                request.path_params["project_id"],
+                request.path_params["render_id"],
+            )
+            return JSONResponse(result)
+        except ProjectError as error:
+            return await project_error_response(error)
+
+    async def preview_render_media(request: Request) -> Response:
+        try:
+            path = await run_in_threadpool(
+                require_preview_renders().media_path,
+                request.path_params["project_id"],
+                request.path_params["render_id"],
+            )
+            return FileResponse(
+                path,
+                media_type="video/mp4",
+                headers={"Cache-Control": "private, no-store"},
             )
         except ProjectError as error:
             return await project_error_response(error)
@@ -1245,6 +1308,26 @@ def create_app(
                 "/api/projects/{project_id}/timeline",
                 timeline_status,
                 methods=["GET"],
+            ),
+            Route(
+                "/api/projects/{project_id}/preview",
+                preview_render_status,
+                methods=["GET"],
+            ),
+            Route(
+                "/api/projects/{project_id}/preview/commands/start",
+                start_preview_render,
+                methods=["POST"],
+            ),
+            Route(
+                "/api/projects/{project_id}/preview/{render_id}/commands/cancel",
+                cancel_preview_render,
+                methods=["POST"],
+            ),
+            Route(
+                "/api/projects/{project_id}/preview/{render_id}/media",
+                preview_render_media,
+                methods=["GET", "HEAD"],
             ),
             Route(
                 "/api/projects/{project_id}/annotations/{version_id}/{stream_index}",

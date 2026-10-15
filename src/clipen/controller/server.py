@@ -36,6 +36,11 @@ from clipen.media import InventoryCoordinator, InventoryRepository, MediaPreview
 from clipen.domain import CapabilityProfile
 from clipen.editing import TimelineRepository, TimelineService
 from clipen.planning import PlanningRepository, PlanningService
+from clipen.rendering import (
+    FfmpegPreviewRenderer,
+    PreviewRenderRepository,
+    PreviewRenderService,
+)
 from clipen.providers import CodexExecAdapter, ProviderUnavailable
 from clipen.analysis.evidence_service import EvidenceService
 from clipen.annotations import AnnotationRepository
@@ -333,6 +338,7 @@ async def _serve(
     timeline_validations = None
     annotations = None
     media_previews = None
+    preview_renders = None
     try:
         workspace = (
             ProjectWorkspace(paths.projects_root)
@@ -344,11 +350,21 @@ async def _serve(
             media_previews = MediaPreviewRepository(workspace.repository)
             planning_repository = PlanningRepository(workspace.repository)
             timeline_validations = TimelineValidationRepository(workspace.repository)
+            timeline_repository = TimelineRepository(workspace.repository)
             timeline_service = TimelineService(
-                TimelineRepository(workspace.repository),
+                timeline_repository,
                 planning_repository,
                 timeline_validations,
                 CapabilityProfile("clipen-export-unverified", 1),
+            )
+            preview_renders = PreviewRenderService(
+                PreviewRenderRepository(workspace.repository),
+                timeline_repository,
+                FfmpegPreviewRenderer(media_previews),
+                timeline_service,
+            )
+            preview_renders.recover(
+                project.project_id for project in workspace.repository.list_projects()
             )
             repository = InventoryRepository(workspace.repository)
             inventories = InventoryCoordinator(repository)
@@ -397,6 +413,7 @@ async def _serve(
             timeline_service=timeline_service,
             annotations=annotations,
             media_previews=media_previews,
+            preview_renders=preview_renders,
         )
         config = uvicorn.Config(
             app,
@@ -455,6 +472,8 @@ async def _serve(
             if hasattr(signal, "SIGHUP") and previous_hup is not None:
                 signal.signal(signal.SIGHUP, previous_hup)
     finally:
+        if preview_renders is not None:
+            preview_renders.close()
         if planning_service is not None:
             planning_service.close()
         if evidence_service is not None:
