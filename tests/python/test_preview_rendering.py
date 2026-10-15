@@ -308,7 +308,7 @@ class PreviewRenderingTests(unittest.TestCase):
         current = TimelineRepository(self.projects).current(self.project.project_id)
         self.assertEqual(current.timeline, self.timeline)
         with self.projects.connect(self.project.project_id) as connection:
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 13)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 14)
             tables = {
                 row[0]
                 for row in connection.execute(
