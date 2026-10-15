@@ -13,11 +13,13 @@ from clipen.controller import (
     create_app,
 )
 from clipen.analysis import PreparationRepository
+from clipen.annotations import AnnotationRepository
 from clipen.media import (
     InventoryCoordinator,
     InventoryRepository,
     InventoryState,
     MediaProbeResult,
+    MediaPreviewRepository,
     MediaStream,
 )
 from clipen.projects import DirectoryRole, NativeDirectoryPicker, ProjectWorkspace
@@ -204,6 +206,8 @@ class ProjectApiTests(unittest.TestCase):
         self.timeline_validations = TimelineValidationRepository(
             self.workspace.repository
         )
+        self.annotations = AnnotationRepository(self.workspace.repository)
+        self.media_previews = MediaPreviewRepository(self.workspace.repository)
         self.app = create_app(
             ControllerConfig(self.static),
             ProviderStatus("Codex", ProviderState.READY, "AI 已連接"),
@@ -211,6 +215,8 @@ class ProjectApiTests(unittest.TestCase):
             self.workspace,
             self.inventories,
             self.preparations,
+            annotations=self.annotations,
+            media_previews=self.media_previews,
         )
         self.cookie, self.csrf = self._connect()
 
@@ -326,6 +332,87 @@ class ProjectApiTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         self.assertEqual(self.json_body(body)["project"], updated)
+
+    def test_material_annotation_api_supports_items_without_audio_and_requires_csrf(self) -> None:
+        project = self.create_project()
+        version_id = "av_" + "a" * 32
+        with self.workspace.repository.connect(project["project_id"]) as database:
+            database.execute(
+                "INSERT INTO assets VALUES(?,?,?,'still.jpg','2026-10-14T00:00:00Z')",
+                ("asset_" + "b" * 32, project["project_id"], "source"),
+            )
+            database.execute(
+                "INSERT INTO asset_versions VALUES(?,?,1,1,?,'ready','{}','2026-10-14T00:00:00Z')",
+                (version_id, "asset_" + "b" * 32, "c" * 64),
+            )
+        path = f"/api/projects/{project['project_id']}/annotations/{version_id}/-1"
+        status, _, body = self._request("GET", path, headers={"cookie": self.cookie})
+        self.assertEqual(status, 200)
+        self.assertEqual(self.json_body(body)["annotation"]["material"]["revision"], 0)
+
+        payload = {
+            "request_id": "request-api-annotation-save",
+            "version_id": version_id,
+            "stream_index": -1,
+            "expected_material_revision": 0,
+            "expected_transcript_revision": 0,
+            "material": {
+                "people": ["小明"], "location": "淺草", "trip_day": 1,
+                "day_part": "morning", "note": "開場建立地點", "usage": "must_use",
+            },
+            "transcript": None,
+        }
+        denied, _, _ = self._request(
+            "POST", f"/api/projects/{project['project_id']}/annotation/commands/save",
+            payload, headers={"content-type": "application/json", "cookie": self.cookie},
+        )
+        self.assertEqual(denied, 403)
+        saved, _, body = self._request(
+            "POST", f"/api/projects/{project['project_id']}/annotation/commands/save",
+            payload, headers=self.mutation_headers(),
+        )
+        self.assertEqual(saved, 200)
+        self.assertEqual(self.json_body(body)["annotation"]["material"]["location"], "淺草")
+
+    def test_media_preview_is_authenticated_read_only_and_supports_ranges(self) -> None:
+        project = self.create_project()
+        version_id = "av_" + "d" * 32
+        asset_id = "asset_" + "e" * 32
+        source_stat = self.source.stat()
+        media_stat = (self.source / "clip.mov").stat()
+        with self.workspace.repository.connect(project["project_id"]) as database:
+            database.execute(
+                "INSERT INTO project_directories "
+                "(role,canonical_path,display_path,display_name,device,inode,saved_at) "
+                "VALUES('source',?,?,?,?,?,'2026-10-14T00:00:00Z')",
+                (str(self.source), str(self.source), "Raw", source_stat.st_dev, source_stat.st_ino),
+            )
+            database.execute(
+                "INSERT INTO assets VALUES(?,?,?,'clip.mov','2026-10-14T00:00:00Z')",
+                (asset_id, project["project_id"], "source"),
+            )
+            database.execute(
+                "INSERT INTO asset_versions VALUES(?,?,?,?,?,'ready','{}','2026-10-14T00:00:00Z')",
+                (version_id, asset_id, media_stat.st_size, media_stat.st_mtime_ns, "f" * 64),
+            )
+        path = f"/api/projects/{project['project_id']}/media/{version_id}"
+        denied, _, _ = self._request("GET", path, headers={"range": "bytes=0-3"})
+        self.assertEqual(denied, 401)
+        status, headers, body = self._request(
+            "HEAD", path, headers={"cookie": self.cookie, "range": "bytes=0-3"},
+        )
+        self.assertEqual(status, 206)
+        self.assertEqual(headers["accept-ranges"], "bytes")
+        self.assertEqual(headers["content-range"], f"bytes 0-3/{media_stat.st_size}")
+        self.assertEqual(body, b"")
+        preview = self.media_previews.open(project["project_id"], version_id)
+        self.assertEqual(b"".join(preview.chunks(0, 3)), b"synt")
+        invalid, invalid_headers, _ = self._request(
+            "HEAD", path, headers={"cookie": self.cookie, "range": "bytes=999-1000"},
+        )
+        self.assertEqual(invalid, 416)
+        self.assertEqual(invalid_headers["content-range"], f"bytes */{media_stat.st_size}")
+        self.assertEqual((self.source / "clip.mov").read_bytes(), b"synthetic-media")
 
     def test_select_save_and_remove_directory_without_exposing_identity(self) -> None:
         project = self.create_project()

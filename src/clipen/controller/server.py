@@ -32,12 +32,13 @@ from clipen.analysis import (
     ManagedAnalysisRuntime,
     PreparationRepository,
 )
-from clipen.media import InventoryCoordinator, InventoryRepository
+from clipen.media import InventoryCoordinator, InventoryRepository, MediaPreviewRepository
 from clipen.domain import CapabilityProfile
 from clipen.editing import TimelineRepository, TimelineService
 from clipen.planning import PlanningRepository, PlanningService
 from clipen.providers import CodexExecAdapter, ProviderUnavailable
 from clipen.analysis.evidence_service import EvidenceService
+from clipen.annotations import AnnotationRepository
 from clipen.projects import ProjectWorkspace, TimelineValidationRepository
 from clipen.system_skills import VerifiedSystemSkillRelease
 
@@ -330,6 +331,8 @@ async def _serve(
     planning_service = None
     timeline_service = None
     timeline_validations = None
+    annotations = None
+    media_previews = None
     try:
         workspace = (
             ProjectWorkspace(paths.projects_root)
@@ -337,6 +340,8 @@ async def _serve(
             else None
         )
         if workspace is not None:
+            annotations = AnnotationRepository(workspace.repository)
+            media_previews = MediaPreviewRepository(workspace.repository)
             planning_repository = PlanningRepository(workspace.repository)
             timeline_validations = TimelineValidationRepository(workspace.repository)
             timeline_service = TimelineService(
@@ -390,6 +395,8 @@ async def _serve(
             timeline_validations=timeline_validations,
             planning_service=planning_service,
             timeline_service=timeline_service,
+            annotations=annotations,
+            media_previews=media_previews,
         )
         config = uvicorn.Config(
             app,

@@ -1,0 +1,100 @@
+"""Read-only, range-capable access to user-authorized source media."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+import mimetypes
+import os
+from pathlib import PurePosixPath
+import re
+import sqlite3
+from typing import Iterator
+
+from clipen.projects import DirectoryRole, ProjectError, ProjectRepository
+from clipen.projects.models import validate_project_id
+
+from .discovery import DiscoveryError, open_file_beneath
+from .models import InventoryRoot
+
+
+_VERSION_ID = re.compile(r"av_[0-9a-f]{32}\Z")
+_VIDEO_TYPES = {".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/quicktime"}
+_AUDIO_TYPES = {".m4a": "audio/mp4", ".mp3": "audio/mpeg", ".wav": "audio/wav", ".aac": "audio/aac"}
+
+
+@dataclass
+class MediaPreview:
+    descriptor: int
+    size: int
+    media_type: str
+
+    def chunks(self, start: int, end: int, chunk_size: int = 1024 * 1024) -> Iterator[bytes]:
+        position = start
+        try:
+            while position <= end:
+                chunk = os.pread(self.descriptor, min(chunk_size, end - position + 1), position)
+                if not chunk:
+                    break
+                position += len(chunk)
+                yield chunk
+        finally:
+            os.close(self.descriptor)
+
+    def close(self) -> None:
+        os.close(self.descriptor)
+
+
+class MediaPreviewRepository:
+    def __init__(self, projects: ProjectRepository) -> None:
+        self.projects = projects
+
+    def open(self, project_id: str, version_id: str) -> MediaPreview:
+        validate_project_id(project_id)
+        if not isinstance(version_id, str) or _VERSION_ID.fullmatch(version_id) is None:
+            raise ProjectError("media_not_found", "找不到這個素材。", status_code=404)
+        try:
+            with self.projects.connect(project_id) as database:
+                row = database.execute(
+                    "SELECT assets.role,assets.relative_path,versions.size_bytes,versions.mtime_ns,"
+                    "directories.canonical_path,directories.device,directories.inode,directories.saved_at "
+                    "FROM asset_versions AS versions "
+                    "JOIN assets ON assets.asset_id=versions.asset_id "
+                    "JOIN project_directories AS directories ON directories.role=assets.role "
+                    "WHERE versions.version_id=? AND assets.project_id=?",
+                    (version_id, project_id),
+                ).fetchone()
+            if row is None:
+                raise ProjectError("media_not_found", "找不到這個素材。", status_code=404)
+            root = InventoryRoot(
+                DirectoryRole(row["role"]), row["canonical_path"], row["device"],
+                row["inode"], row["saved_at"],
+            )
+            descriptor = open_file_beneath(root, row["relative_path"])
+            details = os.fstat(descriptor)
+            if details.st_size != row["size_bytes"] or details.st_mtime_ns != row["mtime_ns"]:
+                os.close(descriptor)
+                raise ProjectError(
+                    "media_changed", "素材已變更，請重新檢查素材。", status_code=409
+                )
+            suffix = PurePosixPath(row["relative_path"]).suffix.lower()
+            media_type = _VIDEO_TYPES.get(suffix) or _AUDIO_TYPES.get(suffix)
+            if media_type is None:
+                media_type = mimetypes.guess_type(row["relative_path"])[0]
+            if media_type is None or not media_type.startswith(("video/", "audio/")):
+                os.close(descriptor)
+                raise ProjectError(
+                    "media_preview_unsupported",
+                    "這個素材無法在瀏覽器中直接播放。",
+                    status_code=415,
+                )
+            return MediaPreview(descriptor, details.st_size, media_type)
+        except ProjectError:
+            raise
+        except DiscoveryError as error:
+            raise ProjectError(
+                "media_offline", "目前無法讀取素材，請確認外接硬碟已連接。", status_code=409
+            ) from error
+        except (OSError, sqlite3.Error, TypeError, ValueError) as error:
+            raise ProjectError(
+                "media_unavailable", "Clipen 無法安全開啟這個素材。", status_code=500
+            ) from error
