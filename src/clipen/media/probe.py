@@ -26,6 +26,10 @@ _MAX_CAPTURE_BYTES = 4 * 1024 * 1024
 _MAX_STREAMS = 64
 _POLL_SECONDS = 0.05
 _CODEC = re.compile(r"[A-Za-z0-9_.-]{1,80}\Z")
+_CAPTURE_TIME = re.compile(
+    r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:?\d{2})?\Z"
+)
+_ISO6709 = re.compile(r"([+-]\d{2,3}(?:\.\d+)?)([+-]\d{3}(?:\.\d+)?)(?:[+-]\d+(?:\.\d+)?)?/?\Z")
 
 
 class MediaProbeError(RuntimeError):
@@ -323,7 +327,47 @@ def _parse_probe(
     bit_rate = raw_format.get("bit_rate")
     if bit_rate not in (None, "N/A"):
         summary["bit_rate"] = _integer(bit_rate, minimum=0, maximum=10**13)
+    tags = []
+    if isinstance(raw_format.get("tags"), dict):
+        tags.append(raw_format["tags"])
+    for raw_stream in raw_streams:
+        if isinstance(raw_stream, dict) and isinstance(raw_stream.get("tags"), dict):
+            tags.append(raw_stream["tags"])
+    capture_time = _metadata_value(tags, ("creation_time", "com.apple.quicktime.creationdate"), 80)
+    if capture_time is not None and _CAPTURE_TIME.fullmatch(capture_time):
+        summary["capture_time"] = capture_time
+    location = _metadata_value(
+        tags,
+        ("com.apple.quicktime.location.iso6709", "location", "location-eng", "gps_coordinates"),
+        160,
+    )
+    if location is not None:
+        coordinates = _ISO6709.fullmatch(location)
+        if coordinates is not None:
+            latitude = float(coordinates.group(1))
+            longitude = float(coordinates.group(2))
+            if -90 <= latitude <= 90 and -180 <= longitude <= 180:
+                summary["location"] = f"GPS {latitude:.6f}, {longitude:.6f}"
+        elif all(character >= " " and character != "\x7f" for character in location):
+            summary["location"] = location
     return summary, tuple(streams)
+
+
+def _metadata_value(
+    groups: list[Mapping[str, object]], keys: tuple[str, ...], maximum: int
+) -> str | None:
+    for key in keys:
+        lowered = key.casefold()
+        for group in groups:
+            for observed, value in group.items():
+                if (
+                    isinstance(observed, str)
+                    and observed.casefold() == lowered
+                    and isinstance(value, str)
+                    and 1 <= len(value.strip()) <= maximum
+                ):
+                    return value.strip()
+    return None
 
 
 def _integer(value: object, *, minimum: int, maximum: int) -> int:

@@ -30,10 +30,11 @@ from .evidence_schema import EVIDENCE_SCHEMA, OBSERVATION_SCHEMA
 from .validation_schema import VALIDATION_WORKFLOW_SCHEMA
 from .planning_schema import PLANNING_SCHEMA
 from .timeline_schema import TIMELINE_SCHEMA
+from .annotation_schema import ANNOTATION_SCHEMA
 from .deletion import ProjectDeletion
 
 
-PROJECT_SCHEMA_VERSION = 10
+PROJECT_SCHEMA_VERSION = 12
 _PROJECT_DIRECTORY = re.compile(r"prj_[0-9a-f]{32}\Z")
 
 _INVENTORY_SCHEMA = """
@@ -639,8 +640,9 @@ class ProjectRepository:
                 + VALIDATION_WORKFLOW_SCHEMA
                 + PLANNING_SCHEMA
                 + TIMELINE_SCHEMA
+                + ANNOTATION_SCHEMA
                 + """
-                PRAGMA user_version = 10;
+                PRAGMA user_version = 12;
                 """
             )
             connection.execute(
@@ -718,6 +720,12 @@ class ProjectRepository:
             if version == 9:
                 self._migrate_v9_to_v10(connection)
                 version = 10
+            if version == 10:
+                self._migrate_v10_to_v11(connection)
+                version = 11
+            if version == 11:
+                self._migrate_v11_to_v12(connection)
+                version = 12
             if version != PROJECT_SCHEMA_VERSION:
                 connection.close()
                 raise ProjectError(
@@ -941,6 +949,104 @@ class ProjectRepository:
             "BEGIN IMMEDIATE;\n"
             + migration_sql
             + "\nPRAGMA user_version = 10;\nCOMMIT;"
+        )
+
+    @staticmethod
+    def _migrate_v10_to_v11(connection: sqlite3.Connection) -> None:
+        """Create or verify user annotation tables after interruption."""
+
+        expected_columns = {
+            "material_annotations": (
+                "version_id", "revision", "people_json", "location", "trip_day",
+                "day_part", "note", "usage", "updated_at",
+            ),
+            "transcript_annotations": (
+                "version_id", "stream_index", "source_revision_id", "revision",
+                "confirmed", "corrections_json", "updated_at",
+            ),
+            "annotation_command_receipts": (
+                "request_id", "command_type", "request_hash", "response_json",
+                "created_at",
+            ),
+        }
+        observed = {
+            row["name"]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' "
+                "AND name IN (?, ?, ?)",
+                tuple(expected_columns),
+            )
+        }
+        if observed and observed != set(expected_columns):
+            raise sqlite3.DatabaseError("incomplete annotation schema")
+        if observed:
+            for table, expected in expected_columns.items():
+                columns = tuple(
+                    row["name"]
+                    for row in connection.execute(f"PRAGMA table_info({table})")
+                )
+                allowed = {expected}
+                if table == "transcript_annotations":
+                    allowed.add((
+                        "version_id", "stream_index", "source_revision_id", "revision",
+                        "confirmed", "discarded", "corrections_json", "updated_at",
+                    ))
+                    allowed.add((
+                        "version_id", "stream_index", "source_revision_id", "revision",
+                        "confirmed", "corrections_json", "updated_at", "discarded",
+                    ))
+                if columns not in allowed:
+                    raise sqlite3.DatabaseError("unexpected annotation schema")
+            indexes = {
+                row["name"]
+                for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'index'"
+                )
+            }
+            if "material_annotations_updated" not in indexes:
+                raise sqlite3.DatabaseError("incomplete annotation indexes")
+            migration_sql = ""
+        else:
+            migration_sql = ANNOTATION_SCHEMA
+        connection.executescript(
+            "BEGIN IMMEDIATE;\n"
+            + migration_sql
+            + "\nPRAGMA user_version = 11;\nCOMMIT;"
+        )
+
+    @staticmethod
+    def _migrate_v11_to_v12(connection: sqlite3.Connection) -> None:
+        """Add reversible transcript removal without deleting ASR evidence."""
+
+        columns = tuple(
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(transcript_annotations)")
+        )
+        previous = (
+            "version_id", "stream_index", "source_revision_id", "revision",
+            "confirmed", "corrections_json", "updated_at",
+        )
+        current = (
+            "version_id", "stream_index", "source_revision_id", "revision",
+            "confirmed", "discarded", "corrections_json", "updated_at",
+        )
+        migrated = (
+            "version_id", "stream_index", "source_revision_id", "revision",
+            "confirmed", "corrections_json", "updated_at", "discarded",
+        )
+        if columns == previous:
+            migration_sql = (
+                "ALTER TABLE transcript_annotations ADD COLUMN discarded INTEGER NOT NULL "
+                "DEFAULT 0 CHECK (discarded IN (0, 1));"
+            )
+        elif columns in {current, migrated}:
+            migration_sql = ""
+        else:
+            raise sqlite3.DatabaseError("unexpected transcript annotation schema")
+        connection.executescript(
+            "BEGIN IMMEDIATE;\n"
+            + migration_sql
+            + "\nPRAGMA user_version = 12;\nCOMMIT;"
         )
 
     @staticmethod
