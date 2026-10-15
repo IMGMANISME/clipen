@@ -11,6 +11,7 @@ import type {
   EditablePlan,
   EditablePlanSection,
   PlanningCandidate,
+  PlanningRun,
   PlanningStatus,
   Project,
   SystemSkillSummary,
@@ -64,6 +65,29 @@ function formatDuration(value: number): string {
   return seconds ? `${minutes} 分 ${seconds} 秒` : `${minutes} 分鐘`
 }
 
+function tokenTotal(run: PlanningRun): number | null {
+  return run.usage
+    ? run.usage.input_tokens + run.usage.output_tokens
+    : null
+}
+
+function formatRunTime(run: PlanningRun): string {
+  return new Intl.DateTimeFormat('zh-TW', {
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(run.completed_at ?? run.created_at))
+}
+
+const terminalRunStates = new Set(['succeeded', 'failed', 'cancelled', 'interrupted'])
+const runStateCopy: Record<string, string> = {
+  succeeded: '已完成',
+  failed: '失敗',
+  cancelled: '已取消',
+  interrupted: '已中斷',
+}
+
 function candidateLabel(candidate: PlanningCandidate): string {
   const seconds = candidate.duration_seconds < 60
     ? `${candidate.duration_seconds.toFixed(1)} 秒`
@@ -102,6 +126,9 @@ export function PlanningSection({ project, csrf, projectDirty, onStatus, onConfi
   const coverageTooShort = quality?.target_duration_seconds !== null
     && quality?.target_duration_seconds !== undefined
     && selectedVideoDuration < quality.target_duration_seconds * 0.8
+  const usageRuns = (status?.recent_runs ?? [])
+    .filter((run) => terminalRunStates.has(run.state))
+    .slice(0, 5)
 
   useEffect(() => {
     let mounted = true
@@ -371,8 +398,35 @@ export function PlanningSection({ project, csrf, projectDirty, onStatus, onConfi
         <div className="planning-run-error" role="status">
           <strong>{status.latest_run.state === 'failed' ? '這次沒有產生計畫' : status.latest_run.state === 'cancelled' ? '這次已取消' : '這次已安全中斷'}</strong>
           <p>{status.latest_run.error_code ? runErrorCopy[status.latest_run.error_code] ?? 'Clipen 沒有保存不完整的結果。' : 'Clipen 沒有保存不完整的結果。'}</p>
-          <small>{status.latest_run.usage ? `已記錄 input ${status.latest_run.usage.input_tokens.toLocaleString()}、cached input ${status.latest_run.usage.cached_input_tokens.toLocaleString()}、output ${status.latest_run.usage.output_tokens.toLocaleString()} tokens。` : '沒有可確認的 token 紀錄，不代表 Provider 一定沒有計費。'}</small>
         </div>
+      )}
+
+      {usageRuns.length > 0 && (
+        <section className="token-usage-card" aria-labelledby="token-usage-title">
+          <div className="token-usage-heading">
+            <div><strong id="token-usage-title">單次 AI Token 紀錄</strong><p>每一列都是一次獨立的 Codex 計畫呼叫。</p></div>
+            <span>最近 {usageRuns.length.toLocaleString()} 次</span>
+          </div>
+          <div className="token-usage-list">
+            {usageRuns.map((run, index) => {
+              const total = tokenTotal(run)
+              return (
+                <div className="token-usage-row" key={run.run_id}>
+                  <div className="token-usage-identity">
+                    <strong>{index === 0 ? '本次使用' : formatRunTime(run)}</strong>
+                    <span className={`usage-state state-${run.state}`}>{runStateCopy[run.state] ?? run.state}</span>
+                  </div>
+                  {run.usage ? <>
+                    <div><span>總 Token</span><strong>{total?.toLocaleString()}</strong></div>
+                    <div><span>Input</span><strong>{run.usage.input_tokens.toLocaleString()}</strong><small>其中快取 {run.usage.cached_input_tokens.toLocaleString()}</small></div>
+                    <div><span>Output</span><strong>{run.usage.output_tokens.toLocaleString()}</strong></div>
+                  </> : <p className="token-usage-unavailable">Provider 沒有回傳可確認的 Token 數字；不代表一定沒有消耗額度。</p>}
+                </div>
+              )
+            })}
+          </div>
+          <p className="token-usage-note">總 Token = input + output；cached input 已包含在 input 中，不會重複計算。這是 Provider 回報的 Token 數量，不等同帳號 Quota 百分比。</p>
+        </section>
       )}
 
       {draft && (

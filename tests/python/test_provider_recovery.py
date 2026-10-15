@@ -89,6 +89,8 @@ class ProviderRecoveryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             ProviderUsage(-1, 0, 0)
         with self.assertRaises(ValueError):
+            ProviderUsage(5, 6, 0)
+        with self.assertRaises(ValueError):
             self.receipt(output_sha256="not-a-hash")
 
 

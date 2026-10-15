@@ -246,6 +246,18 @@ class PlanningRepository:
             ).fetchone()
         return None if row is None else self._run(row)
 
+    def recent_runs(self, project_id: str, limit: int = 10) -> tuple[PlanningRun, ...]:
+        validate_project_id(project_id)
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 50:
+            raise ValueError("planning run history limit is invalid")
+        with self.projects.connect(project_id) as database:
+            rows = database.execute(
+                "SELECT * FROM planning_runs "
+                "ORDER BY created_at DESC, rowid DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return tuple(self._run(row) for row in rows)
+
     def mark_running(self, project_id: str, run_id: str) -> PlanningRun:
         now = utc_now()
         with self.projects.connect(project_id) as database:

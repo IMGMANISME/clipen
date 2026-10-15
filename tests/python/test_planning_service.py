@@ -158,6 +158,12 @@ class PlanningServiceTests(unittest.TestCase):
 
         status = self.service.preflight(self.project.project_id)
         public_plan = status["current_plan"]
+        self.assertEqual(len(status["recent_runs"]), 1)
+        self.assertEqual(status["recent_runs"][0]["run_id"], run.run_id)
+        self.assertEqual(
+            status["recent_runs"][0]["usage"],
+            {"input_tokens": 600, "cached_input_tokens": 100, "output_tokens": 80},
+        )
         self.assertEqual(public_plan["sections"][0]["candidate_ids"], ["candidate-001"])
         self.assertNotIn("source", repr(public_plan))
         self.assertNotIn("av_", repr(public_plan))

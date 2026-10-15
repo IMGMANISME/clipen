@@ -90,22 +90,26 @@ class PlanningService:
     def preflight(self, project_id: str) -> dict[str, object]:
         context = self.context_builder.build(project_id)
         latest = self.repository.latest_run(project_id)
+        recent = self.repository.recent_runs(project_id)
         current = self.repository.current_plan(project_id)
         return {
             "candidate_count": len(context.candidates),
             "estimated_input_tokens": context.estimated_input_tokens,
             "context_hash": context.content_hash,
             "latest_run": None if latest is None else latest.to_public(),
+            "recent_runs": [run.to_public() for run in recent],
             "current_plan": None if current is None else self._public_plan(current),
         }
 
     def status(self, project_id: str) -> dict[str, object]:
         latest = self.repository.latest_run(project_id)
+        recent = self.repository.recent_runs(project_id)
         current = self.repository.current_plan(project_id)
         result: dict[str, object] = {
             "blocked_reason": None,
             "preflight": None,
             "latest_run": None if latest is None else latest.to_public(),
+            "recent_runs": [run.to_public() for run in recent],
             "current_plan": None if current is None else self._public_plan(current),
         }
         try:
