@@ -29,7 +29,7 @@ from clipen.analysis import (
 )
 from clipen.analysis.evidence_service import EvidenceService
 from clipen.annotations import AnnotationRepository
-from clipen.editing import TimelineService
+from clipen.editing import EditAgentCoordinator, TimelineService
 from clipen.media import InventoryCoordinator, MediaPreviewRepository
 from clipen.planning import PlanningService
 from clipen.rendering import PreviewRenderService
@@ -290,6 +290,7 @@ def create_app(
     annotations: AnnotationRepository | None = None,
     media_previews: MediaPreviewRepository | None = None,
     preview_renders: PreviewRenderService | None = None,
+    edit_agents: EditAgentCoordinator | None = None,
 ) -> ASGIApp:
     static_root = config.static_root.resolve(strict=True)
     if timeline_validations is None and workspace is not None:
@@ -490,6 +491,15 @@ def create_app(
                 status_code=503,
             )
         return preview_renders
+
+    def require_edit_agents() -> EditAgentCoordinator:
+        if edit_agents is None:
+            raise ProjectError(
+                "edit_agent_unavailable",
+                "AI 剪輯工具尚未準備完成。",
+                status_code=503,
+            )
+        return edit_agents
 
     def require_fields(
         payload: dict[str, object], required: set[str], optional: set[str] | None = None
@@ -849,6 +859,53 @@ def create_app(
                 payload["frame_rate"],
             )
             return JSONResponse(result, status_code=201)
+        except ProjectError as error:
+            return await project_error_response(error)
+
+    async def edit_agent_status(request: Request) -> Response:
+        try:
+            result = await run_in_threadpool(
+                require_edit_agents().status,
+                request.path_params["project_id"],
+            )
+            return JSONResponse(result)
+        except ProjectError as error:
+            return await project_error_response(error)
+
+    async def start_edit_agent(request: Request) -> Response:
+        try:
+            payload = await read_json(request)
+            require_fields(
+                payload,
+                {"request_id", "consent"},
+                {"max_tool_calls", "max_preview_renders"},
+            )
+            run = await run_in_threadpool(
+                require_edit_agents().start,
+                request.path_params["project_id"],
+                payload["request_id"],
+                payload["consent"],
+                max_tool_calls=payload.get("max_tool_calls", 80),
+                max_preview_renders=payload.get("max_preview_renders", 4),
+            )
+            return JSONResponse({"run": run.to_public()}, status_code=202)
+        except (TypeError, ValueError) as error:
+            return await project_error_response(
+                ProjectError("command_invalid", str(error), status_code=422)
+            )
+        except ProjectError as error:
+            return await project_error_response(error)
+
+    async def cancel_edit_agent(request: Request) -> Response:
+        try:
+            payload = await read_json(request)
+            require_fields(payload, set())
+            run = await run_in_threadpool(
+                require_edit_agents().cancel,
+                request.path_params["project_id"],
+                request.path_params["run_id"],
+            )
+            return JSONResponse({"run": run.to_public()})
         except ProjectError as error:
             return await project_error_response(error)
 
@@ -1347,6 +1404,21 @@ def create_app(
             Route(
                 "/api/projects/{project_id}/timeline/commands/build",
                 build_timeline,
+                methods=["POST"],
+            ),
+            Route(
+                "/api/projects/{project_id}/edit-agent",
+                edit_agent_status,
+                methods=["GET"],
+            ),
+            Route(
+                "/api/projects/{project_id}/edit-agent/commands/start",
+                start_edit_agent,
+                methods=["POST"],
+            ),
+            Route(
+                "/api/projects/{project_id}/edit-agent/{run_id}/commands/cancel",
+                cancel_edit_agent,
                 methods=["POST"],
             ),
             Route(

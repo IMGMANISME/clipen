@@ -34,7 +34,12 @@ from clipen.analysis import (
 )
 from clipen.media import InventoryCoordinator, InventoryRepository, MediaPreviewRepository
 from clipen.domain import CapabilityProfile
-from clipen.editing import TimelineRepository, TimelineService
+from clipen.editing import (
+    EditAgentCoordinator,
+    EditAgentRepository,
+    TimelineRepository,
+    TimelineService,
+)
 from clipen.planning import PlanningRepository, PlanningService
 from clipen.rendering import (
     FfmpegPreviewRenderer,
@@ -339,6 +344,7 @@ async def _serve(
     annotations = None
     media_previews = None
     preview_renders = None
+    edit_agents = None
     try:
         workspace = (
             ProjectWorkspace(paths.projects_root)
@@ -366,6 +372,16 @@ async def _serve(
             preview_renders.recover(
                 project.project_id for project in workspace.repository.list_projects()
             )
+            edit_agent_repository = EditAgentRepository(workspace.repository)
+            if provider.state is ProviderState.READY:
+                edit_agents = EditAgentCoordinator(
+                    edit_agent_repository,
+                    paths.attempt_root,
+                )
+                edit_agents.recover()
+            else:
+                for project in workspace.repository.list_projects():
+                    edit_agent_repository.interrupt_incomplete(project.project_id)
             repository = InventoryRepository(workspace.repository)
             inventories = InventoryCoordinator(repository)
             inventories.recover_incomplete(
@@ -414,6 +430,7 @@ async def _serve(
             annotations=annotations,
             media_previews=media_previews,
             preview_renders=preview_renders,
+            edit_agents=edit_agents,
         )
         config = uvicorn.Config(
             app,
@@ -472,6 +489,8 @@ async def _serve(
             if hasattr(signal, "SIGHUP") and previous_hup is not None:
                 signal.signal(signal.SIGHUP, previous_hup)
     finally:
+        if edit_agents is not None:
+            edit_agents.close()
         if preview_renders is not None:
             preview_renders.close()
         if planning_service is not None:
