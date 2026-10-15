@@ -66,7 +66,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
                 asr_requirements=repo_root / "requirements" / "asr-runtime.txt",
                 plan_schema=repo_root
                 / "schemas"
-                / "v1"
+                / "v2"
                 / "plan-proposal.schema.json",
             ),
             provider,

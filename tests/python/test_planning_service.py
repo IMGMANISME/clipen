@@ -56,15 +56,52 @@ class FakeProvider:
         return SimpleNamespace(
             usage=ProviderUsage(600, 100, 80),
             payload={
-                "schema_version": 1,
+                "schema_version": 2,
                 "title": "東京旅行初剪",
                 "summary": "依事件順序保留旅行現場感。",
+                "creative_direction": {
+                    "target_duration_seconds": None,
+                    "pacing": "balanced",
+                    "subtitle_mode": "dialogue",
+                    "graphics_intensity": "balanced",
+                    "music": {
+                        "mode": "approved_asset_required",
+                        "mood": "輕快旅行感",
+                    },
+                    "sound_design": "保留現場聲，重要對話時降低配樂。",
+                },
                 "sections": [
                     {
                         "section_id": "section-001",
                         "title": "抵達",
                         "purpose": "建立旅程起點。",
-                        "candidate_ids": ["candidate-001"],
+                        "clips": [
+                            {
+                                "candidate_id": "candidate-001",
+                                "role": "story",
+                                "audio_treatment": "mixed",
+                                "effects": [
+                                    {"effect": "slow_push", "intensity": "subtle"}
+                                ],
+                            }
+                        ],
+                        "title_cues": [
+                            {
+                                "cue_id": "title-arrival",
+                                "text": "東京旅行",
+                                "placement": "section_start",
+                                "style": "chapter",
+                            }
+                        ],
+                        "sound_cues": [
+                            {
+                                "cue_id": "sound-arrival",
+                                "sound": "whoosh",
+                                "placement": "section_start",
+                                "intensity": "subtle",
+                            }
+                        ],
+                        "transition_out": "cut",
                         "edit_notes": "保留環境聲。",
                         "unknowns": ["地點需確認"],
                     }
@@ -112,7 +149,7 @@ class PlanningServiceTests(unittest.TestCase):
         self.service = PlanningService(
             self.repository,
             self.attempts,
-            Path("schemas/v1/plan-proposal.schema.json"),
+            Path("schemas/v2/plan-proposal.schema.json"),
             FakeSkills(),
             adapter_factory=FakeProvider,
         )
@@ -165,6 +202,11 @@ class PlanningServiceTests(unittest.TestCase):
             {"input_tokens": 600, "cached_input_tokens": 100, "output_tokens": 80},
         )
         self.assertEqual(public_plan["sections"][0]["candidate_ids"], ["candidate-001"])
+        self.assertEqual(public_plan["blueprint"]["subtitle_mode"], "dialogue")
+        self.assertEqual(
+            public_plan["blueprint"]["sections"][0]["clips"][0]["role"],
+            "story",
+        )
         self.assertNotIn("source", repr(public_plan))
         self.assertNotIn("av_", repr(public_plan))
 
