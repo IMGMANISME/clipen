@@ -7,7 +7,12 @@ import {
   startPlanning,
   updatePlan,
 } from './api'
+import {
+  EditBlueprintOverview,
+  SectionProductionEditor,
+} from './EditBlueprintEditor'
 import type {
+  BlueprintClip,
   EditablePlan,
   EditablePlanSection,
   PlanningCandidate,
@@ -86,6 +91,10 @@ const runStateCopy: Record<string, string> = {
   failed: '失敗',
   cancelled: '已取消',
   interrupted: '已中斷',
+}
+
+function defaultBlueprintClip(candidateId: string): BlueprintClip {
+  return { candidate_id: candidateId, role: 'story', audio_treatment: 'mixed', effects: [] }
 }
 
 function candidateLabel(candidate: PlanningCandidate): string {
@@ -241,11 +250,77 @@ export function PlanningSection({ project, csrf, projectDirty, onStatus, onConfi
   }
 
   function updateSection(index: number, patch: Partial<EditablePlanSection>) {
-    setDraft((current) => current && {
-      ...current,
-      sections: current.sections.map((section, sectionIndex) => (
+    setDraft((current) => {
+      if (!current) return current
+      const original = current.sections[index]
+      const sections = current.sections.map((section, sectionIndex) => (
         sectionIndex === index ? { ...section, ...patch } : section
-      )),
+      ))
+      if (!current.blueprint || !patch.candidate_ids) return { ...current, sections }
+      const blueprintSections = current.blueprint.sections.map((section) => {
+        if (section.section_id !== original.section_id) return section
+        const existing = new Map(section.clips.map((clip) => [clip.candidate_id, clip]))
+        return {
+          ...section,
+          clips: patch.candidate_ids!.map((candidateId) => existing.get(candidateId) ?? defaultBlueprintClip(candidateId)),
+        }
+      })
+      return { ...current, sections, blueprint: { ...current.blueprint, sections: blueprintSections } }
+    })
+  }
+
+  function updateBlueprint(patch: Partial<NonNullable<EditablePlan['blueprint']>>) {
+    setDraft((current) => current?.blueprint ? {
+      ...current,
+      blueprint: { ...current.blueprint, ...patch },
+    } : current)
+  }
+
+  function updateBlueprintSection(
+    sectionId: string,
+    patch: Partial<NonNullable<EditablePlan['blueprint']>['sections'][number]>,
+  ) {
+    setDraft((current) => current?.blueprint ? {
+      ...current,
+      blueprint: {
+        ...current.blueprint,
+        sections: current.blueprint.sections.map((section) => (
+          section.section_id === sectionId ? { ...section, ...patch } : section
+        )),
+      },
+    } : current)
+  }
+
+  function updateBlueprintClip(sectionId: string, candidateId: string, patch: Partial<BlueprintClip>) {
+    setDraft((current) => current?.blueprint ? {
+      ...current,
+      blueprint: {
+        ...current.blueprint,
+        sections: current.blueprint.sections.map((section) => section.section_id === sectionId ? {
+          ...section,
+          clips: section.clips.map((clip) => clip.candidate_id === candidateId ? { ...clip, ...patch } : clip),
+        } : section),
+      },
+    } : current)
+  }
+
+  function moveClip(sectionIndex: number, candidateId: string, direction: -1 | 1) {
+    setDraft((current) => {
+      if (!current) return current
+      const section = current.sections[sectionIndex]
+      const source = section.candidate_ids.indexOf(candidateId)
+      const target = source + direction
+      if (source < 0 || target < 0 || target >= section.candidate_ids.length) return current
+      const candidateIds = [...section.candidate_ids]
+      ;[candidateIds[source], candidateIds[target]] = [candidateIds[target], candidateIds[source]]
+      const sections = current.sections.map((item, index) => index === sectionIndex ? { ...item, candidate_ids: candidateIds } : item)
+      if (!current.blueprint) return { ...current, sections }
+      const blueprintSections = current.blueprint.sections.map((item) => {
+        if (item.section_id !== section.section_id) return item
+        const clips = new Map(item.clips.map((clip) => [clip.candidate_id, clip]))
+        return { ...item, clips: candidateIds.map((id) => clips.get(id)!) }
+      })
+      return { ...current, sections, blueprint: { ...current.blueprint, sections: blueprintSections } }
     })
   }
 
@@ -256,7 +331,31 @@ export function PlanningSection({ project, csrf, projectDirty, onStatus, onConfi
       if (target < 0 || target >= current.sections.length) return current
       const sections = [...current.sections]
       ;[sections[index], sections[target]] = [sections[target], sections[index]]
-      return { ...current, sections }
+      if (!current.blueprint) return { ...current, sections }
+      const byId = new Map(current.blueprint.sections.map((section) => [section.section_id, section]))
+      return {
+        ...current,
+        sections,
+        blueprint: {
+          ...current.blueprint,
+          sections: sections.map((section) => byId.get(section.section_id)!),
+        },
+      }
+    })
+  }
+
+  function removeSection(index: number) {
+    setDraft((current) => {
+      if (!current || current.sections.length === 1) return current
+      const removedId = current.sections[index].section_id
+      return {
+        ...current,
+        sections: current.sections.filter((_, sectionIndex) => sectionIndex !== index),
+        blueprint: current.blueprint ? {
+          ...current.blueprint,
+          sections: current.blueprint.sections.filter((section) => section.section_id !== removedId),
+        } : null,
+      }
     })
   }
 
@@ -265,16 +364,27 @@ export function PlanningSection({ project, csrf, projectDirty, onStatus, onConfi
     const used = new Set(draft.sections.flatMap((section) => section.candidate_ids))
     const candidate = candidates.find((item) => !used.has(item.candidate_id))
     if (!candidate) return
+    const sectionId = `section-${crypto.randomUUID()}`
     setDraft({
       ...draft,
       sections: [...draft.sections, {
-        section_id: `section-${crypto.randomUUID()}`,
+        section_id: sectionId,
         title: '新段落',
         purpose: '說明這一段要讓觀眾理解什麼。',
         candidate_ids: [candidate.candidate_id],
         edit_notes: '',
         unknowns: [],
       }],
+      blueprint: draft.blueprint ? {
+        ...draft.blueprint,
+        sections: [...draft.blueprint.sections, {
+          section_id: sectionId,
+          clips: [defaultBlueprintClip(candidate.candidate_id)],
+          title_cues: [],
+          sound_cues: [],
+          transition_out: 'cut',
+        }],
+      } : null,
     })
   }
 
@@ -286,6 +396,12 @@ export function PlanningSection({ project, csrf, projectDirty, onStatus, onConfi
       return '每個段落都需要名稱、目的與至少一個素材片段。'
     }
     if (new Set(selected).size !== selected.length) return '同一個候選片段不能放進兩個段落。'
+    if (plan.blueprint?.sections.some((section) => section.title_cues.some((cue) => !cue.text.trim()))) {
+      return '字卡文字不能留白；不需要的字卡請直接移除。'
+    }
+    if (plan.blueprint?.music.mode === 'approved_asset_required' && !plan.blueprint.music.mood.trim()) {
+      return '請描述希望使用的配樂氛圍。'
+    }
     return null
   }
 
@@ -330,13 +446,13 @@ export function PlanningSection({ project, csrf, projectDirty, onStatus, onConfi
       <div className="analysis-heading">
         <div>
           <p className="eyebrow">03 · 計畫</p>
-          <h2 id="planning-title">{draft ? '檢查 AI 的初剪計畫' : '選擇剪法，讓 AI 產生初剪計畫'}</h2>
-          <p>{draft ? '先看整體安排，再展開需要調整的段落。確認後，Clipen 才會建立可編輯的剪輯版本。' : 'Clipen 會把已整理的素材摘要交給 AI；你可以在確認前修改結果。'}</p>
+          <h2 id="planning-title">{draft ? '檢查 AI 的剪輯藍圖' : '選擇剪法，讓 AI 設計剪輯藍圖'}</h2>
+          <p>{draft ? '先確認故事順序，再檢查字幕、字卡、聲音、轉場與效果安排。所有內容都能在確認前修改。' : 'Clipen 會把已整理的素材摘要交給 AI，產生可驗證、可編輯的製作安排。'}</p>
         </div>
       </div>
 
       {error && <div className="inline-message error" role="alert">{error}</div>}
-      {!status && !error && <div className="planning-loading" role="status"><span className="small-spinner" />正在準備剪輯計畫…</div>}
+      {!status && !error && <div className="planning-loading" role="status"><span className="small-spinner" />正在準備剪輯藍圖…</div>}
       {status?.blocked_reason && (
         <div className="planning-blocked" role="status">
           <span aria-hidden="true">3</span>
@@ -380,7 +496,7 @@ export function PlanningSection({ project, csrf, projectDirty, onStatus, onConfi
               <span><strong>允許這一次 AI 呼叫</strong>將上述素材摘要送給 Codex，並使用我的 AI 額度。</span>
             </label>
             <button className="button primary" type="button" disabled={!consent || !selectedSkill || busy || projectDirty} onClick={() => void generate()}>
-              {busy ? '正在建立工作…' : draft ? '重新產生剪輯計畫' : '產生剪輯計畫'}
+              {busy ? '正在建立工作…' : draft ? '重新產生剪輯藍圖' : '產生剪輯藍圖'}
             </button>
           </div>
         </div>
@@ -389,7 +505,7 @@ export function PlanningSection({ project, csrf, projectDirty, onStatus, onConfi
       {active && status?.latest_run && (
         <div className="planning-progress" role="status" aria-live="polite">
           <span className="small-spinner" aria-hidden="true" />
-          <div><strong>AI 正在整理初剪計畫</strong><p>只會執行這一次；關閉 Clipen 或取消後不會自動重送。</p></div>
+          <div><strong>AI 正在設計剪輯藍圖</strong><p>正在安排故事順序、字幕、字卡、聲音與效果；這次只會執行一次。</p></div>
           <button className="button secondary" type="button" disabled={busy} onClick={() => void cancel()}>{busy ? '停止中…' : '停止'}</button>
         </div>
       )}
@@ -459,6 +575,11 @@ export function PlanningSection({ project, csrf, projectDirty, onStatus, onConfi
             </div>
           </div>
           {dirty && <p className="unsaved-plan" role="status">有尚未保存的修改；保存後需要重新確認。</p>}
+          {draft.blueprint ? (
+            <EditBlueprintOverview blueprint={draft.blueprint} onChange={updateBlueprint} />
+          ) : (
+            <div className="blueprint-legacy-note"><strong>這是舊版計畫</strong><p>仍可用於結構預覽；重新產生後才會包含結構化的字幕、字卡、音樂與效果方向。</p></div>
+          )}
           <div className="plan-fields">
             <label>計畫名稱<input maxLength={160} value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /></label>
             <label>整體安排<textarea rows={3} maxLength={2000} value={draft.summary} onChange={(event) => setDraft({ ...draft, summary: event.target.value })} /></label>
@@ -478,7 +599,7 @@ export function PlanningSection({ project, csrf, projectDirty, onStatus, onConfi
                   <div>
                     <button className="text-button" type="button" disabled={index === 0} onClick={() => moveSection(index, -1)}>上移</button>
                     <button className="text-button" type="button" disabled={index === draft.sections.length - 1} onClick={() => moveSection(index, 1)}>下移</button>
-                    <button className="text-button danger" type="button" disabled={draft.sections.length === 1} onClick={() => setDraft({ ...draft, sections: draft.sections.filter((_, itemIndex) => itemIndex !== index) })}>移除</button>
+                    <button className="text-button danger" type="button" disabled={draft.sections.length === 1} onClick={() => removeSection(index)}>移除</button>
                   </div>
                 </div>
                 <div className="plan-section-fields">
@@ -493,6 +614,17 @@ export function PlanningSection({ project, csrf, projectDirty, onStatus, onConfi
                   <label>剪輯備註<textarea rows={2} maxLength={4000} value={section.edit_notes} onChange={(event) => updateSection(index, { edit_notes: event.target.value })} /></label>
                   <label>待核對事項<textarea rows={2} value={section.unknowns.join('\n')} onChange={(event) => updateSection(index, { unknowns: event.target.value.split('\n').map((value) => value.trim()).filter(Boolean) })} /></label>
                 </div>
+                {draft.blueprint?.sections.filter((item) => item.section_id === section.section_id).map((production) => (
+                  <SectionProductionEditor
+                    key={production.section_id}
+                    section={production}
+                    sectionIndex={index}
+                    candidates={candidateMap}
+                    onChange={(patch) => updateBlueprintSection(production.section_id, patch)}
+                    onChangeClip={(candidateId, patch) => updateBlueprintClip(production.section_id, candidateId, patch)}
+                    onMoveClip={(candidateId, direction) => moveClip(index, candidateId, direction)}
+                  />
+                ))}
                 <ul className="candidate-evidence">
                   {section.candidate_ids.map((candidateId) => {
                     const candidate = candidateMap.get(candidateId)
