@@ -71,6 +71,32 @@ def _fallback_windows(span: SourceSpan) -> tuple[SourceSpan, ...]:
     )
 
 
+def _align_span(source: SourceSpan, source_bounds: SourceSpan, target: SourceSpan) -> SourceSpan:
+    """Project an audio transcript range onto its container's executable video stream."""
+
+    if source.version_id != source_bounds.version_id or source.version_id != target.version_id:
+        raise ValueError("source spans belong to different media")
+    source_unit = Fraction(
+        source_bounds.time_base.numerator, source_bounds.time_base.denominator
+    )
+    target_units_per_second = Fraction(
+        target.time_base.denominator, target.time_base.numerator
+    )
+    start_offset = (int(source.start_pts) - int(source_bounds.start_pts)) * source_unit
+    end_offset = (int(source.end_pts) - int(source_bounds.start_pts)) * source_unit
+    start = int(target.start_pts) + int(start_offset * target_units_per_second)
+    end = int(target.start_pts) + int(end_offset * target_units_per_second)
+    start = max(int(target.start_pts), min(start, int(target.end_pts) - 1))
+    end = max(start + 1, min(end, int(target.end_pts)))
+    return SourceSpan(
+        target.version_id,
+        target.stream_index,
+        str(start),
+        str(end),
+        target.time_base,
+    )
+
+
 def _safe_json(raw: object, label: str) -> dict[str, Any]:
     try:
         value = json.loads(raw) if isinstance(raw, str) else raw
@@ -224,6 +250,7 @@ class PlanningContextBuilder:
                         row["end_pts"],
                         source.time_base,
                     ),
+                    "source_bounds": source,
                     "text": (
                         annotation["corrections"].get(row["ordinal"], row["text"])
                         if annotation_current else row["text"]
@@ -258,6 +285,12 @@ class PlanningContextBuilder:
             group: list[PlanningCandidate] = []
             for item in trusted:
                 candidate_span = item["span"]
+                if result["kind"] == "video":
+                    candidate_span = _align_span(
+                        candidate_span,
+                        item["source_bounds"],
+                        span,
+                    )
                 text = str(item["text"])[:500]
                 if not text.strip():
                     continue

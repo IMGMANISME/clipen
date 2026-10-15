@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 import mimetypes
 import os
 from pathlib import PurePosixPath
@@ -27,6 +28,8 @@ class MediaPreview:
     descriptor: int
     size: int
     media_type: str
+    audio_stream_indices: tuple[int, ...] = ()
+    video_stream_indices: tuple[int, ...] = ()
 
     def chunks(self, start: int, end: int, chunk_size: int = 1024 * 1024) -> Iterator[bytes]:
         position = start
@@ -63,8 +66,25 @@ class MediaPreviewRepository:
                     "WHERE versions.version_id=? AND assets.project_id=?",
                     (version_id, project_id),
                 ).fetchone()
+                streams = database.execute(
+                    "SELECT stream_index,kind,details_json FROM media_streams "
+                    "WHERE version_id=? ORDER BY stream_index",
+                    (version_id,),
+                ).fetchall()
             if row is None:
                 raise ProjectError("media_not_found", "找不到這個素材。", status_code=404)
+            audio_stream_indices = tuple(
+                stream["stream_index"] for stream in streams if stream["kind"] == "audio"
+            )
+            video_streams = [stream for stream in streams if stream["kind"] == "video"]
+            primary_video_streams = tuple(
+                stream["stream_index"]
+                for stream in video_streams
+                if not json.loads(stream["details_json"]).get("attached_pic", False)
+            )
+            video_stream_indices = primary_video_streams or tuple(
+                stream["stream_index"] for stream in video_streams
+            )
             root = InventoryRoot(
                 DirectoryRole(row["role"]), row["canonical_path"], row["device"],
                 row["inode"], row["saved_at"],
@@ -87,14 +107,20 @@ class MediaPreviewRepository:
                     "這個素材無法在瀏覽器中直接播放。",
                     status_code=415,
                 )
-            return MediaPreview(descriptor, details.st_size, media_type)
+            return MediaPreview(
+                descriptor,
+                details.st_size,
+                media_type,
+                audio_stream_indices,
+                video_stream_indices,
+            )
         except ProjectError:
             raise
         except DiscoveryError as error:
             raise ProjectError(
                 "media_offline", "目前無法讀取素材，請確認外接硬碟已連接。", status_code=409
             ) from error
-        except (OSError, sqlite3.Error, TypeError, ValueError) as error:
+        except (json.JSONDecodeError, OSError, sqlite3.Error, TypeError, ValueError) as error:
             raise ProjectError(
                 "media_unavailable", "Clipen 無法安全開啟這個素材。", status_code=500
             ) from error

@@ -223,6 +223,9 @@ class PlanningContextBuilderTests(unittest.TestCase):
         corrected = [item for item in context.candidates if item.transcript_excerpt == "尼莫"]
         self.assertEqual(len(corrected), 1)
         self.assertEqual(corrected[0].transcript_reliability, TranscriptReliability.TRUSTED)
+        self.assertEqual(corrected[0].source.stream_index, 0)
+        self.assertEqual(corrected[0].source.time_base, Rational(1, 90000))
+        self.assertEqual(corrected[0].source.duration_pts, 90000)
         self.assertNotIn("泥模", repr(context.to_provider()))
 
         with self.projects.connect(self.project.project_id) as database:
