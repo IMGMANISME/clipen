@@ -464,8 +464,12 @@ function InventorySection({
           </div>
 
           {page && resultItems.length > 0 && (
-            <div className="asset-list">
-              <div className="asset-list-heading"><strong>媒體清單</strong><span>需要注意的項目會排在最前面</span></div>
+            <details className="asset-list">
+              <summary className="asset-list-heading">
+                <div><strong>查看媒體清單</strong><span>只有需要找特定檔案時才需要展開</span></div>
+                <span>顯示 {resultItems.length.toLocaleString()} / {page.total.toLocaleString()} 個</span>
+              </summary>
+              <div className="asset-list-content">
               {resultItems.map((item) => {
                 const duration = item.probe?.duration_seconds
                 const codecs = [...new Set(item.streams.map((stream) => stream.codec))].join(' · ')
@@ -482,7 +486,8 @@ function InventorySection({
                 )
               })}
               {page.total > page.items.length && <p className="asset-limit">目前顯示前 {page.items.length.toLocaleString()} 個項目，共 {page.total.toLocaleString()} 個。</p>}
-            </div>
+              </div>
+            </details>
           )}
         </div>
       )}
@@ -491,6 +496,7 @@ function InventorySection({
 }
 
 function AnalysisSection({
+  csrf,
   projectId,
   summary,
   loading,
@@ -499,7 +505,9 @@ function AnalysisSection({
   onCancel,
   onResume,
   onRemoveRuntime,
+  onAnnotationSaved,
 }: {
+  csrf: string
   projectId: string
   summary: AnalysisSummary | null
   loading: boolean
@@ -508,6 +516,7 @@ function AnalysisSection({
   onCancel: (run: AnalysisRun) => void
   onResume: (run: AnalysisRun) => void
   onRemoveRuntime: () => void
+  onAnnotationSaved: () => void
 }) {
   const latest = summary?.latest ?? null
   const current = summary?.current ?? null
@@ -658,9 +667,11 @@ function AnalysisSection({
             ? '不必等整批完成；若前幾支逐字稿明顯不對，可以立即停止分析。'
             : '即使分析停止，已完成的項目仍可用來判斷設定是否合適。'}</p>
           <TranscriptResults
+            csrf={csrf}
             projectId={projectId}
             run={latest}
             refreshToken={processed}
+            onAnnotationSaved={onAnnotationSaved}
           />
         </div>
       )}
@@ -680,7 +691,7 @@ function AnalysisSection({
             </div>
             <span className="result-ready">分析完成</span>
           </div>
-          <TranscriptResults key={current.run_id} projectId={projectId} run={current} />
+          <TranscriptResults csrf={csrf} key={current.run_id} projectId={projectId} run={current} onAnnotationSaved={onAnnotationSaved} />
         </>
       )}
 
@@ -1206,6 +1217,7 @@ function MaterialsWorkspace({
           {activeStage === 'analysis' && currentInventoryId && <div className="stage-view">
             <EvidenceSection key={`${project.project_id}:${currentInventoryId}`} projectId={project.project_id} csrf={csrf} inventoryId={currentInventoryId} />
             <AnalysisSection
+              csrf={csrf}
               projectId={project.project_id}
               summary={visibleAnalysis}
               loading={!visibleAnalysis}
@@ -1214,6 +1226,7 @@ function MaterialsWorkspace({
               onCancel={(run) => void stopAnalysis(run)}
               onResume={(run) => void continueAnalysis(run)}
               onRemoveRuntime={() => void removeLocalASR()}
+              onAnnotationSaved={() => setPlanning(null)}
             />
             <div className="stage-next"><span>可隨時使用目前已保存的分析結果</span><button className="button primary" type="button" onClick={() => setSelectedStage('planning')}>前往剪輯計畫</button></div>
           </div>}

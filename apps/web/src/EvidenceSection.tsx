@@ -88,6 +88,9 @@ export function EvidenceSection({ projectId, csrf, inventoryId }: { projectId: s
       {latest.error_code && <p>{errors[latest.error_code] ?? '未完成，已保存的成果仍保留。'}</p>}
       {latest.stale && <p role="alert">以下是舊素材範圍的結果，不能再送出 AI 觀察。請重新擷取。</p>}
       <p>AI 觀察剩餘 {availableCalls} 次；每次最多 8 張縮圖、120 秒。Token 用量不等於帳號 Quota 百分比，無法保證固定額度成本。</p>
+      <details className="evidence-samples">
+      <summary>查看取樣畫面與技術資訊</summary>
+      <div>
       {latest.total > latest.page_size && <nav className="evidence-actions" aria-label="證據結果分頁">
         <button className="button secondary" type="button" disabled={offset === 0 || busy} onClick={() => setOffset(v => Math.max(0, v - latest.page_size))}>上一頁</button>
         <span>第 {Math.floor(offset / latest.page_size) + 1} / {Math.ceil(latest.total / latest.page_size)} 頁</span>
@@ -130,6 +133,8 @@ export function EvidenceSection({ projectId, csrf, inventoryId }: { projectId: s
           </div>}
         </details>
       })}
+      </div>
+      </details>
     </>}
   </section>
 }

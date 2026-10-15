@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
-import { getAnalysisResults, getTranscriptSegments } from './api'
+import { getAnalysisResults, getMaterialAnnotation, getTranscriptSegments } from './api'
+import { MaterialAnnotationEditor } from './MaterialAnnotationEditor'
 import type {
   AnalysisResultItem,
   AnalysisResultsPage,
   AnalysisRun,
+  MaterialAnnotationState,
   TranscriptPage,
 } from './api'
 
@@ -11,7 +13,7 @@ const statusCopy: Record<AnalysisResultItem['status'], string> = {
   pending: '尚未處理',
   prepared: '等待辨識',
   transcribed: '有逐字稿',
-  needs_review: '需要核對',
+  needs_review: '辨識不確定',
   no_audio: '沒有音軌',
   no_speech: '未偵測到人聲',
   failed: '需要處理',
@@ -44,11 +46,32 @@ const issueCopy: Record<string, string> = {
   preparation_item_internal_error: '處理這個項目時發生未預期的本機錯誤。',
 }
 
+const usageCopy = {
+  normal: '一般素材',
+  must_use: '優先使用',
+  exclude: '不要使用',
+  ambient_only: '只取畫面／環境音',
+} as const
+
+const userStateCopy: Record<AnalysisResultItem['user_state'], string> = {
+  pending: '尚未處理',
+  reviewed: '已看過',
+  confirmed: '已核對',
+  priority: '優先使用',
+  excluded: '不要使用',
+}
+
 type TranscriptView = {
   state: 'loading' | 'ready' | 'failed'
   page?: TranscriptPage
   message?: string
   loadingMore?: boolean
+}
+
+type AnnotationView = {
+  state: 'loading' | 'ready' | 'failed'
+  annotation?: MaterialAnnotationState
+  message?: string
 }
 
 type ResultsView = {
@@ -82,27 +105,27 @@ function formatSourceTime(pts: string, timeBase: { num: number; den: number }): 
   }
 }
 
-function confidenceLabel(confidence: string | null): string | null {
-  if (confidence === null) return null
-  const value = Number(confidence)
-  return Number.isFinite(value) && value >= 0 && value <= 1
-    ? `信心 ${Math.round(value * 100)}%`
-    : null
-}
-
 export function TranscriptResults({
+  csrf,
   projectId,
   run,
   refreshToken = 0,
+  onAnnotationSaved,
 }: {
+  csrf: string
   projectId: string
   run: AnalysisRun
   refreshToken?: number
+  onAnnotationSaved?: () => void
 }) {
   const [offset, setOffset] = useState(0)
+  const [tripDay, setTripDay] = useState<number | null>(null)
+  const [reviewState, setReviewState] = useState<'all' | 'pending' | 'reviewed'>('all')
+  const [listRevision, setListRevision] = useState(0)
   const [results, setResults] = useState<ResultsView | null>(null)
   const [transcripts, setTranscripts] = useState<Record<string, TranscriptView>>({})
-  const requestKey = `${run.run_id}:${offset}:${refreshToken}`
+  const [annotations, setAnnotations] = useState<Record<string, AnnotationView>>({})
+  const requestKey = `${run.run_id}:${offset}:${tripDay ?? 'all'}:${reviewState}:${refreshToken}:${listRevision}`
   const currentResults = results?.requestKey === requestKey ? results : null
   const page = currentResults?.state === 'ready' ? currentResults.page ?? null : null
   const loading = currentResults === null
@@ -110,7 +133,7 @@ export function TranscriptResults({
 
   useEffect(() => {
     let mounted = true
-    getAnalysisResults(projectId, run.run_id, offset)
+    getAnalysisResults(projectId, run.run_id, offset, { tripDay, reviewState })
       .then((result) => {
         if (mounted) setResults({ requestKey, state: 'ready', page: result })
       })
@@ -124,12 +147,21 @@ export function TranscriptResults({
         }
       })
     return () => { mounted = false }
-  }, [offset, projectId, requestKey, run.run_id])
+  }, [offset, projectId, requestKey, reviewState, run.run_id, tripDay])
 
   function openTranscript(item: AnalysisResultItem, open: boolean) {
-    if (!open || !['transcribed', 'needs_review'].includes(item.status)) return
+    if (!open) return
     const key = itemKey(item)
-    if (transcripts[key]) return
+    if (!annotations[key]) {
+      setAnnotations((current) => ({ ...current, [key]: { state: 'loading' } }))
+      getMaterialAnnotation(projectId, item.version_id, item.stream_index)
+        .then((annotation) => setAnnotations((current) => ({ ...current, [key]: { state: 'ready', annotation } })))
+        .catch((caught) => setAnnotations((current) => ({ ...current, [key]: {
+          state: 'failed',
+          message: caught instanceof Error ? caught.message : '無法讀取素材資訊。',
+        } })))
+    }
+    if (!['transcribed', 'needs_review'].includes(item.status) || transcripts[key]) return
     setTranscripts((current) => ({ ...current, [key]: { state: 'loading' } }))
     getTranscriptSegments(projectId, run.run_id, item.version_id, item.stream_index)
       .then((result) => {
@@ -193,11 +225,38 @@ export function TranscriptResults({
     <section className="transcript-results" aria-labelledby="transcript-results-title">
       <div className="transcript-results-heading">
         <div>
-          <h3 id="transcript-results-title">逐字稿與問題清單</h3>
-          <p>需要處理的素材排在最前面。展開成功項目即可核對原始時間與辨識文字。</p>
+          <h3 id="transcript-results-title">挑重要素材，補充剪輯線索</h3>
+          <p>不必消除所有「辨識不確定」。只處理你想放進成片、或 AI 容易誤解的片段。</p>
         </div>
-        {page && <span>{page.total.toLocaleString()} 個項目</span>}
+        {page && <span>共 {page.total.toLocaleString()} 支素材</span>}
       </div>
+
+      <ol className="review-guide" aria-label="素材核對方式">
+        <li><span>1</span><div><strong>展開重要片段</strong><small>先聽原音、看完整毛片</small></div></li>
+        <li><span>2</span><div><strong>只補確定資訊</strong><small>人物、地點與旅行時間都可留白</small></div></li>
+        <li><span>3</span><div><strong>保存後繼續</strong><small>其餘素材交由 AI 自行判斷</small></div></li>
+      </ol>
+
+      {page && (
+        <div className="review-filters" aria-label="篩選素材">
+          <label>
+            <span>旅行日</span>
+            <select value={tripDay ?? ''} onChange={(event) => { setOffset(0); setTripDay(event.target.value ? Number(event.target.value) : null) }}>
+              <option value="">全部日期</option>
+              {(page.filters?.trip_days ?? []).map((item) => <option key={item.day} value={item.day}>第 {item.day} 天（{item.count}）</option>)}
+            </select>
+          </label>
+          <label>
+            <span>處理狀態</span>
+            <select value={reviewState} onChange={(event) => { setOffset(0); setReviewState(event.target.value as 'all' | 'pending' | 'reviewed') }}>
+              <option value="all">全部狀態</option>
+              <option value="pending">尚未處理</option>
+              <option value="reviewed">已處理</option>
+            </select>
+          </label>
+          <span>符合條件：{page.total.toLocaleString()} 支</span>
+        </div>
+      )}
 
       {loading && <p className="transcript-list-state" role="status">正在讀取分析結果…</p>}
       {error && <p className="transcript-list-state has-error" role="alert">{error}</p>}
@@ -211,13 +270,15 @@ export function TranscriptResults({
             {page.items.map((item) => {
               const key = itemKey(item)
               const transcript = transcripts[key]
+              const annotation = annotations[key]
               const hasTranscript = ['transcribed', 'needs_review'].includes(item.status)
+              const userState = item.user_state ?? 'pending'
               const sourceTime = item.source && item.preview_start_pts
                 ? formatSourceTime(item.preview_start_pts, item.source.time_base)
                 : null
               return (
                 <details
-                  className={`transcript-item status-${item.status}`}
+                  className={`transcript-item status-${item.status} user-${userState}`}
                   key={key}
                   onToggle={(event) => openTranscript(item, event.currentTarget.open)}
                 >
@@ -228,10 +289,23 @@ export function TranscriptResults({
                         {item.role === 'source' ? '毛片' : '參考作品'}
                         {item.stream_index >= 0 ? ` · 音軌 ${item.stream_index}` : ''}
                       </span>
+                      {annotation?.state === 'ready' && annotation.annotation && (
+                        <div className="annotation-summary">
+                          {annotation.annotation.material.usage !== 'normal' && <span>{usageCopy[annotation.annotation.material.usage]}</span>}
+                          {annotation.annotation.material.trip_day && <span>第 {annotation.annotation.material.trip_day} 天</span>}
+                          {annotation.annotation.material.location && <span>{annotation.annotation.material.location}</span>}
+                          {annotation.annotation.material.people.map((person) => <span key={person}>{person}</span>)}
+                          {annotation.annotation.transcript?.discarded && <span>逐字稿已移除</span>}
+                          {annotation.annotation.transcript?.confirmed && <span>逐字稿已核對</span>}
+                        </div>
+                      )}
                       {item.preview_text && <p>{item.preview_text}{item.preview_truncated ? '…' : ''}</p>}
                     </div>
                     <div className="transcript-item-meta">
                       {sourceTime && <span>{sourceTime} 起</span>}
+                      {item.trip_day && <span className="trip-day-badge">第 {item.trip_day} 天</span>}
+                      {item.transcript_discarded && <span className="user-state state-discarded">逐字稿已移除</span>}
+                      <span className={`user-state state-${userState}`}>{userStateCopy[userState]}</span>
                       <span className="transcript-status">{statusCopy[item.status]}</span>
                     </div>
                   </summary>
@@ -247,29 +321,30 @@ export function TranscriptResults({
                     )}
                     {hasTranscript && transcript?.state === 'loading' && <p role="status">正在載入逐字稿…</p>}
                     {hasTranscript && transcript?.state === 'failed' && <p role="alert" className="transcript-issue">{transcript.message}</p>}
-                    {hasTranscript && transcript?.state === 'ready' && transcript.page && (
-                      <>
-                        <ol className="transcript-segments">
-                          {transcript.page.segments.map((segment) => (
-                            <li key={segment.ordinal}>
-                              <time>{formatSourceTime(segment.start_pts, transcript.page!.time_base)}</time>
-                              <p>{segment.text || '（空白片段）'}</p>
-                              {confidenceLabel(segment.confidence) && <span>{confidenceLabel(segment.confidence)}</span>}
-                            </li>
-                          ))}
-                        </ol>
-                        {transcript.page.next_offset !== null && (
-                          <button
-                            className="button secondary"
-                            onClick={() => loadMore(item)}
-                            disabled={transcript.loadingMore}
-                          >
-                            {transcript.loadingMore ? '正在載入…' : '載入更多逐字稿'}
-                          </button>
-                        )}
-                        {transcript.message && <p role="alert" className="transcript-issue">{transcript.message}</p>}
-                      </>
+                    {annotation?.state === 'loading' && <p role="status">正在載入素材資訊…</p>}
+                    {annotation?.state === 'failed' && <p role="alert" className="transcript-issue">{annotation.message}</p>}
+                    {annotation?.state === 'ready' && annotation.annotation && (!hasTranscript || transcript?.state === 'ready') && (
+                      <MaterialAnnotationEditor
+                        key={`${annotation.annotation.material.revision}:${annotation.annotation.transcript?.revision ?? 0}`}
+                        csrf={csrf}
+                        projectId={projectId}
+                        initial={annotation.annotation}
+                        transcript={transcript?.page}
+                        mediaKind={item.kind}
+                        formatTime={(pts) => formatSourceTime(pts, transcript?.page?.time_base ?? { num: 1, den: 1 })}
+                        onSaved={(saved) => {
+                          setAnnotations((current) => ({ ...current, [key]: { state: 'ready', annotation: saved } }))
+                          setListRevision((current) => current + 1)
+                          onAnnotationSaved?.()
+                        }}
+                      />
                     )}
+                    {hasTranscript && transcript?.state === 'ready' && transcript.page?.next_offset !== null && (
+                      <button className="button secondary load-transcript" onClick={() => loadMore(item)} disabled={transcript.loadingMore}>
+                        {transcript.loadingMore ? '正在載入…' : '載入更多逐字稿'}
+                      </button>
+                    )}
+                    {transcript?.message && <p role="alert" className="transcript-issue">{transcript.message}</p>}
                   </div>
                 </details>
               )
