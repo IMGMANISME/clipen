@@ -1,0 +1,460 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://clipen.local/schemas/v2/plan-revision.schema.json",
+  "title": "Clipen Plan Revision with Edit Blueprint",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "plan_id",
+    "project_id",
+    "revision",
+    "status",
+    "content_hash",
+    "material_snapshot_id",
+    "analysis_snapshot_id",
+    "system_skill_release",
+    "title",
+    "summary",
+    "sections",
+    "blueprint"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 2
+    },
+    "plan_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "project_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "status": {
+      "enum": [
+        "draft",
+        "ready_for_review",
+        "confirmed",
+        "executing",
+        "reviewed",
+        "accepted",
+        "superseded"
+      ]
+    },
+    "content_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "material_snapshot_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "analysis_snapshot_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "system_skill_release": {
+      "$ref": "#/$defs/identifier"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^(?=.*\\S)[^\\u0000]+$"
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000,
+      "pattern": "^(?=.*\\S)[^\\u0000]+$"
+    },
+    "sections": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "items": {
+        "$ref": "#/$defs/section"
+      }
+    },
+    "blueprint": {
+      "$ref": "#/$defs/blueprint"
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    },
+    "rational": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "num",
+        "den"
+      ],
+      "properties": {
+        "num": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000000
+        },
+        "den": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000000
+        }
+      }
+    },
+    "sourceRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidate_id",
+        "version_id",
+        "stream_index",
+        "start_pts",
+        "end_pts",
+        "time_base"
+      ],
+      "properties": {
+        "candidate_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "version_id": {
+          "type": "string",
+          "pattern": "^av_[0-9a-f]{32}$"
+        },
+        "stream_index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "start_pts": {
+          "type": "string",
+          "maxLength": 20,
+          "pattern": "^-?(?:0|[1-9][0-9]*)$"
+        },
+        "end_pts": {
+          "type": "string",
+          "maxLength": 20,
+          "pattern": "^-?(?:0|[1-9][0-9]*)$"
+        },
+        "time_base": {
+          "$ref": "#/$defs/rational"
+        }
+      }
+    },
+    "section": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "section_id",
+        "title",
+        "purpose",
+        "source_ranges",
+        "edit_notes",
+        "unknowns"
+      ],
+      "properties": {
+        "section_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "purpose": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "source_ranges": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 512,
+          "items": {
+            "$ref": "#/$defs/sourceRange"
+          }
+        },
+        "edit_notes": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "unknowns": {
+          "type": "array",
+          "maxItems": 128,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        }
+      }
+    },
+    "effect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "effect",
+        "intensity"
+      ],
+      "properties": {
+        "effect": {
+          "enum": [
+            "punch_in",
+            "slow_push",
+            "reframe",
+            "speed_ramp"
+          ]
+        },
+        "intensity": {
+          "enum": [
+            "subtle",
+            "medium",
+            "strong"
+          ]
+        }
+      }
+    },
+    "blueprintClip": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidate_id",
+        "role",
+        "audio_treatment",
+        "effects"
+      ],
+      "properties": {
+        "candidate_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "role": {
+          "enum": [
+            "hook",
+            "story",
+            "b_roll",
+            "reaction",
+            "transition",
+            "ending"
+          ]
+        },
+        "audio_treatment": {
+          "enum": [
+            "dialogue",
+            "ambient",
+            "mixed",
+            "mute"
+          ]
+        },
+        "effects": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "$ref": "#/$defs/effect"
+          }
+        }
+      }
+    },
+    "titleCue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cue_id",
+        "text",
+        "placement",
+        "style"
+      ],
+      "properties": {
+        "cue_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        },
+        "placement": {
+          "enum": [
+            "section_start",
+            "over_clip",
+            "section_end"
+          ]
+        },
+        "style": {
+          "enum": [
+            "minimal",
+            "chapter",
+            "location",
+            "ending"
+          ]
+        }
+      }
+    },
+    "blueprintSection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "section_id",
+        "clips",
+        "title_cues",
+        "sound_cues",
+        "transition_out"
+      ],
+      "properties": {
+        "section_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "clips": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 512,
+          "items": {
+            "$ref": "#/$defs/blueprintClip"
+          }
+        },
+        "title_cues": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "$ref": "#/$defs/titleCue"
+          }
+        },
+        "transition_out": {
+          "enum": [
+            "cut",
+            "dissolve",
+            "fade",
+            "whip"
+          ]
+        },
+        "sound_cues": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/soundCue"
+          }
+        }
+      }
+    },
+    "blueprint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target_duration_seconds",
+        "pacing",
+        "subtitle_mode",
+        "graphics_intensity",
+        "music",
+        "sound_design",
+        "sections"
+      ],
+      "properties": {
+        "target_duration_seconds": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "maximum": 21600
+        },
+        "pacing": {
+          "enum": [
+            "relaxed",
+            "balanced",
+            "energetic"
+          ]
+        },
+        "subtitle_mode": {
+          "enum": [
+            "none",
+            "dialogue",
+            "full",
+            "dynamic"
+          ]
+        },
+        "graphics_intensity": {
+          "enum": [
+            "minimal",
+            "balanced",
+            "expressive"
+          ]
+        },
+        "music": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "mood"
+          ],
+          "properties": {
+            "mode": {
+              "enum": [
+                "none",
+                "ambient_only",
+                "approved_asset_required"
+              ]
+            },
+            "mood": {
+              "type": "string",
+              "maxLength": 160
+            }
+          }
+        },
+        "sound_design": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "sections": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "items": {
+            "$ref": "#/$defs/blueprintSection"
+          }
+        }
+      }
+    },
+    "soundCue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cue_id",
+        "sound",
+        "placement",
+        "intensity"
+      ],
+      "properties": {
+        "cue_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "sound": {
+          "enum": [
+            "whoosh",
+            "impact",
+            "click",
+            "riser",
+            "ambient_accent"
+          ]
+        },
+        "placement": {
+          "enum": [
+            "section_start",
+            "section_middle",
+            "section_end"
+          ]
+        },
+        "intensity": {
+          "enum": [
+            "subtle",
+            "medium",
+            "strong"
+          ]
+        }
+      }
+    }
+  }
+}

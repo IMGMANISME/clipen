@@ -68,6 +68,67 @@ class PlanningModelsTests(unittest.TestCase):
             ],
         }
 
+    @staticmethod
+    def blueprint_proposal() -> dict[str, object]:
+        return {
+            "schema_version": 2,
+            "title": "東京旅行 Vlog",
+            "summary": "以快節奏開場，再依旅程順序建立故事。",
+            "creative_direction": {
+                "target_duration_seconds": 600,
+                "pacing": "energetic",
+                "subtitle_mode": "dynamic",
+                "graphics_intensity": "balanced",
+                "music": {
+                    "mode": "approved_asset_required",
+                    "mood": "輕快、日系旅行感",
+                },
+                "sound_design": "對話時降低配樂，場景切換保留環境聲。",
+            },
+            "sections": [
+                {
+                    "section_id": "section-arrival",
+                    "title": "抵達",
+                    "purpose": "交代旅程起點。",
+                    "clips": [
+                        {
+                            "candidate_id": "candidate-1",
+                            "role": "hook",
+                            "audio_treatment": "mixed",
+                            "effects": [
+                                {"effect": "punch_in", "intensity": "subtle"}
+                            ],
+                        },
+                        {
+                            "candidate_id": "candidate-2",
+                            "role": "story",
+                            "audio_treatment": "ambient",
+                            "effects": [],
+                        },
+                    ],
+                    "title_cues": [
+                        {
+                            "cue_id": "title-arrival",
+                            "text": "東京旅行 Vlog",
+                            "placement": "section_start",
+                            "style": "chapter",
+                        }
+                    ],
+                    "sound_cues": [
+                        {
+                            "cue_id": "sound-arrival",
+                            "sound": "whoosh",
+                            "placement": "section_start",
+                            "intensity": "subtle",
+                        }
+                    ],
+                    "transition_out": "cut",
+                    "edit_notes": "先快後慢。",
+                    "unknowns": [],
+                }
+            ],
+        }
+
     def test_context_is_path_free_bounded_and_has_conservative_estimate(self) -> None:
         context = self.context()
         payload = context.to_provider()
@@ -115,6 +176,29 @@ class PlanningModelsTests(unittest.TestCase):
         invalid = self.proposal()
         invalid["unexpected"] = True
         self.assertTrue(list(Draft202012Validator(schema).iter_errors(invalid)))
+
+    def test_v2_schema_and_resolver_preserve_structured_production_intent(self) -> None:
+        schema = json.loads(
+            Path("schemas/v2/plan-proposal.schema.json").read_text(encoding="utf-8")
+        )
+        proposal = self.blueprint_proposal()
+        Draft202012Validator(schema).validate(proposal)
+        plan = resolve_plan_proposal(
+            proposal,
+            self.context(),
+            plan_id="plan-v2",
+            revision=1,
+            system_skill_release="skills-1",
+        )
+        self.assertIsNotNone(plan.blueprint)
+        self.assertEqual(plan.blueprint.target_duration_seconds, 600)
+        self.assertEqual(plan.blueprint.sections[0].clips[0].role.value, "hook")
+        self.assertEqual(plan.blueprint.sections[0].title_cues[0].text, "東京旅行 Vlog")
+        self.assertEqual(plan.blueprint.sections[0].sound_cues[0].sound.value, "whoosh")
+        self.assertEqual(
+            [item.candidate_id for item in plan.sections[0].source_ranges],
+            ["candidate-1", "candidate-2"],
+        )
 
     def test_resolver_uses_local_spans_and_creates_reviewable_plan(self) -> None:
         context = self.context()
