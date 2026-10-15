@@ -199,6 +199,7 @@ export type AnalysisResultItem = {
   version_id: string
   stream_index: number
   display_name: string
+  kind: 'video' | 'audio'
   role: DirectoryRole
   status: 'pending' | 'prepared' | 'transcribed' | 'needs_review' | 'no_audio' | 'no_speech' | 'failed'
   issue_code: string | null
@@ -208,6 +209,10 @@ export type AnalysisResultItem = {
   preview_text: string | null
   preview_start_pts: string | null
   preview_truncated: boolean
+  transcript_discarded: boolean
+  user_state: 'pending' | 'reviewed' | 'confirmed' | 'priority' | 'excluded'
+  trip_day: number | null
+  day_part: DayPart | null
 }
 
 export type AnalysisResultsPage = {
@@ -217,6 +222,11 @@ export type AnalysisResultsPage = {
   offset: number
   limit: number
   next_offset: number | null
+  filters: {
+    trip_days: Array<{ day: number; count: number }>
+    review_state: 'all' | 'pending' | 'reviewed'
+    trip_day: number | null
+  }
 }
 
 export type TranscriptSegment = {
@@ -229,17 +239,56 @@ export type TranscriptSegment = {
 
 export type TranscriptPage = {
   run_id: string
+  revision_id: string
   version_id: string
   stream_index: number
   display_name: string
   role: DirectoryRole
   language: string
+  source_start_pts: string
   time_base: { num: number; den: number }
   segments: TranscriptSegment[]
   total: number
   offset: number
   limit: number
   next_offset: number | null
+}
+
+export type MaterialUsage = 'normal' | 'must_use' | 'exclude' | 'ambient_only'
+export type DayPart = 'dawn' | 'morning' | 'noon' | 'afternoon' | 'evening' | 'night' | 'late_night'
+
+export type MaterialAnnotation = {
+  version_id: string
+  revision: number
+  people: string[]
+  location: string | null
+  trip_day: number | null
+  day_part: DayPart | null
+  note: string
+  usage: MaterialUsage
+}
+
+export type TranscriptAnnotation = {
+  stream_index: number
+  revision: number
+  source_revision_id: string
+  confirmed: boolean
+  discarded: boolean
+  corrections: Array<{ ordinal: number; text: string }>
+  stale: boolean
+}
+
+export type MaterialAnnotationState = {
+  material: MaterialAnnotation
+  transcript: TranscriptAnnotation | null
+  suggestion: {
+    trip_day: number | null
+    day_part: DayPart | null
+    location: string | null
+    capture_time: string | null
+    time_source: 'filename' | 'metadata' | null
+  }
+  plan_invalidated?: boolean
 }
 
 export type TimelineValidationIssue = {
@@ -706,10 +755,14 @@ export async function getAnalysisResults(
   projectId: string,
   runId: string,
   offset = 0,
+  filters: { tripDay?: number | null; reviewState?: 'all' | 'pending' | 'reviewed' } = {},
 ): Promise<AnalysisResultsPage> {
+  const query = new URLSearchParams({ offset: String(offset), limit: '12' })
+  if (filters.tripDay) query.set('trip_day', String(filters.tripDay))
+  if (filters.reviewState && filters.reviewState !== 'all') query.set('review_state', filters.reviewState)
   return (
     await request<{ results: AnalysisResultsPage }>(
-      `/api/projects/${projectId}/analyses/${runId}/results?offset=${offset}&limit=25`,
+      `/api/projects/${projectId}/analyses/${runId}/results?${query.toString()}`,
     )
   ).results
 }
@@ -726,6 +779,52 @@ export async function getTranscriptSegments(
       `/api/projects/${projectId}/analyses/${runId}/items/${versionId}/${streamIndex}/transcript?offset=${offset}&limit=100`,
     )
   ).transcript
+}
+
+export async function getMaterialAnnotation(
+  projectId: string,
+  versionId: string,
+  streamIndex: number,
+): Promise<MaterialAnnotationState> {
+  return (
+    await request<{ annotation: MaterialAnnotationState }>(
+      `/api/projects/${projectId}/annotations/${versionId}/${streamIndex}`,
+    )
+  ).annotation
+}
+
+export async function saveMaterialAnnotation(
+  csrf: string,
+  projectId: string,
+  annotation: MaterialAnnotationState,
+): Promise<MaterialAnnotationState> {
+  return (
+    await command<{ annotation: MaterialAnnotationState }>(
+      `/api/projects/${projectId}/annotation/commands/save`,
+      csrf,
+      {
+        request_id: crypto.randomUUID(),
+        version_id: annotation.material.version_id,
+        stream_index: annotation.transcript?.stream_index ?? -1,
+        expected_material_revision: annotation.material.revision,
+        expected_transcript_revision: annotation.transcript?.revision ?? 0,
+        material: {
+          people: annotation.material.people,
+          location: annotation.material.location,
+          trip_day: annotation.material.trip_day,
+          day_part: annotation.material.day_part,
+          note: annotation.material.note,
+          usage: annotation.material.usage,
+        },
+        transcript: annotation.transcript && {
+          source_revision_id: annotation.transcript.source_revision_id,
+          confirmed: annotation.transcript.confirmed,
+          discarded: annotation.transcript.discarded,
+          corrections: annotation.transcript.corrections,
+        },
+      },
+    )
+  ).annotation
 }
 
 export async function removeASR(csrf: string): Promise<ASRRuntimeStatus> {
