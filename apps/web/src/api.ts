@@ -400,6 +400,53 @@ export type EditablePlanSection = {
   unknowns: string[]
 }
 
+export type BlueprintEffect = {
+  effect: 'punch_in' | 'slow_push' | 'reframe' | 'speed_ramp'
+  intensity: 'subtle' | 'medium' | 'strong'
+}
+
+export type BlueprintClip = {
+  candidate_id: string
+  role: 'hook' | 'story' | 'b_roll' | 'reaction' | 'transition' | 'ending'
+  audio_treatment: 'dialogue' | 'ambient' | 'mixed' | 'mute'
+  effects: BlueprintEffect[]
+}
+
+export type BlueprintTitleCue = {
+  cue_id: string
+  text: string
+  placement: 'section_start' | 'over_clip' | 'section_end'
+  style: 'minimal' | 'chapter' | 'location' | 'ending'
+}
+
+export type BlueprintSoundCue = {
+  cue_id: string
+  sound: 'whoosh' | 'impact' | 'click' | 'riser' | 'ambient_accent'
+  placement: 'section_start' | 'section_middle' | 'section_end'
+  intensity: 'subtle' | 'medium' | 'strong'
+}
+
+export type BlueprintSection = {
+  section_id: string
+  clips: BlueprintClip[]
+  title_cues: BlueprintTitleCue[]
+  sound_cues: BlueprintSoundCue[]
+  transition_out: 'cut' | 'dissolve' | 'fade' | 'whip'
+}
+
+export type EditBlueprint = {
+  target_duration_seconds: number | null
+  pacing: 'relaxed' | 'balanced' | 'energetic'
+  subtitle_mode: 'none' | 'dialogue' | 'full' | 'dynamic'
+  graphics_intensity: 'minimal' | 'balanced' | 'expressive'
+  music: {
+    mode: 'none' | 'ambient_only' | 'approved_asset_required'
+    mood: string
+  }
+  sound_design: string
+  sections: BlueprintSection[]
+}
+
 export type EditablePlan = {
   plan_id: string
   revision: number
@@ -407,6 +454,7 @@ export type EditablePlan = {
   title: string
   summary: string
   sections: EditablePlanSection[]
+  blueprint: EditBlueprint | null
 }
 
 export type PlanningRun = {
@@ -547,6 +595,45 @@ export async function updatePlan(
   projectId: string,
   plan: EditablePlan,
 ): Promise<EditablePlan> {
+  const blueprintSections = new Map(
+    plan.blueprint?.sections.map((section) => [section.section_id, section]),
+  )
+  const sections = plan.sections.map((section) => {
+    if (!plan.blueprint) return section
+    const existing = blueprintSections.get(section.section_id)
+    const clips = new Map(existing?.clips.map((clip) => [clip.candidate_id, clip]))
+    return {
+      ...section,
+      clips: section.candidate_ids.map((candidateId) => clips.get(candidateId) ?? {
+        candidate_id: candidateId,
+        role: 'story' as const,
+        audio_treatment: 'mixed' as const,
+        effects: [],
+      }),
+      title_cues: existing?.title_cues ?? [],
+      transition_out: existing?.transition_out ?? 'cut',
+      candidate_ids: undefined,
+    }
+  })
+  const proposal = plan.blueprint ? {
+    schema_version: 2,
+    title: plan.title,
+    summary: plan.summary,
+    creative_direction: {
+      target_duration_seconds: plan.blueprint.target_duration_seconds,
+      pacing: plan.blueprint.pacing,
+      subtitle_mode: plan.blueprint.subtitle_mode,
+      graphics_intensity: plan.blueprint.graphics_intensity,
+      music: plan.blueprint.music,
+      sound_design: plan.blueprint.sound_design,
+    },
+    sections,
+  } : {
+    schema_version: 1,
+    title: plan.title,
+    summary: plan.summary,
+    sections,
+  }
   return (
     await command<{ plan: EditablePlan }>(
       `/api/projects/${projectId}/plan/commands/update`,
@@ -555,12 +642,7 @@ export async function updatePlan(
         request_id: crypto.randomUUID(),
         plan_id: plan.plan_id,
         expected_revision: plan.revision,
-        plan: {
-          schema_version: 1,
-          title: plan.title,
-          summary: plan.summary,
-          sections: plan.sections,
-        },
+        plan: proposal,
       },
     )
   ).plan

@@ -260,7 +260,7 @@ export function TimelineValidationSection({ projectId, csrf }: Props) {
               <div>
                 <span className="preview-step">2</span>
                 <strong>觀看結構預覽</strong>
-                <p>Clipen 會在本機產生 MP4，讓你檢查選材、順序與原音。這不是完成剪輯，不含字卡、字幕、音樂、音效或視覺特效，也不使用 AI Token。</p>
+                <p>AI 已在上一階段產生剪輯藍圖；這裡只依照藍圖在本機產生 MP4，不會再次使用 AI Token。這支預覽用來檢查選材、順序與原音，尚未套用字卡、字幕、音樂、音效或視覺特效。</p>
               </div>
               {!renderActive && currentRender?.state !== 'succeeded' && (
                 <button className="button primary" disabled={busy || !preview?.can_start} onClick={() => void startPreview()}>

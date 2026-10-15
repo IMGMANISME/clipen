@@ -529,6 +529,26 @@ input:focus, textarea:focus { border-color: #6c8b73; box-shadow: 0 0 0 3px rgba(
 .plan-status.confirmed { color: #315740; background: #d9e9d9; }
 .plan-actions { display: flex; flex: 0 0 auto; gap: 8px; }
 .unsaved-plan { margin: 0; padding: 10px 22px; color: #765b2c; background: #f5ecd8; font-size: 10px; }
+.blueprint-editor { margin: 18px 22px 0; padding: clamp(16px, 2vw, 22px); border: 1px solid #c7d5c6; border-radius: 14px; background: #f4f8f1; }
+.blueprint-editor-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.blueprint-editor-heading > div > span { display: block; margin-bottom: 5px; color: #52705b; font-size: clamp(9px, .75vw, 11px); font-weight: 780; letter-spacing: .08em; }
+.blueprint-editor-heading strong { display: block; color: #2d4535; font-size: clamp(15px, 1.25vw, 19px); }
+.blueprint-editor-heading p { max-width: 72ch; margin: 5px 0 0; color: #68766b; font-size: clamp(10px, .82vw, 12px); line-height: 1.55; }
+.blueprint-version { flex: 0 0 auto; padding: 5px 9px; border-radius: 999px; color: #41604b; background: #dfebdc; font-size: 9px; font-weight: 760; }
+.blueprint-controls { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 11px; margin-top: 18px; }
+.blueprint-controls label, .blueprint-wide-field { display: grid; gap: 6px; color: #5c695f; font-size: clamp(9px, .72vw, 11px); font-weight: 720; }
+.blueprint-controls select, .blueprint-wide-field input, .blueprint-wide-field textarea { width: 100%; min-width: 0; min-height: 40px; padding: 9px 10px; border: 1px solid #cbd5c9; border-radius: 8px; color: var(--ink); background: #fff; font: inherit; font-size: clamp(10px, .82vw, 12px); }
+.blueprint-wide-field { margin-top: 12px; }
+.blueprint-wide-field textarea { resize: vertical; }
+.blueprint-wide-field small { color: #7b837c; font-size: 9px; font-weight: 500; }
+.blueprint-summary { display: grid; grid-template-columns: repeat(4, 1fr); overflow: hidden; margin: 15px 0 0; border: 1px solid #d5ded3; border-radius: 9px; background: rgba(255,255,255,.7); }
+.blueprint-summary > div { padding: 10px 12px; border-right: 1px solid #dce3da; }
+.blueprint-summary > div:last-child { border-right: 0; }
+.blueprint-summary dt { color: #7a837b; font-size: 9px; }
+.blueprint-summary dd { margin: 3px 0 0; color: #35493b; font-size: 12px; font-weight: 760; }
+.blueprint-legacy-note { margin: 18px 22px 0; padding: 14px 16px; border: 1px solid #decda9; border-radius: 11px; background: #f7efdd; }
+.blueprint-legacy-note strong { font-size: 12px; }
+.blueprint-legacy-note p { margin: 4px 0 0; color: #756b58; font-size: 10px; line-height: 1.5; }
 .plan-fields { display: grid; grid-template-columns: minmax(240px, .72fr) minmax(320px, 1.28fr); gap: 14px; padding: 20px 22px; border-bottom: 1px solid #e0e4dd; }
 .plan-fields label,
 .plan-section-fields label { display: grid; gap: 6px; color: #626861; font-size: 10px; font-weight: 720; }
@@ -558,12 +578,53 @@ input:focus, textarea:focus { border-color: #6c8b73; box-shadow: 0 0 0 3px rgba(
 .plan-section-toolbar { display: flex; align-items: center; justify-content: flex-end; padding: 10px 13px; border-top: 1px solid #e3e6e0; border-bottom: 1px solid #e3e6e0; background: #f3f4ef; }
 .plan-section-toolbar > div { display: flex; gap: 12px; }
 .plan-section-fields { display: grid; grid-template-columns: minmax(180px, .6fr) minmax(260px, 1fr); gap: 13px; padding: 15px; }
+.section-production { margin: 0 15px 15px; padding: 13px; border: 1px solid #d3ded2; border-radius: 10px; background: #f3f7f0; }
+.section-production-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.section-production-heading > div strong, .section-production-heading > div span { display: block; }
+.section-production-heading strong { color: #405747; font-size: 11px; }
+.section-production-heading span { margin-top: 2px; color: #718076; font-size: 9px; }
+.section-production-heading label { display: grid; gap: 4px; color: #6d796f; font-size: 9px; font-weight: 700; }
+.section-production select, .section-production input { min-height: 34px; padding: 6px 8px; border: 1px solid #cbd5c9; border-radius: 7px; color: var(--ink); background: #fff; font: inherit; font-size: 9px; }
+.production-title-list, .production-clip-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.production-title-editor { margin-bottom: 12px; padding: 10px; border: 1px solid #dbe4d9; border-radius: 8px; background: rgba(255,255,255,.58); }
+.production-title-editor > div:first-child, .production-sound-editor > div:first-child { display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px; }
+.production-title-editor > div:first-child strong, .production-sound-editor > div:first-child strong { font-size: 10px; }
+.production-title-editor > p, .production-sound-editor > p { margin: 0; color: #7b847c; font-size: 9px; }
+.production-title-row { display: grid; grid-template-columns: minmax(140px, 1fr) 100px 90px auto; gap: 7px; margin-top: 6px; }
+.production-title-row input { width: 100%; min-width: 0; }
+.production-sound-editor { margin-bottom: 12px; padding: 10px; border: 1px solid #dbe4d9; border-radius: 8px; background: rgba(255,255,255,.58); }
+.production-sound-row { display: grid; grid-template-columns: minmax(120px, 1fr) 100px 80px auto; gap: 7px; margin-top: 6px; }
+.production-clip-list li { display: grid; grid-template-columns: minmax(130px, .4fr) minmax(0, 1fr); gap: 12px; padding: 10px 9px; border-top: 1px solid #dce4da; }
+.production-clip-identity { min-width: 0; align-self: center; }
+.production-clip-identity > strong { display: block; overflow: hidden; font-size: 9px; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
+.production-clip-identity > span { display: flex; gap: 8px; margin-top: 3px; }
+.production-clip-identity .text-button { font-size: 8px; }
+.production-clip-controls { display: grid; grid-template-columns: minmax(100px, .5fr) minmax(120px, .7fr); gap: 7px; }
+.effect-toggles { display: flex; grid-column: 1 / -1; flex-wrap: wrap; gap: 5px; }
+.effect-toggles > div { display: flex; overflow: hidden; align-items: center; border: 1px solid #d6ddd4; border-radius: 999px; color: #68746b; background: #fff; }
+.effect-toggles > div.selected { border-color: #91ac96; color: #315a3f; background: #dfebdc; }
+.effect-toggles label { display: flex; align-items: center; gap: 4px; padding: 4px 6px; font-size: 8px; cursor: pointer; }
+.effect-toggles select { min-height: 24px; padding: 2px 5px; border: 0; border-left: 1px solid #b9ccb9; border-radius: 0; color: #315a3f; background: transparent; font-size: 8px; }
+.effect-toggles input { width: 0; min-height: 0; margin: 0; opacity: 0; }
 .candidate-evidence { display: grid; gap: 6px; margin: 0; padding: 0 15px 15px; list-style: none; }
 .candidate-evidence li { padding: 10px 11px; border: 1px solid #e0e3dd; border-radius: 8px; background: #f8f8f4; }
 .candidate-evidence strong,
 .candidate-evidence span { display: block; font-size: 9px; line-height: 1.5; }
 .candidate-evidence span { margin-top: 3px; color: #747a72; }
 .add-section { margin: 12px 22px 21px; }
+@media (max-width: 900px) {
+  .blueprint-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 620px) {
+  .blueprint-editor-heading { display: grid; }
+  .blueprint-version { justify-self: start; }
+  .blueprint-controls, .blueprint-summary { grid-template-columns: 1fr; }
+  .blueprint-summary > div { border-right: 0; border-bottom: 1px solid #dce3da; }
+  .blueprint-summary > div:last-child { border-bottom: 0; }
+  .production-clip-list li { grid-template-columns: 1fr; gap: 2px; }
+  .production-title-row, .production-sound-row, .production-clip-controls { grid-template-columns: 1fr; }
+  .effect-toggles { grid-column: 1; }
+}
 .stage-view > .planning-section:first-child,
 .stage-view > .timeline-validation-section:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
 .stage-next { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-top: 28px; padding: 17px 18px; border: 1px solid #cbd4c9; border-radius: 13px; background: #edf4ea; }
