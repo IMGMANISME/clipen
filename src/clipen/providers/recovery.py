@@ -79,6 +79,8 @@ class ProviderUsage:
         ):
             if not isinstance(value, int) or isinstance(value, bool) or value < 0:
                 raise ValueError("provider token usage must contain non-negative integers")
+        if self.cached_input_tokens > self.input_tokens:
+            raise ValueError("cached input tokens cannot exceed input tokens")
 
     def to_dict(self) -> dict[str, int]:
         return {

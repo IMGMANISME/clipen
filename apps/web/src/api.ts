@@ -344,6 +344,34 @@ export type EditTimelineState = {
   validation: TimelineValidationState | null
 }
 
+export type PreviewRenderState =
+  | 'queued'
+  | 'running'
+  | 'cancelling'
+  | 'succeeded'
+  | 'failed'
+  | 'cancelled'
+  | 'interrupted'
+
+export type PreviewRender = {
+  render_id: string
+  timeline_id: string
+  state: PreviewRenderState
+  progress: number
+  error_code: string | null
+  size_bytes: number | null
+  created_at: string
+  started_at: string | null
+  completed_at: string | null
+  playback_url: string | null
+}
+
+export type PreviewRenderStatus = {
+  render: PreviewRender | null
+  can_start: boolean
+  stale?: boolean
+}
+
 export type SystemSkillSummary = {
   id: string
   name: string
@@ -406,6 +434,7 @@ export type PlanningStatus = {
     candidates: PlanningCandidate[]
   } | null
   latest_run: PlanningRun | null
+  recent_runs: PlanningRun[]
   current_plan: EditablePlan | null
   plan_quality?: {
     target_duration_seconds: number | null
@@ -717,6 +746,34 @@ export async function getTimelineValidation(
 
 export async function getEditTimeline(projectId: string): Promise<EditTimelineState> {
   return request<EditTimelineState>(`/api/projects/${projectId}/timeline`)
+}
+
+export async function getPreviewRender(projectId: string): Promise<PreviewRenderStatus> {
+  return request<PreviewRenderStatus>(`/api/projects/${projectId}/preview`)
+}
+
+export async function startPreviewRender(
+  csrf: string,
+  projectId: string,
+  timelineId: string,
+): Promise<PreviewRenderStatus> {
+  return command<PreviewRenderStatus>(
+    `/api/projects/${projectId}/preview/commands/start`,
+    csrf,
+    { request_id: crypto.randomUUID(), timeline_id: timelineId },
+  )
+}
+
+export async function cancelPreviewRender(
+  csrf: string,
+  projectId: string,
+  renderId: string,
+): Promise<PreviewRenderStatus> {
+  return command<PreviewRenderStatus>(
+    `/api/projects/${projectId}/preview/${renderId}/commands/cancel`,
+    csrf,
+    {},
+  )
 }
 
 export async function buildEditTimeline(

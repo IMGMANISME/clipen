@@ -203,6 +203,7 @@ class PlanningApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         planning = json.loads(body)
         self.assertEqual(planning["preflight"]["candidate_count"], 1)
+        self.assertEqual(planning["recent_runs"], [])
         self.assertNotIn("av_", body.decode("utf-8"))
 
         command = {
@@ -228,6 +229,11 @@ class PlanningApiTests(unittest.TestCase):
         self.assertEqual(accepted[0], 202)
         completed = self.wait()
         self.assertEqual(completed["latest_run"]["state"], "succeeded")
+        self.assertEqual(len(completed["recent_runs"]), 1)
+        self.assertEqual(
+            completed["recent_runs"][0]["usage"],
+            {"input_tokens": 120, "cached_input_tokens": 20, "output_tokens": 40},
+        )
         self.assertEqual(ApiProvider.calls, 1)
         plan = completed["current_plan"]
 
