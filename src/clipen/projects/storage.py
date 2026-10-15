@@ -32,10 +32,11 @@ from .planning_schema import PLANNING_SCHEMA
 from .timeline_schema import TIMELINE_SCHEMA
 from .preview_schema import PREVIEW_SCHEMA
 from .annotation_schema import ANNOTATION_SCHEMA
+from .agent_schema import EDIT_AGENT_SCHEMA
 from .deletion import ProjectDeletion
 
 
-PROJECT_SCHEMA_VERSION = 13
+PROJECT_SCHEMA_VERSION = 14
 _PROJECT_DIRECTORY = re.compile(r"prj_[0-9a-f]{32}\Z")
 
 _INVENTORY_SCHEMA = """
@@ -643,8 +644,9 @@ class ProjectRepository:
                 + TIMELINE_SCHEMA
                 + ANNOTATION_SCHEMA
                 + PREVIEW_SCHEMA
+                + EDIT_AGENT_SCHEMA
                 + """
-                PRAGMA user_version = 13;
+                PRAGMA user_version = 14;
                 """
             )
             connection.execute(
@@ -731,6 +733,9 @@ class ProjectRepository:
             if version == 12:
                 self._migrate_v12_to_v13(connection)
                 version = 13
+            if version == 13:
+                self._migrate_v13_to_v14(connection)
+                version = 14
             if version != PROJECT_SCHEMA_VERSION:
                 connection.close()
                 raise ProjectError(
@@ -1071,6 +1076,67 @@ class ProjectRepository:
             "BEGIN IMMEDIATE;\n"
             + ("" if observed else PREVIEW_SCHEMA)
             + "\nPRAGMA user_version = 13;\nCOMMIT;"
+        )
+
+    @staticmethod
+    def _migrate_v13_to_v14(connection: sqlite3.Connection) -> None:
+        """Create or verify durable AI editing session tables."""
+
+        expected_columns = {
+            "edit_agent_runs": (
+                "run_id", "project_id", "request_id", "base_timeline_id", "state",
+                "phase", "max_tool_calls", "tool_calls", "max_preview_renders",
+                "preview_renders", "current_revision_id", "final_revision_id",
+                "provider", "provider_attempt_id", "usage_json", "error_code",
+                "created_at", "started_at", "completed_at",
+            ),
+            "edit_agent_revisions": (
+                "revision_id", "run_id", "ordinal", "parent_revision_id",
+                "payload_digest", "payload_json", "summary", "created_at",
+            ),
+            "edit_agent_events": (
+                "event_id", "run_id", "sequence", "event_type", "payload_json",
+                "created_at",
+            ),
+            "edit_agent_command_receipts": (
+                "request_id", "command_type", "request_hash", "response_json",
+                "created_at",
+            ),
+        }
+        observed = {
+            row["name"]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' "
+                "AND name IN ('edit_agent_runs','edit_agent_revisions',"
+                "'edit_agent_events','edit_agent_command_receipts')"
+            )
+        }
+        if observed and observed != set(expected_columns):
+            raise sqlite3.DatabaseError("incomplete edit agent schema")
+        if observed:
+            for table, expected in expected_columns.items():
+                columns = tuple(
+                    row["name"]
+                    for row in connection.execute(f"PRAGMA table_info({table})")
+                )
+                if columns != expected:
+                    raise sqlite3.DatabaseError("unexpected edit agent schema")
+            indexes = {
+                row["name"]
+                for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='index'"
+                )
+            }
+            if not {
+                "edit_agent_runs_project_created",
+                "edit_agent_revisions_run_ordinal",
+                "edit_agent_events_run_sequence",
+            }.issubset(indexes):
+                raise sqlite3.DatabaseError("incomplete edit agent indexes")
+        connection.executescript(
+            "BEGIN IMMEDIATE;\n"
+            + ("" if observed else EDIT_AGENT_SCHEMA)
+            + "\nPRAGMA user_version = 14;\nCOMMIT;"
         )
 
     @staticmethod

@@ -184,7 +184,7 @@ class TimelineValidationWorkflowTests(unittest.TestCase):
             restarted.get_project(self.project.project_id).name, "剪輯驗證"
         )
         with restarted.connect(self.project.project_id) as connection:
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 13)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 14)
             tables = {
                 row["name"]
                 for row in connection.execute(

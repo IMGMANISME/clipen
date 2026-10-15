@@ -220,7 +220,7 @@ class ProjectStorageTests(unittest.TestCase):
         restarted = ProjectRepository(self.projects)
         self.assertEqual(restarted.get_project(created.project_id), created)
         with restarted.connect(created.project_id) as connection:
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 13)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 14)
             observation = connection.execute(
                 "SELECT state FROM evidence_observations "
                 "WHERE observation_id = 'obs_test'"
@@ -239,7 +239,7 @@ class ProjectStorageTests(unittest.TestCase):
         restarted = ProjectRepository(self.projects)
         self.assertEqual(restarted.get_project(created.project_id), created)
         with restarted.connect(created.project_id) as connection:
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 13)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 14)
             tables = {
                 row["name"]
                 for row in connection.execute(
@@ -261,13 +261,44 @@ class ProjectStorageTests(unittest.TestCase):
         restarted = ProjectRepository(self.projects)
         self.assertEqual(restarted.get_project(created.project_id), created)
         with restarted.connect(created.project_id) as connection:
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 13)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 14)
             columns = {
                 row["name"]: row
                 for row in connection.execute("PRAGMA table_info(transcript_annotations)")
             }
         self.assertIn("discarded", columns)
         self.assertEqual(columns["discarded"]["dflt_value"], "0")
+
+    def test_v13_project_adds_resumable_edit_agent_schema(self) -> None:
+        created = self.repository.create_project("request-create-v13", "舊剪輯作品")
+        database = self.projects / created.project_id / "project.sqlite3"
+        with sqlite3.connect(database) as connection:
+            connection.execute("DROP TABLE edit_agent_command_receipts")
+            connection.execute("DROP TABLE edit_agent_events")
+            connection.execute("DROP TABLE edit_agent_revisions")
+            connection.execute("DROP TABLE edit_agent_runs")
+            connection.execute("PRAGMA user_version = 13")
+
+        restarted = ProjectRepository(self.projects)
+        self.assertEqual(restarted.get_project(created.project_id), created)
+        with restarted.connect(created.project_id) as connection:
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 14)
+            tables = {
+                row["name"]
+                for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' "
+                    "AND name LIKE 'edit_agent_%'"
+                )
+            }
+        self.assertEqual(
+            tables,
+            {
+                "edit_agent_runs",
+                "edit_agent_revisions",
+                "edit_agent_events",
+                "edit_agent_command_receipts",
+            },
+        )
 
     def test_validation_rejects_control_characters_and_oversized_brief(self) -> None:
         with self.assertRaises(ProjectError):
