@@ -395,6 +395,18 @@ class ProjectApiTests(unittest.TestCase):
                 "INSERT INTO asset_versions VALUES(?,?,?,?,?,'ready','{}','2026-10-14T00:00:00Z')",
                 (version_id, asset_id, media_stat.st_size, media_stat.st_mtime_ns, "f" * 64),
             )
+            database.execute(
+                "INSERT INTO media_streams VALUES(?,1,'audio','aac','{}')",
+                (version_id,),
+            )
+            database.execute(
+                "INSERT INTO media_streams VALUES(?,5,'video','mjpeg',?)",
+                (version_id, json.dumps({"attached_pic": True})),
+            )
+            database.execute(
+                "INSERT INTO media_streams VALUES(?,0,'video','hevc',?)",
+                (version_id, json.dumps({"attached_pic": False})),
+            )
         path = f"/api/projects/{project['project_id']}/media/{version_id}"
         denied, _, _ = self._request("GET", path, headers={"range": "bytes=0-3"})
         self.assertEqual(denied, 401)
@@ -406,6 +418,8 @@ class ProjectApiTests(unittest.TestCase):
         self.assertEqual(headers["content-range"], f"bytes 0-3/{media_stat.st_size}")
         self.assertEqual(body, b"")
         preview = self.media_previews.open(project["project_id"], version_id)
+        self.assertEqual(preview.audio_stream_indices, (1,))
+        self.assertEqual(preview.video_stream_indices, (0,))
         self.assertEqual(b"".join(preview.chunks(0, 3)), b"synt")
         invalid, invalid_headers, _ = self._request(
             "HEAD", path, headers={"cookie": self.cookie, "range": "bytes=999-1000"},
