@@ -68,15 +68,33 @@ class ApiProvider:
         return SimpleNamespace(
             usage=ProviderUsage(120, 20, 40),
             payload={
-                "schema_version": 1,
+                "schema_version": 2,
                 "title": "東京旅行初剪",
                 "summary": "依事件順序整理。",
+                "creative_direction": {
+                    "target_duration_seconds": None,
+                    "pacing": "balanced",
+                    "subtitle_mode": "dialogue",
+                    "graphics_intensity": "balanced",
+                    "music": {"mode": "ambient_only", "mood": ""},
+                    "sound_design": "保留現場聲。",
+                },
                 "sections": [
                     {
                         "section_id": "section-001",
                         "title": "抵達",
                         "purpose": "建立旅程起點。",
-                        "candidate_ids": ["candidate-001"],
+                        "clips": [
+                            {
+                                "candidate_id": "candidate-001",
+                                "role": "story",
+                                "audio_treatment": "mixed",
+                                "effects": [],
+                            }
+                        ],
+                        "title_cues": [],
+                        "sound_cues": [],
+                        "transition_out": "cut",
                         "edit_notes": "保留現場聲。",
                         "unknowns": [],
                     }
@@ -124,7 +142,7 @@ class PlanningApiTests(unittest.TestCase):
         self.service = PlanningService(
             PlanningRepository(self.workspace.repository),
             attempts,
-            Path("schemas/v1/plan-proposal.schema.json"),
+            Path("schemas/v2/plan-proposal.schema.json"),
             ApiSkills(),
             adapter_factory=ApiProvider,
         )
@@ -238,11 +256,28 @@ class PlanningApiTests(unittest.TestCase):
         plan = completed["current_plan"]
 
         editable = {
-            "schema_version": 1,
+            "schema_version": 2,
             "title": plan["title"],
             "summary": "改成更精簡的旅程順序。",
-            "sections": plan["sections"],
+            "creative_direction": {
+                "target_duration_seconds": plan["blueprint"]["target_duration_seconds"],
+                "pacing": "energetic",
+                "subtitle_mode": plan["blueprint"]["subtitle_mode"],
+                "graphics_intensity": plan["blueprint"]["graphics_intensity"],
+                "music": plan["blueprint"]["music"],
+                "sound_design": plan["blueprint"]["sound_design"],
+            },
+            "sections": [
+                {
+                    **plan["sections"][0],
+                    "clips": plan["blueprint"]["sections"][0]["clips"],
+                    "title_cues": plan["blueprint"]["sections"][0]["title_cues"],
+                    "sound_cues": plan["blueprint"]["sections"][0]["sound_cues"],
+                    "transition_out": "dissolve",
+                }
+            ],
         }
+        editable["sections"][0].pop("candidate_ids")
         update = self._request(
             "POST",
             base + "/plan/commands/update",
@@ -258,6 +293,10 @@ class PlanningApiTests(unittest.TestCase):
         updated = json.loads(update[2])["plan"]
         self.assertEqual(updated["revision"], 2)
         self.assertEqual(updated["status"], "ready_for_review")
+        self.assertEqual(updated["blueprint"]["pacing"], "energetic")
+        self.assertEqual(
+            updated["blueprint"]["sections"][0]["transition_out"], "dissolve"
+        )
 
         confirm = self._request(
             "POST",

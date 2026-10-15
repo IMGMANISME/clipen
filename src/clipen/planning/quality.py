@@ -84,7 +84,12 @@ def assess_plan_quality(plan: PlanRevision, context: PlanningContext) -> PlanQua
         ),
         Fraction(0),
     )
-    target = requested_duration_seconds(context.brief)
+    target = (
+        Fraction(plan.blueprint.target_duration_seconds)
+        if plan.blueprint is not None
+        and plan.blueprint.target_duration_seconds is not None
+        else requested_duration_seconds(context.brief)
+    )
     issue = None
     if target is not None and duration < target * Fraction(4, 5):
         issue = "plan_video_coverage_too_short"
