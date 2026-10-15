@@ -440,7 +440,7 @@ class EvidenceServiceTests(unittest.TestCase):
             db.execute('PRAGMA user_version=4')
         self.assertEqual(self.projects.get_project(self.pid), before)
         with self.projects.connect(self.pid) as db:
-            self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], 10)
+            self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], 12)
             self.assertEqual(db.execute('SELECT count(*) FROM evidence_runs').fetchone()[0], 0)
             self.assertEqual(db.execute('SELECT count(*) FROM preparation_runs').fetchone()[0], 0)
 

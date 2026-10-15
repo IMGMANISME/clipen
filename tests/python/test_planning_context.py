@@ -76,6 +76,25 @@ class PlanningContextBuilderTests(unittest.TestCase):
                 "source": self.span(reference_version).to_storage(),
                 "error_code": None,
             }
+            for index, (version_id, role) in enumerate(
+                ((source_version, "source"), (reference_version, "reference"))
+            ):
+                asset_id = "asset_" + str(index + 1) * 32
+                database.execute(
+                    "INSERT INTO assets VALUES(?,?,?,?,?)",
+                    (asset_id, self.project.project_id, role, f"clip-{index}.mov", "2026-10-08T00:00:00Z"),
+                )
+                database.execute(
+                    "INSERT INTO asset_versions VALUES(?,?,1,1,?,'ready','{}','2026-10-08T00:00:00Z')",
+                    (version_id, asset_id, str(index + 1) * 64),
+                )
+                database.execute(
+                    "INSERT INTO inventory_items VALUES(?,?,?,?,?,?,NULL)",
+                    (
+                        self.inventory_id, asset_id, version_id, f"clip-{index}.mov",
+                        "video", "usable",
+                    ),
+                )
             for ordinal, result in enumerate((source, reference)):
                 database.execute(
                     "INSERT INTO evidence_results "
@@ -135,6 +154,116 @@ class PlanningContextBuilderTests(unittest.TestCase):
         with self.assertRaises(ProjectError) as context:
             self.builder.build(self.project.project_id)
         self.assertEqual(context.exception.code, "planning_brief_required")
+
+    def test_user_metadata_enters_context_and_excluded_material_is_removed(self) -> None:
+        source_version = "av_" + "a" * 32
+        with self.projects.connect(self.project.project_id) as database:
+            database.execute(
+                "INSERT INTO material_annotations "
+                "(version_id,revision,people_json,location,trip_day,day_part,note,usage,updated_at) "
+                "VALUES(?,1,?,'東京車站',1,'morning','保留第一次抵達的反應','must_use','2026-10-08T00:03:00Z')",
+                (source_version, self.encoded(["小明"])),
+            )
+        context = self.builder.build(self.project.project_id)
+        summary = context.candidates[0].evidence_summary
+        self.assertIn("旅行第 1 天", summary)
+        self.assertIn("東京車站", summary)
+        self.assertIn("人物：小明", summary)
+        self.assertIn("優先使用", summary)
+        self.assertIn("保留第一次抵達", summary)
+
+        with self.projects.connect(self.project.project_id) as database:
+            database.execute(
+                "UPDATE material_annotations SET revision=2,usage='exclude' WHERE version_id=?",
+                (source_version,),
+            )
+        with self.assertRaises(ProjectError) as context:
+            self.builder.build(self.project.project_id)
+        self.assertEqual(context.exception.code, "planning_candidates_empty")
+
+    def test_confirmed_correction_replaces_untrusted_text_for_the_same_material(self) -> None:
+        version_id = "av_" + "a" * 32
+        run_id = "prep_" + "3" * 32
+        revision_id = "tr_" + "4" * 32
+        with self.projects.connect(self.project.project_id) as database:
+            database.execute(
+                "INSERT INTO preparation_runs "
+                "(run_id,project_id,request_id,project_revision,inventory_run_id,scope_id,operation_id,attempt_id,"
+                "input_fingerprint,recipe_json,state,phase,total_count,transcribed_count,created_at) "
+                "VALUES(?,?,?,?,?,'scope-test','op-test','att-test','fingerprint','{}','succeeded','completed',1,1,'2026-10-08T00:04:00Z')",
+                (run_id, self.project.project_id, "request-plan-context-preparation", self.project.revision, self.inventory_id),
+            )
+            source_span = SourceSpan(version_id, 1, "0", "48000", Rational(1, 48000))
+            database.execute(
+                "INSERT INTO transcription_revisions "
+                "(revision_id,project_id,run_id,version_id,stream_index,status,language,model_json,recipe_id,source_span_json,created_at) "
+                "VALUES(?,?,?,?,1,'needs_review','zh','{}','recipe',?,'2026-10-08T00:05:00Z')",
+                (revision_id, self.project.project_id, run_id, version_id, self.encoded(source_span.to_storage())),
+            )
+            database.execute(
+                "INSERT INTO transcript_segments "
+                "(revision_id,segment_id,start_pts,end_pts,text,confidence,ordinal) "
+                "VALUES(?,'seg-1','0','48000','泥模','0.2',0)",
+                (revision_id,),
+            )
+            database.execute(
+                "INSERT INTO preparation_items "
+                "(run_id,version_id,stream_index,status,transcript_revision_id,review_required) "
+                "VALUES(?,?,1,'transcribed',?,1)",
+                (run_id, version_id, revision_id),
+            )
+            database.execute("INSERT INTO current_preparation VALUES(1,?)", (run_id,))
+            database.execute(
+                "INSERT INTO transcript_annotations "
+                "(version_id,stream_index,source_revision_id,revision,confirmed,discarded,corrections_json,updated_at) "
+                "VALUES(?,?,?,1,1,0,?,'2026-10-08T00:06:00Z')",
+                (version_id, 1, revision_id, self.encoded([{"ordinal": 0, "text": "尼莫"}])),
+            )
+        context = self.builder.build(self.project.project_id)
+        corrected = [item for item in context.candidates if item.transcript_excerpt == "尼莫"]
+        self.assertEqual(len(corrected), 1)
+        self.assertEqual(corrected[0].transcript_reliability, TranscriptReliability.TRUSTED)
+        self.assertNotIn("泥模", repr(context.to_provider()))
+
+        with self.projects.connect(self.project.project_id) as database:
+            database.execute(
+                "UPDATE transcript_annotations SET corrections_json=?,revision=2 "
+                "WHERE version_id=? AND stream_index=1",
+                (self.encoded([{"ordinal": 0, "text": ""}]), version_id),
+            )
+        without_segment = self.builder.build(self.project.project_id)
+        self.assertFalse(
+            any(candidate.transcript_excerpt for candidate in without_segment.candidates)
+        )
+
+        with self.projects.connect(self.project.project_id) as database:
+            database.execute(
+                "UPDATE transcript_annotations SET discarded=1,confirmed=0,revision=3 "
+                "WHERE version_id=? AND stream_index=1",
+                (version_id,),
+            )
+        without_transcript = self.builder.build(self.project.project_id)
+        self.assertFalse(
+            any(candidate.transcript_excerpt for candidate in without_transcript.candidates)
+        )
+        self.assertNotIn("尼莫", repr(without_transcript.to_provider()))
+
+    def test_capture_metadata_guides_plan_when_user_has_not_annotated(self) -> None:
+        source_version = "av_" + "a" * 32
+        with self.projects.connect(self.project.project_id) as database:
+            database.execute(
+                "UPDATE asset_versions SET probe_json=? WHERE version_id=?",
+                (self.encoded({
+                    "capture_time": "2026-07-20T07:30:00+09:00",
+                    "location": "GPS 35.676200, 139.650300",
+                }), source_version),
+            )
+        context = self.builder.build(self.project.project_id)
+        summary = context.candidates[0].evidence_summary
+        self.assertIn("旅行第 1 天", summary)
+        self.assertIn("早上", summary)
+        self.assertIn("GPS 35.676200", summary)
+        self.assertIn("使用者尚未核對", summary)
 
     def test_candidate_limit_samples_across_materials_before_taking_depth(self) -> None:
         groups = []

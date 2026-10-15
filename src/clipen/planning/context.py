@@ -9,6 +9,7 @@ import json
 from typing import Any
 
 from clipen.domain import Rational, SourceSpan
+from clipen.annotations.suggestions import annotation_suggestions
 from clipen.projects import ProjectError, ProjectRepository
 
 from .models import PlanningCandidate, PlanningContext, TranscriptReliability
@@ -19,6 +20,12 @@ _MAX_TRANSCRIPTS = 512
 _MAX_TRANSCRIPTS_PER_STREAM = 4
 _MAX_WINDOWS_PER_STREAM = 4
 _WINDOW_SECONDS = 12
+
+_DAY_PART_LABELS = {
+    "dawn": "清晨", "morning": "早上", "noon": "中午",
+    "afternoon": "下午", "evening": "傍晚", "night": "晚上",
+    "late_night": "深夜",
+}
 
 
 def _candidate_id(key: str, span: SourceSpan, kind: str) -> str:
@@ -137,8 +144,8 @@ class PlanningContextBuilder:
             transcript_rows = database.execute(
                 "WITH ranked AS ("
                 "SELECT items.version_id, items.stream_index, items.review_required, "
-                "segments.start_pts, segments.end_pts, segments.text, "
-                "revisions.source_span_json, "
+                "segments.ordinal, segments.start_pts, segments.end_pts, segments.text, "
+                "revisions.revision_id, revisions.source_span_json, "
                 "ROW_NUMBER() OVER ("
                 "PARTITION BY items.version_id, items.stream_index "
                 "ORDER BY segments.ordinal) AS segment_rank "
@@ -153,23 +160,62 @@ class PlanningContextBuilder:
                 "ORDER BY version_id, stream_index, segment_rank LIMIT ?",
                 (_MAX_TRANSCRIPTS_PER_STREAM, _MAX_TRANSCRIPTS + 1),
             ).fetchall()
+            material_annotation_rows = database.execute(
+                "SELECT version_id,revision,people_json,location,trip_day,day_part,note,usage "
+                "FROM material_annotations"
+            ).fetchall()
+            transcript_annotation_rows = database.execute(
+                "SELECT version_id,stream_index,source_revision_id,revision,confirmed,discarded,corrections_json "
+                "FROM transcript_annotations"
+            ).fetchall()
+            automatic_annotations = annotation_suggestions(database)
 
         observations = {
             row["item_key"]: _safe_json(row["result_json"], "畫面觀察")
             for row in observation_rows
         }
-        transcripts: dict[tuple[str, int], list[dict[str, object]]] = defaultdict(list)
-        review_keys: set[tuple[str, int]] = set()
+        material_annotations = {
+            row["version_id"]: self._material_annotation(row)
+            for row in material_annotation_rows
+        }
+        for version_id, suggestion in automatic_annotations.items():
+            if version_id not in material_annotations:
+                material_annotations[version_id] = {
+                    "people": [],
+                    "location": suggestion.get("location"),
+                    "trip_day": suggestion.get("trip_day"),
+                    "day_part": suggestion.get("day_part"),
+                    "note": "",
+                    "usage": "normal",
+                    "automatic": True,
+                }
+        transcript_annotations = {
+            (row["version_id"], row["stream_index"]): self._transcript_annotation(row)
+            for row in transcript_annotation_rows
+        }
+        transcripts: dict[str, list[dict[str, object]]] = defaultdict(list)
+        review_versions: set[str] = set()
         review_count = 0
         for row in transcript_rows[:_MAX_TRANSCRIPTS]:
-            if row["review_required"]:
+            annotation = transcript_annotations.get((row["version_id"], row["stream_index"]))
+            annotation_current = bool(
+                annotation
+                and annotation["source_revision_id"] == row["revision_id"]
+            )
+            confirmed = bool(annotation_current and annotation["confirmed"])
+            material = material_annotations.get(row["version_id"], {})
+            if material.get("usage") == "ambient_only" or (
+                annotation and annotation["discarded"]
+            ):
+                continue
+            if row["review_required"] and not confirmed:
                 review_count += 1
-                review_keys.add((row["version_id"], row["stream_index"]))
+                review_versions.add(row["version_id"])
                 continue
             source = SourceSpan.from_storage(
                 _safe_json(row["source_span_json"], "逐字稿來源")
             )
-            transcripts[(row["version_id"], row["stream_index"])].append(
+            transcripts[row["version_id"]].append(
                 {
                     "span": SourceSpan(
                         row["version_id"],
@@ -178,10 +224,14 @@ class PlanningContextBuilder:
                         row["end_pts"],
                         source.time_base,
                     ),
-                    "text": row["text"],
+                    "text": (
+                        annotation["corrections"].get(row["ordinal"], row["text"])
+                        if annotation_current else row["text"]
+                    ),
                 }
             )
 
+        priority_groups: list[list[PlanningCandidate]] = []
         candidate_groups: list[list[PlanningCandidate]] = []
         reference_notes: list[str] = []
         source_ordinal = 0
@@ -199,21 +249,28 @@ class PlanningContextBuilder:
                 continue
             if result.get("role") != "source" or result.get("kind") not in {"video", "audio"}:
                 continue
+            material_annotation = material_annotations.get(span.version_id, {})
+            if material_annotation.get("usage") == "exclude":
+                continue
             source_ordinal += 1
             label = f"毛片 {source_ordinal:03d}"
-            key = (span.version_id, span.stream_index)
-            trusted = transcripts.get(key, [])
+            trusted = transcripts.get(span.version_id, [])
             group: list[PlanningCandidate] = []
             for item in trusted:
                 candidate_span = item["span"]
                 text = str(item["text"])[:500]
+                if not text.strip():
+                    continue
                 group.append(
                     PlanningCandidate(
                         _candidate_id(row["item_key"], candidate_span, "transcript"),
                         candidate_span,
                         label,
                         str(result["kind"]),
-                        "來源時間已由本機逐字稿對齊；文字可信度通過自動檢查。",
+                        self._with_annotation(
+                            "來源時間已由本機逐字稿對齊；文字已通過自動檢查或由使用者核對。",
+                            material_annotation,
+                        ),
                         TranscriptReliability.TRUSTED,
                         text,
                     )
@@ -226,17 +283,21 @@ class PlanningContextBuilder:
                         candidate_span,
                         label,
                         str(result["kind"]),
-                        summary,
+                        self._with_annotation(summary, material_annotation),
                         (
                             TranscriptReliability.NEEDS_REVIEW
-                            if key in review_keys
+                            if span.version_id in review_versions
                             else TranscriptReliability.UNAVAILABLE
                         ),
                     )
                 )
             if group:
-                candidate_groups.append(group)
+                if material_annotation.get("usage") == "must_use":
+                    priority_groups.append(group)
+                else:
+                    candidate_groups.append(group)
 
+        candidate_groups = priority_groups + candidate_groups
         candidate_count = sum(len(group) for group in candidate_groups)
         candidates = self._round_robin(candidate_groups, _MAX_CANDIDATES)
         if not candidates:
@@ -260,8 +321,16 @@ class PlanningContextBuilder:
             {
                 "evidence_run_id": evidence["run_id"],
                 "preparation": [
-                    [row["version_id"], row["stream_index"], row["start_pts"], row["end_pts"]]
+                    [row["version_id"], row["stream_index"], row["start_pts"], row["end_pts"], row["revision_id"]]
                     for row in transcript_rows[:_MAX_TRANSCRIPTS]
+                ],
+                "material_annotations": [
+                    [row["version_id"], row["revision"]]
+                    for row in material_annotation_rows
+                ],
+                "transcript_annotations": [
+                    [row["version_id"], row["stream_index"], row["revision"]]
+                    for row in transcript_annotation_rows
                 ],
             },
             sort_keys=True,
@@ -276,6 +345,66 @@ class PlanningContextBuilder:
             tuple(dict.fromkeys(reference_notes)),
             tuple(limitations),
         )
+
+    @staticmethod
+    def _material_annotation(row: object) -> dict[str, object]:
+        people = json.loads(row["people_json"])
+        if not isinstance(people, list) or any(not isinstance(item, str) for item in people):
+            raise ProjectError("storage_corrupt", "Clipen 無法讀取素材標註。", status_code=500)
+        return {
+            "people": people,
+            "location": row["location"],
+            "trip_day": row["trip_day"],
+            "day_part": row["day_part"],
+            "note": row["note"],
+            "usage": row["usage"],
+        }
+
+    @staticmethod
+    def _transcript_annotation(row: object) -> dict[str, object]:
+        raw = json.loads(row["corrections_json"])
+        if not isinstance(raw, list):
+            raise ProjectError("storage_corrupt", "Clipen 無法讀取逐字稿修正。", status_code=500)
+        corrections: dict[int, str] = {}
+        for item in raw:
+            if (
+                not isinstance(item, dict)
+                or set(item) != {"ordinal", "text"}
+                or isinstance(item["ordinal"], bool)
+                or not isinstance(item["ordinal"], int)
+                or not isinstance(item["text"], str)
+                or item["ordinal"] in corrections
+            ):
+                raise ProjectError("storage_corrupt", "Clipen 無法讀取逐字稿修正。", status_code=500)
+            corrections[item["ordinal"]] = item["text"]
+        return {
+            "source_revision_id": row["source_revision_id"],
+            "confirmed": bool(row["confirmed"]),
+            "discarded": bool(row["discarded"]),
+            "corrections": corrections,
+        }
+
+    @staticmethod
+    def _with_annotation(summary: str, annotation: dict[str, object]) -> str:
+        details = []
+        if annotation.get("trip_day"):
+            details.append(f"旅行第 {annotation['trip_day']} 天")
+        if annotation.get("day_part"):
+            details.append(_DAY_PART_LABELS.get(str(annotation["day_part"]), str(annotation["day_part"])))
+        if annotation.get("location"):
+            details.append(f"地點：{annotation['location']}")
+        people = annotation.get("people")
+        if isinstance(people, list) and people:
+            details.append("人物：" + "、".join(str(item) for item in people))
+        if annotation.get("usage") == "must_use":
+            details.append("使用者要求優先使用")
+        if annotation.get("usage") == "ambient_only":
+            details.append("只使用畫面或環境音，不採用口語內容")
+        if annotation.get("note"):
+            details.append("使用者備註：" + str(annotation["note"]))
+        if annotation.get("automatic") and details:
+            details.append("旅行時間與地點來自本機素材 metadata，使用者尚未核對")
+        return (summary + ("；" + "；".join(details) if details else ""))[:2_000]
 
     @staticmethod
     def _round_robin(

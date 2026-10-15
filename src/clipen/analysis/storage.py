@@ -11,6 +11,7 @@ import re
 import sqlite3
 from typing import Mapping, Any
 
+from clipen.annotations.suggestions import annotation_suggestions
 from clipen.media import InventoryRoot
 from clipen.projects.models import (
     DirectoryRole,
@@ -602,25 +603,86 @@ class PreparationRepository:
         *,
         offset: int = 0,
         limit: int = 25,
+        trip_day: int | None = None,
+        review_state: str = "all",
     ) -> dict[str, object]:
         """Return a bounded, path-free page of transcription result summaries."""
         validate_project_id(project_id)
         self._validate_result_page(offset, limit)
+        if trip_day is not None and (
+            isinstance(trip_day, bool) or not isinstance(trip_day, int) or not 1 <= trip_day <= 365
+        ):
+            raise ProjectError("analysis_filter_invalid", "旅行日篩選無效。", status_code=422)
+        if review_state not in {"all", "pending", "reviewed"}:
+            raise ProjectError("analysis_filter_invalid", "處理狀態篩選無效。", status_code=422)
         with self.projects.connect(project_id) as connection:
             run = self._read_run(connection, run_id)
             if run.project_id != project_id:
                 raise ProjectError(
                     "preparation_not_found", "找不到這次素材分析。", status_code=404
                 )
-            total = connection.execute(
-                "SELECT COUNT(*) FROM preparation_items WHERE run_id = ?",
+            suggestions = annotation_suggestions(connection)
+            material_rows = {
+                row["version_id"]: row
+                for row in connection.execute(
+                    "SELECT annotations.version_id,annotations.trip_day,annotations.day_part "
+                    "FROM material_annotations AS annotations "
+                    "JOIN preparation_items AS items ON items.version_id=annotations.version_id "
+                    "WHERE items.run_id=? GROUP BY annotations.version_id",
+                    (run_id,),
+                ).fetchall()
+            }
+            version_counts = connection.execute(
+                "SELECT version_id,COUNT(*) AS item_count FROM preparation_items "
+                "WHERE run_id=? GROUP BY version_id",
                 (run_id,),
+            ).fetchall()
+            effective_days: dict[str, int | None] = {}
+            day_counts: dict[int, int] = {}
+            for version in version_counts:
+                annotation = material_rows.get(version["version_id"])
+                suggested = suggestions.get(version["version_id"], {})
+                day = annotation["trip_day"] if annotation is not None else suggested.get("trip_day")
+                effective_days[version["version_id"]] = day if isinstance(day, int) else None
+                if isinstance(day, int):
+                    day_counts[day] = day_counts.get(day, 0) + version["item_count"]
+
+            where = ["pi.run_id = ?"]
+            parameters: list[object] = [run_id]
+            if trip_day is not None:
+                matching_versions = [
+                    version_id for version_id, day in effective_days.items() if day == trip_day
+                ]
+                if matching_versions:
+                    where.append(
+                        f"pi.version_id IN ({','.join('?' for _ in matching_versions)})"
+                    )
+                    parameters.extend(matching_versions)
+                else:
+                    where.append("0 = 1")
+            if review_state == "pending":
+                where.append("ma.version_id IS NULL AND ta.version_id IS NULL")
+            elif review_state == "reviewed":
+                where.append("(ma.version_id IS NOT NULL OR ta.version_id IS NOT NULL)")
+            joins = (
+                " LEFT JOIN material_annotations ma ON ma.version_id=pi.version_id "
+                "LEFT JOIN transcript_annotations ta ON ta.version_id=pi.version_id "
+                " AND ta.stream_index=pi.stream_index "
+            )
+            total = connection.execute(
+                "SELECT COUNT(*) FROM preparation_items pi" + joins
+                + " WHERE " + " AND ".join(where),
+                parameters,
             ).fetchone()[0]
             rows = connection.execute(
                 "SELECT pi.version_id, pi.stream_index, pi.status, pi.error_code, "
                 "pi.review_required, "
-                "pi.transcript_revision_id, ii.display_name, a.role, tr.language, "
-                "tr.source_span_json, "
+                "pi.transcript_revision_id, ii.display_name, ii.kind, a.role, tr.language, "
+                "tr.source_span_json, ma.revision AS material_revision, ma.usage, "
+                "ma.trip_day AS annotated_trip_day, ma.day_part AS annotated_day_part, "
+                "ta.revision AS annotation_revision, ta.confirmed AS transcript_confirmed, "
+                "ta.discarded AS transcript_discarded, "
+                "ta.source_revision_id AS annotation_source_revision, "
                 "(SELECT COUNT(*) FROM transcript_segments ts "
                 " WHERE ts.revision_id = pi.transcript_revision_id) AS segment_count, "
                 "(SELECT text FROM transcript_segments ts "
@@ -637,16 +699,11 @@ class PreparationRepository:
                 " AND ii.asset_id = a.asset_id "
                 "LEFT JOIN transcription_revisions tr "
                 " ON tr.revision_id = pi.transcript_revision_id "
-                "WHERE pi.run_id = ? "
-                "ORDER BY CASE "
-                " WHEN pi.status = 'failed' THEN 0 "
-                " WHEN pi.review_required = 1 THEN 1 "
-                " WHEN pi.status = 'no_speech' THEN 2 "
-                " WHEN pi.status = 'no_audio' THEN 3 "
-                " WHEN pi.status = 'transcribed' THEN 4 ELSE 5 END, "
-                "ii.display_name COLLATE NOCASE, pi.stream_index "
+                + joins
+                + "WHERE " + " AND ".join(where) + " "
+                "ORDER BY ii.display_name COLLATE NOCASE, pi.stream_index "
                 "LIMIT ? OFFSET ?",
-                (run_id, limit, offset),
+                (*parameters, limit, offset),
             ).fetchall()
         try:
             items = []
@@ -668,20 +725,57 @@ class PreparationRepository:
                     and row["review_required"] == 1
                     else PreparationItemStatus(row["status"]).value
                 )
+                suggestion = suggestions.get(row["version_id"], {})
+                effective_day = (
+                    row["annotated_trip_day"]
+                    if row["material_revision"] is not None
+                    else suggestion.get("trip_day")
+                )
+                effective_day_part = (
+                    row["annotated_day_part"]
+                    if row["material_revision"] is not None
+                    else suggestion.get("day_part")
+                )
+                transcript_confirmed = (
+                    row["transcript_confirmed"] == 1
+                    and row["annotation_source_revision"] == row["transcript_revision_id"]
+                )
+                transcript_discarded = (
+                    row["transcript_discarded"] == 1
+                )
+                if row["usage"] == "exclude":
+                    user_state = "excluded"
+                elif row["usage"] == "must_use":
+                    user_state = "priority"
+                elif transcript_confirmed:
+                    user_state = "confirmed"
+                elif row["material_revision"] is not None or row["annotation_revision"] is not None:
+                    user_state = "reviewed"
+                else:
+                    user_state = "pending"
                 items.append(
                     {
                         "version_id": row["version_id"],
                         "stream_index": row["stream_index"],
                         "display_name": row["display_name"],
+                        "kind": row["kind"],
                         "role": DirectoryRole(row["role"]).value,
                         "status": public_status,
                         "issue_code": row["error_code"],
                         "language": row["language"],
                         "source": source,
                         "segment_count": row["segment_count"],
-                        "preview_text": None if preview is None else preview[:280],
+                        "preview_text": (
+                            None if preview is None or transcript_discarded else preview[:280]
+                        ),
                         "preview_start_pts": row["preview_start_pts"],
-                        "preview_truncated": preview is not None and len(preview) > 280,
+                        "preview_truncated": (
+                            not transcript_discarded and preview is not None and len(preview) > 280
+                        ),
+                        "transcript_discarded": transcript_discarded,
+                        "user_state": user_state,
+                        "trip_day": effective_day,
+                        "day_part": effective_day_part,
                     }
                 )
             return {
@@ -691,6 +785,14 @@ class PreparationRepository:
                 "offset": offset,
                 "limit": limit,
                 "next_offset": offset + len(items) if offset + len(items) < total else None,
+                "filters": {
+                    "trip_days": [
+                        {"day": day, "count": count}
+                        for day, count in sorted(day_counts.items())
+                    ],
+                    "review_state": review_state,
+                    "trip_day": trip_day,
+                },
             }
         except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
             raise ProjectError(
@@ -779,11 +881,13 @@ class PreparationRepository:
                 )
             return {
                 "run_id": run_id,
+                "revision_id": revision_id,
                 "version_id": version_id,
                 "stream_index": stream_index,
                 "display_name": item["display_name"],
                 "role": DirectoryRole(item["role"]).value,
                 "language": item["language"],
+                "source_start_pts": source.start_pts,
                 "time_base": source.time_base.to_storage(),
                 "segments": segments,
                 "total": total,

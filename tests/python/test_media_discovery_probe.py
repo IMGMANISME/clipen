@@ -171,7 +171,7 @@ if [ "${1:-}" = "-version" ]; then
   exit 0
 fi
 cat <<'JSON'
-{"streams":[{"index":0,"codec_name":"h264","codec_type":"video","width":1920,"height":1080,"time_base":"1/90000","start_pts":0,"duration_ts":180000,"avg_frame_rate":"30000/1001","r_frame_rate":"30000/1001","tags":{"rotate":"-90"}},{"index":1,"codec_name":"aac","codec_type":"audio","sample_rate":"48000","channels":2,"time_base":"1/48000","start_pts":0,"duration_ts":96000,"avg_frame_rate":"0/0","r_frame_rate":"0/0"}],"format":{"filename":"must-not-leak","format_name":"mov,mp4,m4a,3gp,3g2,mj2","start_time":"0.000000","duration":"2.000000","bit_rate":"1000000","tags":{"private":"ignore"}}}
+{"streams":[{"index":0,"codec_name":"h264","codec_type":"video","width":1920,"height":1080,"time_base":"1/90000","start_pts":0,"duration_ts":180000,"avg_frame_rate":"30000/1001","r_frame_rate":"30000/1001","tags":{"rotate":"-90"}},{"index":1,"codec_name":"aac","codec_type":"audio","sample_rate":"48000","channels":2,"time_base":"1/48000","start_pts":0,"duration_ts":96000,"avg_frame_rate":"0/0","r_frame_rate":"0/0"}],"format":{"filename":"must-not-leak","format_name":"mov,mp4,m4a,3gp,3g2,mj2","start_time":"0.000000","duration":"2.000000","bit_rate":"1000000","tags":{"private":"ignore","creation_time":"2026-07-20T09:30:00+09:00","com.apple.quicktime.location.ISO6709":"+35.6762+139.6503+012.0/"}}}
 JSON
 """
         )
@@ -183,6 +183,8 @@ JSON
 
         self.assertEqual(result.kind, AssetKind.VIDEO)
         self.assertEqual(result.summary["duration_seconds"], "2")
+        self.assertEqual(result.summary["capture_time"], "2026-07-20T09:30:00+09:00")
+        self.assertEqual(result.summary["location"], "GPS 35.676200, 139.650300")
         self.assertEqual(result.streams[0].details["rotation"], 270)
         self.assertEqual(result.streams[1].details["sample_rate"], 48000)
         self.assertNotIn("filename", repr(result.summary))

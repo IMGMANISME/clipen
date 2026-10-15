@@ -220,12 +220,54 @@ class ProjectStorageTests(unittest.TestCase):
         restarted = ProjectRepository(self.projects)
         self.assertEqual(restarted.get_project(created.project_id), created)
         with restarted.connect(created.project_id) as connection:
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 10)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 12)
             observation = connection.execute(
                 "SELECT state FROM evidence_observations "
                 "WHERE observation_id = 'obs_test'"
             ).fetchone()
         self.assertEqual(observation["state"], "running")
+
+    def test_v10_project_adds_annotation_schema_without_changing_project(self) -> None:
+        created = self.repository.create_project("request-create-v10-migration", "舊作品")
+        database = self.projects / created.project_id / "project.sqlite3"
+        with sqlite3.connect(database) as connection:
+            connection.execute("DROP TABLE annotation_command_receipts")
+            connection.execute("DROP TABLE transcript_annotations")
+            connection.execute("DROP TABLE material_annotations")
+            connection.execute("PRAGMA user_version = 10")
+
+        restarted = ProjectRepository(self.projects)
+        self.assertEqual(restarted.get_project(created.project_id), created)
+        with restarted.connect(created.project_id) as connection:
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 12)
+            tables = {
+                row["name"]
+                for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE '%annotation%'"
+                )
+            }
+        self.assertEqual(
+            tables,
+            {"material_annotations", "transcript_annotations", "annotation_command_receipts"},
+        )
+
+    def test_v11_project_adds_reversible_transcript_removal(self) -> None:
+        created = self.repository.create_project("request-create-v11-migration", "既有作品")
+        database = self.projects / created.project_id / "project.sqlite3"
+        with sqlite3.connect(database) as connection:
+            connection.execute("ALTER TABLE transcript_annotations DROP COLUMN discarded")
+            connection.execute("PRAGMA user_version = 11")
+
+        restarted = ProjectRepository(self.projects)
+        self.assertEqual(restarted.get_project(created.project_id), created)
+        with restarted.connect(created.project_id) as connection:
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 12)
+            columns = {
+                row["name"]: row
+                for row in connection.execute("PRAGMA table_info(transcript_annotations)")
+            }
+        self.assertIn("discarded", columns)
+        self.assertEqual(columns["discarded"]["dflt_value"], "0")
 
     def test_validation_rejects_control_characters_and_oversized_brief(self) -> None:
         with self.assertRaises(ProjectError):
