@@ -28,8 +28,9 @@ from clipen.analysis import (
     PreparationRepository,
 )
 from clipen.analysis.evidence_service import EvidenceService
+from clipen.annotations import AnnotationRepository
 from clipen.editing import TimelineService
-from clipen.media import InventoryCoordinator
+from clipen.media import InventoryCoordinator, MediaPreviewRepository
 from clipen.planning import PlanningService
 from clipen.projects import (
     DirectoryRole,
@@ -142,6 +143,33 @@ def _cookie_value(headers: Headers, name: str) -> str | None:
         return None
     morsel = cookie.get(name)
     return morsel.value if morsel is not None else None
+
+
+def _media_range(value: str | None, size: int) -> tuple[int, int]:
+    if size <= 0:
+        raise ValueError("empty media cannot be ranged")
+    if value is None:
+        return 0, size - 1
+    if not value.startswith("bytes=") or "," in value:
+        raise ValueError("only one byte range is supported")
+    raw_start, separator, raw_end = value[6:].partition("-")
+    if not separator:
+        raise ValueError("invalid byte range")
+    try:
+        if raw_start:
+            start = int(raw_start)
+            end = size - 1 if not raw_end else int(raw_end)
+        else:
+            suffix = int(raw_end)
+            if suffix <= 0:
+                raise ValueError("invalid suffix range")
+            start = max(0, size - suffix)
+            end = size - 1
+    except (TypeError, ValueError) as error:
+        raise ValueError("invalid byte range") from error
+    if start < 0 or end < start or start >= size:
+        raise ValueError("unsatisfiable byte range")
+    return start, min(end, size - 1)
 
 
 class LocalRequestGuard:
@@ -258,6 +286,8 @@ def create_app(
     timeline_validations: TimelineValidationRepository | None = None,
     planning_service: PlanningService | None = None,
     timeline_service: TimelineService | None = None,
+    annotations: AnnotationRepository | None = None,
+    media_previews: MediaPreviewRepository | None = None,
 ) -> ASGIApp:
     static_root = config.static_root.resolve(strict=True)
     if timeline_validations is None and workspace is not None:
@@ -431,6 +461,24 @@ def create_app(
                 status_code=503,
             )
         return timeline_service
+
+    def require_annotations() -> AnnotationRepository:
+        if annotations is None:
+            raise ProjectError(
+                "annotations_unavailable",
+                "Clipen 素材標註尚未準備完成。",
+                status_code=503,
+            )
+        return annotations
+
+    def require_media_previews() -> MediaPreviewRepository:
+        if media_previews is None:
+            raise ProjectError(
+                "media_preview_unavailable",
+                "Clipen 素材播放器尚未準備完成。",
+                status_code=503,
+            )
+        return media_previews
 
     def require_fields(
         payload: dict[str, object], required: set[str], optional: set[str] | None = None
@@ -628,6 +676,90 @@ def create_app(
                 request.path_params["project_id"],
             )
             return JSONResponse(result)
+        except ProjectError as error:
+            return await project_error_response(error)
+
+    async def annotation_status(request: Request) -> Response:
+        try:
+            try:
+                stream_index = int(request.path_params["stream_index"])
+            except (TypeError, ValueError) as error:
+                raise ProjectError(
+                    "annotation_not_found", "找不到這個素材。", status_code=404
+                ) from error
+            result = await run_in_threadpool(
+                require_annotations().get,
+                request.path_params["project_id"],
+                request.path_params["version_id"],
+                stream_index,
+            )
+            return JSONResponse({"annotation": result})
+        except ProjectError as error:
+            return await project_error_response(error)
+
+    async def save_annotation(request: Request) -> Response:
+        try:
+            payload = await read_json(request)
+            require_fields(
+                payload,
+                {
+                    "request_id", "version_id", "stream_index",
+                    "expected_material_revision", "expected_transcript_revision",
+                    "material", "transcript",
+                },
+            )
+            result = await run_in_threadpool(
+                require_annotations().save,
+                request.path_params["project_id"],
+                payload["request_id"],
+                payload["version_id"],
+                payload["stream_index"],
+                payload["expected_material_revision"],
+                payload["expected_transcript_revision"],
+                payload["material"],
+                payload["transcript"],
+            )
+            return JSONResponse({"annotation": result})
+        except ProjectError as error:
+            return await project_error_response(error)
+
+    async def preview_media(request: Request) -> Response:
+        try:
+            preview = await run_in_threadpool(
+                require_media_previews().open,
+                request.path_params["project_id"],
+                request.path_params["version_id"],
+            )
+            range_header = request.headers.get("range")
+            try:
+                start, end = _media_range(range_header, preview.size)
+            except ValueError:
+                preview.close()
+                return Response(
+                    status_code=416,
+                    headers={"Content-Range": f"bytes */{preview.size}"},
+                )
+            partial = range_header is not None
+            headers = {
+                "Accept-Ranges": "bytes",
+                "Content-Length": str(end - start + 1),
+                "Cache-Control": "private, no-store",
+            }
+            if partial:
+                headers["Content-Range"] = f"bytes {start}-{end}/{preview.size}"
+            if request.method == "HEAD":
+                preview.close()
+                return Response(
+                    status_code=206 if partial else 200,
+                    media_type=preview.media_type,
+                    headers=headers,
+                )
+            return StreamingResponse(
+                preview.chunks(start, end),
+                status_code=206 if partial else 200,
+                media_type=preview.media_type,
+                headers=headers,
+            )
         except ProjectError as error:
             return await project_error_response(error)
 
@@ -911,6 +1043,11 @@ def create_app(
 
     async def analysis_results(request: Request) -> Response:
         try:
+            trip_day = (
+                None
+                if request.query_params.get("trip_day") is None
+                else _query_integer(request, "trip_day", 1, minimum=1, maximum=365)
+            )
             results = await run_in_threadpool(
                 require_preparation_repository().result_items,
                 request.path_params["project_id"],
@@ -919,6 +1056,8 @@ def create_app(
                     request, "offset", 0, minimum=0, maximum=1_000_000
                 ),
                 limit=_query_integer(request, "limit", 25, minimum=1, maximum=100),
+                trip_day=trip_day,
+                review_state=request.query_params.get("review_state", "all"),
             )
             return JSONResponse({"results": results})
         except ProjectError as error:
@@ -1106,6 +1245,21 @@ def create_app(
                 "/api/projects/{project_id}/timeline",
                 timeline_status,
                 methods=["GET"],
+            ),
+            Route(
+                "/api/projects/{project_id}/annotations/{version_id}/{stream_index}",
+                annotation_status,
+                methods=["GET"],
+            ),
+            Route(
+                "/api/projects/{project_id}/annotation/commands/save",
+                save_annotation,
+                methods=["POST"],
+            ),
+            Route(
+                "/api/projects/{project_id}/media/{version_id}",
+                preview_media,
+                methods=["GET", "HEAD"],
             ),
             Route(
                 "/api/projects/{project_id}/timeline/commands/build",

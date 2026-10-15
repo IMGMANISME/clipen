@@ -22,6 +22,7 @@ from .probe import (
     bounded_file_fingerprint,
 )
 from .service import InventoryCoordinator
+from .preview import MediaPreview, MediaPreviewRepository
 
 __all__ = [
     "AssetCandidate",
@@ -31,6 +32,8 @@ __all__ = [
     "FFprobeAdapter",
     "InventoryCounts",
     "InventoryCoordinator",
+    "MediaPreview",
+    "MediaPreviewRepository",
     "InventoryItem",
     "InventoryPage",
     "InventoryRepository",
