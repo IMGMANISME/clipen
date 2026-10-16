@@ -2,7 +2,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from clipen.providers.codex_editing import CodexEditingAgent
+from clipen.providers.codex_editing import CodexEditingAgent, _PROMPT
 
 
 class FakeRepository:
@@ -10,6 +10,14 @@ class FakeRepository:
 
 
 class CodexEditingAgentTests(unittest.TestCase):
+    def test_prompt_requires_short_trimmed_style_proof_before_full_edit(self):
+        self.assertIn("45-60 second STYLE PROOF", _PROMPT)
+        self.assertIn("1.5-5 seconds", _PROMPT)
+        self.assertIn("untrimmed candidate by default", _PROMPT)
+        self.assertIn("never the full film", _PROMPT)
+        self.assertIn("no more than ten", _PROMPT)
+        self.assertIn("empty parameters object", _PROMPT)
+
     def test_command_is_ephemeral_and_registers_only_project_scoped_mcp(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

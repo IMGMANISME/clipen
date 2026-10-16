@@ -885,7 +885,7 @@ def create_app(
                 request.path_params["project_id"],
                 payload["request_id"],
                 payload["consent"],
-                max_tool_calls=payload.get("max_tool_calls", 80),
+                max_tool_calls=payload.get("max_tool_calls", 48),
                 max_preview_renders=payload.get("max_preview_renders", 4),
             )
             return JSONResponse({"run": run.to_public()}, status_code=202)

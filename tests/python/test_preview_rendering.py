@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import replace
 import json
 import os
 from pathlib import Path
@@ -8,17 +9,20 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 
 from clipen.domain import (
     ClipSource,
     EditTimeline,
+    EffectRequest,
     MediaClip,
     Rational,
     SourceSpan,
     Track,
     TrackKind,
+    TextClip,
 )
-from clipen.editing import OutputSettings, TimelineRepository
+from clipen.editing import EditAgentRepository, OutputSettings, TimelineRepository
 from clipen.controller import (
     ControllerConfig,
     LocalSessionAuthority,
@@ -33,6 +37,7 @@ from clipen.rendering import (
     PreviewRenderRepository,
     PreviewRenderService,
 )
+from clipen.rendering.titles import RenderedTitle
 
 
 async def request_app(app, method, path, *, headers=None, body=b""):
@@ -174,6 +179,7 @@ class PreviewRenderingTests(unittest.TestCase):
         self.assertIn(started["render"]["state"], {"queued", "running", "succeeded"})
         completed = self.wait_for_terminal(service)
         self.assertEqual(completed["render"]["state"], "succeeded")
+
         self.assertEqual(completed["render"]["progress"], 1)
         self.assertEqual(
             service.media_path(
@@ -299,6 +305,187 @@ class PreviewRenderingTests(unittest.TestCase):
         )
         self.assertTrue(service.status(self.project.project_id)["can_start"])
 
+    def test_successful_ai_revision_becomes_the_preview_target(self) -> None:
+        agents = EditAgentRepository(self.projects)
+        run, _ = agents.create_run(
+            self.project.project_id,
+            "request-preview-ai-agent",
+        )
+        agents.activate(self.project.project_id, run.run_id)
+        proof_span = SourceSpan(
+            "av_" + "d" * 32,
+            0,
+            "0",
+            "360000",
+            Rational(1, 90000),
+        )
+        proof = EditTimeline(
+            self.timeline.timeline_id,
+            self.timeline.project_id,
+            self.timeline.plan_id,
+            self.timeline.plan_revision,
+            self.timeline.plan_content_hash,
+            self.timeline.frame_rate,
+            self.timeline.width,
+            self.timeline.height,
+            960,
+            (
+                Track(
+                    "video-proof",
+                    TrackKind.VIDEO,
+                    tuple(
+                        MediaClip(
+                            f"proof-{index}",
+                            index * 120,
+                            120,
+                            ClipSource(proof_span),
+                            (
+                                EffectRequest(
+                                    "video.slow_push",
+                                    {"scale_from": 1.0, "scale_to": 1.08},
+                                ),
+                            )
+                            if index == 0
+                            else (),
+                        )
+                        for index in range(8)
+                    ),
+                ),
+                Track(
+                    "title-proof",
+                    TrackKind.TITLE,
+                    (TextClip("proof-title", 0, 60, "東京", "title.default"),),
+                ),
+            ),
+        )
+        agents.save_revision(self.project.project_id, run.run_id, proof, "短樣片")
+        finished = agents.finish(self.project.project_id, run.run_id, "AI 版本完成")
+        service = PreviewRenderService(
+            self.renders,
+            self.timelines,
+            SuccessfulRenderer(),
+            edit_agents=agents,
+        )
+
+        status = service.status(self.project.project_id)
+        self.assertEqual(status["source"], "ai")
+        self.assertTrue(status["target_is_style_proof"])
+        self.assertEqual(status["target_stats"]["clip_count"], 8)
+        self.assertEqual(status["target_timeline_id"], finished.final_revision_id)
+        started = service.start(
+            self.project.project_id,
+            "request-preview-ai-result",
+            finished.final_revision_id,
+        )
+        self.assertEqual(started["render"]["timeline_id"], finished.final_revision_id)
+        completed = self.wait_for_terminal(service)
+        self.assertEqual(completed["render"]["state"], "succeeded")
+
+        retry, _ = agents.create_run(
+            self.project.project_id,
+            "request-preview-ai-agent-retry",
+        )
+        agents.record_provider_outcome(
+            self.project.project_id,
+            retry.run_id,
+            "agent-failed-retry",
+            usage=None,
+            error_code="provider_failed",
+        )
+        preserved = service.status(self.project.project_id)
+        self.assertEqual(preserved["source"], "ai")
+        self.assertEqual(preserved["target_timeline_id"], finished.final_revision_id)
+
+        draft_run, _ = agents.create_run(
+            self.project.project_id,
+            "request-preview-incomplete-proof",
+        )
+        agents.activate(self.project.project_id, draft_run.run_id)
+        draft_video = replace(
+            proof.tracks[0],
+            items=tuple(replace(item, effects=()) for item in proof.tracks[0].items),
+        )
+        incomplete = replace(proof, tracks=(draft_video,))
+        agents.save_revision(
+            self.project.project_id,
+            draft_run.run_id,
+            incomplete,
+            "只有結構的短樣片",
+        )
+        incomplete_run = agents.finish(
+            self.project.project_id,
+            draft_run.run_id,
+            "保留供本機檢查",
+        )
+
+        diagnostic = service.status(self.project.project_id)
+        self.assertFalse(diagnostic["target_is_style_proof"])
+        self.assertTrue(diagnostic["can_start"])
+        started = service.start(
+            self.project.project_id,
+            "request-preview-incomplete-proof-render",
+            incomplete_run.final_revision_id,
+        )
+        self.assertEqual(
+            started["render"]["timeline_id"], incomplete_run.final_revision_id
+        )
+        self.assertEqual(self.wait_for_terminal(service)["render"]["state"], "succeeded")
+
+    def test_legacy_full_ai_draft_cannot_be_rendered_as_a_style_proof(self) -> None:
+        agents = EditAgentRepository(self.projects)
+        run, _ = agents.create_run(
+            self.project.project_id,
+            "request-preview-legacy-agent",
+        )
+        agents.activate(self.project.project_id, run.run_id)
+        finished = agents.finish(self.project.project_id, run.run_id, "舊版結果")
+        service = PreviewRenderService(
+            self.renders,
+            self.timelines,
+            SuccessfulRenderer(),
+            edit_agents=agents,
+        )
+
+        status = service.status(self.project.project_id)
+        self.assertEqual(status["target_timeline_id"], finished.final_revision_id)
+        self.assertFalse(status["target_is_style_proof"])
+        self.assertFalse(status["can_start"])
+        with self.assertRaises(ProjectError) as blocked:
+            service.start(
+                self.project.project_id,
+                "request-preview-legacy-render",
+                finished.final_revision_id,
+            )
+        self.assertEqual(blocked.exception.code, "preview_style_proof_required")
+
+    def test_v14_preview_rows_migrate_for_ai_revision_targets(self) -> None:
+        existing = self.renders.create(
+            self.project.project_id,
+            "request-preview-v14-migration",
+            self.timeline.timeline_id,
+        )
+        with self.projects.connect(self.project.project_id) as connection:
+            connection.execute("PRAGMA user_version=14")
+
+        restarted = ProjectRepository(self.projects.root)
+        with restarted.connect(self.project.project_id) as connection:
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 15)
+            row = connection.execute(
+                "SELECT render_id,timeline_id FROM preview_renders WHERE request_id=?",
+                ("request-preview-v14-migration",),
+            ).fetchone()
+            foreign_targets = {
+                item["table"]
+                for item in connection.execute("PRAGMA foreign_key_list(preview_renders)")
+            }
+        self.assertEqual(row["render_id"], existing["render_id"])
+        self.assertEqual(row["timeline_id"], self.timeline.timeline_id)
+        self.assertNotIn("edit_timelines", foreign_targets)
+        self.assertEqual(
+            PreviewRenderRepository(restarted).current(self.project.project_id)["render_id"],
+            existing["render_id"],
+        )
+
     def test_v12_project_migrates_preview_tables_without_changing_timeline(self) -> None:
         database = self.projects.root / self.project.project_id / "project.sqlite3"
         with self.projects.connect(self.project.project_id) as connection:
@@ -308,7 +495,7 @@ class PreviewRenderingTests(unittest.TestCase):
         current = TimelineRepository(self.projects).current(self.project.project_id)
         self.assertEqual(current.timeline, self.timeline)
         with self.projects.connect(self.project.project_id) as connection:
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 14)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 15)
             tables = {
                 row[0]
                 for row in connection.execute(
@@ -388,6 +575,147 @@ class FfmpegPreviewRendererTests(unittest.TestCase):
         self.assertEqual(captured["options"]["pass_fds"], (40, 41))
         self.assertEqual(progress[-1], 1)
         self.assertTrue(all(item.closed for item in media.opened))
+
+    def test_semantic_video_effects_are_rendered_and_audio_is_normalized(self) -> None:
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        output = Path(temporary.name) / "preview.mp4"
+        media = FakeMedia()
+        captured = {}
+
+        def popen(command, **options):
+            del options
+            captured["command"] = command
+            output.write_bytes(b"mp4")
+            return FakeProcess()
+
+        original = timeline("prj_" + "e" * 32)
+        source = original.tracks[0].items[0].source
+        effected = MediaClip(
+            "video-effected",
+            0,
+            60,
+            source,
+            (
+                EffectRequest("video.punch_in", {"scale": 1.12}),
+                EffectRequest("video.speed_ramp", {"rate": 1.25}),
+            ),
+        )
+        edit = EditTimeline(
+            original.timeline_id,
+            original.project_id,
+            original.plan_id,
+            original.plan_revision,
+            original.plan_content_hash,
+            original.frame_rate,
+            original.width,
+            original.height,
+            original.duration_frames,
+            (
+                Track("video-main", TrackKind.VIDEO, (effected,)),
+                original.tracks[1],
+            ),
+        )
+        FfmpegPreviewRenderer(media, popen=popen).render(
+            edit.project_id, edit, output, threading.Event(), lambda value: None
+        )
+        filters = captured["command"][captured["command"].index("-filter_complex") + 1]
+        self.assertIn("scale=iw*1.1200:ih*1.1200", filters)
+        self.assertIn("split=3[vr0a][vr0b][vr0c]", filters)
+        self.assertIn("setpts=(PTS-STARTPTS)/1.250000", filters)
+        self.assertIn("eq=contrast=1.025:saturation=1.045", filters)
+        self.assertIn("loudnorm=I=-16:LRA=11:TP=-1.5", filters)
+
+    def test_title_track_gets_a_separate_bounded_compositing_pass(self) -> None:
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        output = root / "preview.mp4"
+        title_image = root / "title.png"
+        title_image.write_bytes(b"png")
+        commands = []
+
+        def popen(command, **options):
+            del options
+            commands.append(command)
+            Path(command[-1]).write_bytes(b"mp4")
+            return FakeProcess()
+
+        original = timeline("prj_" + "f" * 32)
+        edit = EditTimeline(
+            original.timeline_id,
+            original.project_id,
+            original.plan_id,
+            original.plan_revision,
+            original.plan_content_hash,
+            original.frame_rate,
+            original.width,
+            original.height,
+            original.duration_frames,
+            original.tracks
+            + (
+                Track(
+                    "titles-main",
+                    TrackKind.TITLE,
+                    (TextClip("title-one", 0, 30, "東京", "title.default"),),
+                ),
+            ),
+        )
+        rendered = (RenderedTitle(title_image, 0.0, 1.0),)
+        with patch(
+            "clipen.rendering.renderer.TitleCardRenderer.render",
+            return_value=rendered,
+        ):
+            FfmpegPreviewRenderer(FakeMedia(), popen=popen).render(
+                edit.project_id, edit, output, threading.Event(), lambda value: None
+            )
+
+        self.assertEqual(len(commands), 2)
+        filters = commands[1][commands[1].index("-filter_complex") + 1]
+        self.assertIn("fade=t=in", filters)
+        self.assertIn("overlay=0:0", filters)
+        self.assertEqual(commands[1][commands[1].index("-map") + 1], "[composed1]")
+
+    def test_camera_audio_follows_video_speed_ramp_without_duration_drift(self) -> None:
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        output = Path(temporary.name) / "preview.mp4"
+        captured = {}
+
+        def popen(command, **options):
+            del options
+            captured["command"] = command
+            output.write_bytes(b"mp4")
+            return FakeProcess()
+
+        original = timeline("prj_" + "0" * 32)
+        source = original.tracks[0].items[0].source
+        clip = MediaClip(
+            "video-speed",
+            0,
+            60,
+            source,
+            (EffectRequest("video.speed_ramp", {"rate": 1.25}),),
+        )
+        edit = EditTimeline(
+            original.timeline_id,
+            original.project_id,
+            original.plan_id,
+            original.plan_revision,
+            original.plan_content_hash,
+            original.frame_rate,
+            original.width,
+            original.height,
+            original.duration_frames,
+            (Track("video-main", TrackKind.VIDEO, (clip,)),),
+        )
+        FfmpegPreviewRenderer(FakeMedia(), popen=popen).render(
+            edit.project_id, edit, output, threading.Event(), lambda value: None
+        )
+        filters = captured["command"][captured["command"].index("-filter_complex") + 1]
+        self.assertIn("asplit=3[ar0a][ar0b][ar0c]", filters)
+        self.assertIn("atempo=1.250000", filters)
+        self.assertIn("atempo=0.952381", filters)
 
     def test_video_only_timeline_uses_camera_audio_stream(self) -> None:
         temporary = tempfile.TemporaryDirectory()

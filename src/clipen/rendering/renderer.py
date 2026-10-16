@@ -14,6 +14,8 @@ from clipen.domain import EditTimeline, MediaClip, Track, TrackKind
 from clipen.media import MediaPreviewRepository
 from clipen.projects import ProjectError
 
+from .titles import FfmpegTitleCompositor, TitleCardRenderer, TitleRenderError
+
 
 class PreviewRenderError(RuntimeError):
     def __init__(self, code: str) -> None:
@@ -22,7 +24,7 @@ class PreviewRenderError(RuntimeError):
 
 
 class FfmpegPreviewRenderer:
-    """Render only the immutable media tracks present in a compiled timeline."""
+    """Render immutable media plus trusted, bounded presentation effects."""
 
     _BATCH_SIZE = 8
 
@@ -38,6 +40,46 @@ class FfmpegPreviewRenderer:
         self._popen = popen
 
     def render(
+        self,
+        project_id: str,
+        timeline: EditTimeline,
+        output: Path,
+        cancel: threading.Event,
+        progress: Callable[[float], None],
+    ) -> None:
+        title_track = next(
+            (track for track in timeline.tracks if track.kind is TrackKind.TITLE), None
+        )
+        if title_track is None or not title_track.items:
+            self._render_media(project_id, timeline, output, cancel, progress)
+            return
+        output.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        try:
+            with tempfile.TemporaryDirectory(
+                prefix=".clipen-title-", dir=output.parent
+            ) as temporary:
+                directory = Path(temporary)
+                media_output = directory / "media.mp4"
+                self._render_media(
+                    project_id,
+                    timeline,
+                    media_output,
+                    cancel,
+                    lambda value: progress(value * 0.82),
+                )
+                titles = TitleCardRenderer().render(timeline, directory)
+                FfmpegTitleCompositor(self.executable, popen=self._popen).compose(
+                    media_output,
+                    titles,
+                    output,
+                    cancel,
+                    float(self._timeline_seconds(timeline)),
+                    lambda value: progress(0.82 + value * 0.18),
+                )
+        except TitleRenderError as error:
+            raise PreviewRenderError(error.code) from error
+
+    def _render_media(
         self,
         project_id: str,
         timeline: EditTimeline,
@@ -83,21 +125,33 @@ class FfmpegPreviewRenderer:
                 input_index, duration, source = self._add_input(
                     command, opened, project_id, item
                 )
-                video_inputs.append((input_index, duration, source))
+                video_inputs.append((input_index, duration, source, item))
                 stream = self._stream_index(
                     item.source.span.stream_index,
                     source.video_stream_indices,
                     "preview_video_stream_missing",
                 )
                 label = f"v{len(video_labels)}"
+                base_label = f"vbase{len(video_labels)}"
                 filters.append(
                     f"[{input_index}:{stream}]trim=duration={duration},setpts=PTS-STARTPTS,"
                     f"scale={timeline.width}:{timeline.height}:"
                     "force_original_aspect_ratio=decrease,"
                     f"pad={timeline.width}:{timeline.height}:(ow-iw)/2:(oh-ih)/2,"
                     f"fps={timeline.frame_rate.numerator}/"
-                    f"{timeline.frame_rate.denominator},format=yuv420p[{label}]"
+                    f"{timeline.frame_rate.denominator}[{base_label}]"
                 )
+                current_label = self._retime_video(
+                    filters, base_label, item, float(duration), len(video_labels)
+                )
+                effect_filters = self._video_effect_filters(item, timeline)
+                chain = f"[{current_label}]"
+                if effect_filters:
+                    chain += effect_filters.removeprefix(",") + ","
+                # A light, consistent finishing pass keeps mixed camera sources
+                # visually coherent without replacing a deliberate grade.
+                chain += "eq=contrast=1.025:saturation=1.045,format=yuv420p"
+                filters.append(f"{chain}[{label}]")
                 video_labels.append(f"[{label}]")
 
             if audio is not None:
@@ -122,15 +176,20 @@ class FfmpegPreviewRenderer:
                 # A compiled rough cut may not yet have an editable audio track.
                 # Keep the camera audio aligned with every video clip so the user
                 # can still judge the cut. Silent source clips get matching silence.
-                for input_index, duration, source in video_inputs:
+                for input_index, duration, source, item in video_inputs:
                     label = f"a{len(audio_labels)}"
                     if source.audio_stream_indices:
                         stream = source.audio_stream_indices[0]
+                        base_label = f"abase{len(audio_labels)}"
                         filters.append(
                             f"[{input_index}:{stream}]atrim=duration={duration},"
                             "asetpts=PTS-STARTPTS,aresample=48000,"
-                            f"aformat=sample_rates=48000:channel_layouts=stereo[{label}]"
+                            f"aformat=sample_rates=48000:channel_layouts=stereo[{base_label}]"
                         )
+                        current_label = self._retime_audio(
+                            filters, base_label, item, float(duration), len(audio_labels)
+                        )
+                        filters.append(f"[{current_label}]anull[{label}]")
                     else:
                         filters.append(
                             "anullsrc=r=48000:cl=stereo,"
@@ -147,7 +206,8 @@ class FfmpegPreviewRenderer:
                     f"{''.join(audio_labels)}concat=n={len(audio_labels)}:v=0:a=1[asequence]"
                 )
                 filters.append(
-                    f"[asequence]apad,atrim=duration={timeline_duration}[aout]"
+                    f"[asequence]apad,atrim=duration={timeline_duration},"
+                    "loudnorm=I=-16:LRA=11:TP=-1.5[aout]"
                 )
             else:
                 filters.append(
@@ -305,7 +365,7 @@ class FfmpegPreviewRenderer:
                 def batch_progress(value: float, *, base=base, size=cursor) -> None:
                     progress(0.98 * (base + value * size) / total_frames)
 
-                self.render(
+                self._render_media(
                     project_id,
                     batch,
                     segment,
@@ -374,6 +434,133 @@ class FfmpegPreviewRenderer:
                 raise PreviewRenderError("cancelled")
             if code != 0 or not output.is_file() or output.stat().st_size < 1:
                 raise PreviewRenderError("ffmpeg_render_failed")
+
+    @staticmethod
+    def _video_effect_filters(item: MediaClip, timeline: EditTimeline) -> str:
+        """Map allowlisted semantic effects to bounded FFmpeg video filters."""
+
+        filters = ""
+        for effect in item.effects:
+            parameters = effect.parameters
+            if effect.effect_id == "video.punch_in":
+                scale = min(2.0, max(1.01, float(parameters.get("scale", 1.08))))
+                center_x = min(1.0, max(0.0, float(parameters.get("center_x", 0.5))))
+                center_y = min(1.0, max(0.0, float(parameters.get("center_y", 0.5))))
+                filters += (
+                    f",scale=iw*{scale:.4f}:ih*{scale:.4f},"
+                    f"crop={timeline.width}:{timeline.height}:"
+                    f"(iw-ow)*{center_x:.4f}:(ih-oh)*{center_y:.4f}"
+                )
+            elif effect.effect_id == "video.slow_push":
+                start = min(2.0, max(1.0, float(parameters.get("scale_from", 1.0))))
+                end = min(2.0, max(1.0, float(parameters.get("scale_to", 1.08))))
+                frames = max(1, item.duration_frames - 1)
+                filters += (
+                    f",zoompan=z='{start:.4f}+({end:.4f}-{start:.4f})*on/{frames}':"
+                    "x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:"
+                    f"s={timeline.width}x{timeline.height}:"
+                    f"fps={timeline.frame_rate.numerator}/{timeline.frame_rate.denominator}"
+                )
+            elif effect.effect_id == "video.reframe":
+                x = min(1.0, max(0.0, float(parameters.get("x", 0.5))))
+                y = min(1.0, max(0.0, float(parameters.get("y", 0.5))))
+                filters += (
+                    ",scale=iw*1.08:ih*1.08,"
+                    f"crop={timeline.width}:{timeline.height}:(iw-ow)*{x:.4f}:(ih-oh)*{y:.4f}"
+                )
+        return filters
+
+    @classmethod
+    def _retime_video(
+        cls,
+        filters: list[str],
+        source_label: str,
+        item: MediaClip,
+        duration: float,
+        index: int,
+    ) -> str:
+        profile = cls._speed_profile(item)
+        if profile is None:
+            return source_label
+        outside_rate, center_rate = profile
+        first_end, center_end = duration * 0.4, duration * 0.6
+        filters.append(
+            f"[{source_label}]split=3[vr{index}a][vr{index}b][vr{index}c]"
+        )
+        filters.extend(
+            (
+                f"[vr{index}a]trim=start=0:end={first_end:.6f},"
+                f"setpts=(PTS-STARTPTS)/{outside_rate:.6f}[vr{index}ao]",
+                f"[vr{index}b]trim=start={first_end:.6f}:end={center_end:.6f},"
+                f"setpts=(PTS-STARTPTS)/{center_rate:.6f}[vr{index}bo]",
+                f"[vr{index}c]trim=start={center_end:.6f}:end={duration:.6f},"
+                f"setpts=(PTS-STARTPTS)/{outside_rate:.6f}[vr{index}co]",
+                f"[vr{index}ao][vr{index}bo][vr{index}co]concat=n=3:v=1:a=0[vr{index}out]",
+            )
+        )
+        return f"vr{index}out"
+
+    @classmethod
+    def _retime_audio(
+        cls,
+        filters: list[str],
+        source_label: str,
+        item: MediaClip,
+        duration: float,
+        index: int,
+    ) -> str:
+        profile = cls._speed_profile(item)
+        if profile is None:
+            return source_label
+        outside_rate, center_rate = profile
+        first_end, center_end = duration * 0.4, duration * 0.6
+        outside_tempo = cls._atempo(outside_rate)
+        center_tempo = cls._atempo(center_rate)
+        filters.append(
+            f"[{source_label}]asplit=3[ar{index}a][ar{index}b][ar{index}c]"
+        )
+        filters.extend(
+            (
+                f"[ar{index}a]atrim=start=0:end={first_end:.6f},"
+                f"asetpts=PTS-STARTPTS,{outside_tempo}[ar{index}ao]",
+                f"[ar{index}b]atrim=start={first_end:.6f}:end={center_end:.6f},"
+                f"asetpts=PTS-STARTPTS,{center_tempo}[ar{index}bo]",
+                f"[ar{index}c]atrim=start={center_end:.6f}:end={duration:.6f},"
+                f"asetpts=PTS-STARTPTS,{outside_tempo}[ar{index}co]",
+                f"[ar{index}ao][ar{index}bo][ar{index}co]concat=n=3:v=0:a=1[ar{index}out]",
+            )
+        )
+        return f"ar{index}out"
+
+    @staticmethod
+    def _speed_profile(item: MediaClip) -> tuple[float, float] | None:
+        effect = next(
+            (value for value in item.effects if value.effect_id == "video.speed_ramp"),
+            None,
+        )
+        if effect is None:
+            return None
+        center_rate = min(4.0, max(0.25, float(effect.parameters.get("rate", 1.25))))
+        if abs(center_rate - 1.0) < 0.001:
+            return None
+        # The center 20% receives the requested rate. The two outer 40%
+        # sections compensate evenly so the clip keeps its exact timeline
+        # duration and remains aligned with every following edit.
+        outside_rate = 0.8 / (1.0 - 0.2 / center_rate)
+        return outside_rate, center_rate
+
+    @staticmethod
+    def _atempo(rate: float) -> str:
+        values = []
+        remaining = rate
+        while remaining < 0.5:
+            values.append(0.5)
+            remaining /= 0.5
+        while remaining > 2.0:
+            values.append(2.0)
+            remaining /= 2.0
+        values.append(remaining)
+        return ",".join(f"atempo={value:.6f}" for value in values)
 
     @staticmethod
     def _stream_index(requested: int, available: tuple[int, ...], error: str) -> int:

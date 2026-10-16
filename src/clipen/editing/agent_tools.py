@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from fractions import Fraction
 import json
+import math
 from pathlib import Path
 from typing import Callable, Mapping
 
@@ -13,6 +14,7 @@ from clipen.domain import (
     ClipSource,
     EffectRequest,
     MediaClip,
+    SourceSpan,
     TextClip,
     Track,
     TrackKind,
@@ -31,6 +33,7 @@ from .agent_models import (
     bounded_text,
 )
 from .agent_repository import EditAgentRepository
+from .style_proof import is_style_proof
 
 
 class EditAgentTools:
@@ -53,6 +56,7 @@ class EditAgentTools:
         self.artifacts = artifacts or ArtifactStore(repository.projects)
         self._plan: PlanRevision | None = None
         self._context: PlanningContext | None = None
+        self._inspection_count = 0
 
     def activate(self) -> AgentRun:
         self._confirmed_input()
@@ -140,6 +144,15 @@ class EditAgentTools:
                         "necessary correction for an obvious contradiction or invalid timing, "
                         "and record that correction in the revision summary."
                     ),
+                    "proof_constraints": {
+                        "purpose": "Create a short style proof, not the full film.",
+                        "target_duration_seconds": {"minimum": 45, "maximum": 60},
+                        "allowed_duration_seconds": {"minimum": 30, "maximum": 75},
+                        "target_clip_count": {"minimum": 12, "maximum": 24},
+                        "preferred_clip_duration_seconds": {"minimum": 1.5, "maximum": 5},
+                        "maximum_clip_duration_seconds": 10,
+                        "maximum_candidate_inspections": 10,
+                    },
                 },
             }
         )
@@ -170,10 +183,22 @@ class EditAgentTools:
 
     def _inspect_clip(self, arguments: Mapping[str, object]) -> ToolResult:
         self._require_keys(arguments, {"candidate_id"})
+        if self._inspection_count >= 10:
+            raise ProjectError(
+                "inspection_budget_exhausted",
+                "這次短樣片最多檢視 10 組候選素材，請使用已取得的資訊完成剪輯。",
+                status_code=409,
+            )
+        self._inspection_count += 1
         candidate = self._candidate(arguments["candidate_id"])
-        images = self._candidate_images(candidate)
+        images, samples = self._candidate_images(candidate)
         return ToolResult(
-            {"candidate": candidate.to_provider(), "image_count": len(images)}, images
+            {
+                "candidate": candidate.to_provider(),
+                "image_count": len(images),
+                "image_samples": samples,
+            },
+            images,
         )
 
     def _inspect_sequence(self, arguments: Mapping[str, object]) -> ToolResult:
@@ -183,21 +208,28 @@ class EditAgentTools:
         return ToolResult(payload)
 
     def _replace_sequence(self, arguments: Mapping[str, object]) -> ToolResult:
-        self._require_keys(arguments, {"candidate_ids", "summary"})
-        identifiers = arguments["candidate_ids"]
-        if not isinstance(identifiers, list) or not identifiers or len(identifiers) > 500:
-            raise ProjectError("agent_input_invalid", "候選片段清單內容無效。", status_code=422)
-        if len(identifiers) != len(set(identifiers)):
-            raise ProjectError("agent_input_invalid", "候選片段不能重複。", status_code=422)
-        candidates = [self._candidate(value) for value in identifiers]
+        self._require_keys(arguments, {"clips", "summary"})
+        selections = arguments["clips"]
+        if not isinstance(selections, list) or not 8 <= len(selections) <= 30:
+            raise ProjectError(
+                "agent_input_invalid",
+                "剪輯方向樣片必須包含 8 到 30 個精剪鏡頭。",
+                status_code=422,
+            )
+        parsed = [self._trimmed_candidate(value) for value in selections]
+        identities = [identity for _, _, identity in parsed]
+        if len(identities) != len(set(identities)):
+            raise ProjectError(
+                "agent_input_invalid", "不能重複使用完全相同的來源範圍。", status_code=422
+            )
+        candidates = [candidate for candidate, _, _ in parsed]
         if any(item.media_kind != "video" for item in candidates):
             raise ProjectError("agent_input_invalid", "主畫面只能使用影片候選片段。", status_code=422)
         revision = self.repository.current_revision(self.project_id, self.run_id)
         timeline = revision.timeline
         cursor = 0
         clips = []
-        for index, candidate in enumerate(candidates, 1):
-            span = candidate.source
+        for index, (_candidate, span, _identity) in enumerate(parsed, 1):
             frames = max(
                 1,
                 round(
@@ -216,6 +248,16 @@ class EditAgentTools:
                 )
             )
             cursor += frames
+        seconds = Fraction(
+            cursor * timeline.frame_rate.denominator,
+            timeline.frame_rate.numerator,
+        )
+        if not Fraction(30, 1) <= seconds <= Fraction(75, 1):
+            raise ProjectError(
+                "agent_input_invalid",
+                "剪輯方向樣片總長度必須介於 30 到 75 秒。",
+                status_code=422,
+            )
         updated = replace(
             timeline,
             duration_frames=cursor,
@@ -260,6 +302,8 @@ class EditAgentTools:
         parameters = arguments["parameters"]
         if not isinstance(parameters, Mapping):
             raise ProjectError("agent_input_invalid", "效果參數必須是物件。", status_code=422)
+        if not parameters:
+            parameters = self._default_effect_parameters(effect_id)
         self._validate_effect_parameters(effect_id, parameters)
         effect = EffectRequest(effect_id, parameters)
         revision = self.repository.current_revision(self.project_id, self.run_id)
@@ -295,6 +339,15 @@ class EditAgentTools:
 
     def _finish_edit(self, arguments: Mapping[str, object]) -> ToolResult:
         self._require_keys(arguments, {"summary"})
+        timeline = self.repository.current_revision(
+            self.project_id, self.run_id
+        ).timeline
+        if not is_style_proof(timeline):
+            raise ProjectError(
+                "style_proof_invalid",
+                "剪輯方向樣片尚未符合片長、精剪鏡頭與代表性樣式限制。",
+                status_code=422,
+            )
         return ToolResult(self.repository.finish(self.project_id, self.run_id, arguments["summary"]).to_public())
 
     def _candidate(self, value: object) -> PlanningCandidate:
@@ -345,14 +398,81 @@ class EditAgentTools:
                     status_code=422,
                 )
 
-    def _candidate_images(self, candidate: PlanningCandidate) -> tuple[Path, ...]:
+    @staticmethod
+    def _default_effect_parameters(effect_id: str) -> dict[str, float]:
+        defaults = {
+            "video.punch_in": {"scale": 1.08, "center_x": 0.5, "center_y": 0.5},
+            "video.slow_push": {"scale_from": 1.0, "scale_to": 1.08},
+            "video.reframe": {"x": 0.5, "y": 0.5},
+            "video.speed_ramp": {"rate": 1.25},
+            "audio.dialogue_focus": {"strength": 0.6},
+            "audio.duck_music": {"decibels": -12.0},
+        }
+        return defaults[effect_id]
+
+    def _trimmed_candidate(
+        self, value: object
+    ) -> tuple[PlanningCandidate, SourceSpan, tuple[str, int, int]]:
+        if not isinstance(value, Mapping) or set(value) != {
+            "candidate_id",
+            "start_offset_seconds",
+            "duration_seconds",
+        }:
+            raise ProjectError(
+                "agent_input_invalid", "精剪鏡頭內容無效。", status_code=422
+            )
+        candidate = self._candidate(value["candidate_id"])
+        start = self._finite_fraction(value["start_offset_seconds"], "鏡頭入點")
+        duration = self._finite_fraction(value["duration_seconds"], "鏡頭長度")
+        if start < 0 or not Fraction(3, 4) <= duration <= Fraction(10, 1):
+            raise ProjectError(
+                "agent_input_invalid",
+                "單一鏡頭必須介於 0.75 到 10 秒。",
+                status_code=422,
+            )
+        source = candidate.source
+        units_per_second = Fraction(source.time_base.denominator, source.time_base.numerator)
+        start_offset_pts = round(start * units_per_second)
+        duration_pts = max(1, round(duration * units_per_second))
+        start_pts = int(source.start_pts) + start_offset_pts
+        end_pts = start_pts + duration_pts
+        if start_pts < int(source.start_pts) or end_pts > int(source.end_pts):
+            raise ProjectError(
+                "agent_input_invalid",
+                "精剪鏡頭超出候選片段的來源範圍。",
+                status_code=422,
+            )
+        span = SourceSpan(
+            source.version_id,
+            source.stream_index,
+            str(start_pts),
+            str(end_pts),
+            source.time_base,
+        )
+        return candidate, span, (candidate.candidate_id, start_pts, end_pts)
+
+    @staticmethod
+    def _finite_fraction(value: object, label: str) -> Fraction:
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+        ):
+            raise ProjectError(
+                "agent_input_invalid", f"{label}必須是有限數字。", status_code=422
+            )
+        return Fraction(str(value))
+
+    def _candidate_images(
+        self, candidate: PlanningCandidate
+    ) -> tuple[tuple[Path, ...], list[dict[str, object]]]:
         with self.repository.projects.connect(self.project_id) as database:
             rows = database.execute(
                 "SELECT results.result_json FROM evidence_results results "
                 "JOIN evidence_runs runs ON runs.run_id=results.run_id "
                 "WHERE runs.state='succeeded' ORDER BY runs.created_at DESC, results.ordinal"
             ).fetchall()
-        artifacts: list[tuple[int, str]] = []
+        artifacts: list[tuple[int, str, int]] = []
         center = (int(candidate.source.start_pts) + int(candidate.source.end_pts)) // 2
         for row in rows:
             try:
@@ -362,18 +482,41 @@ class EditAgentTools:
                     continue
                 for frame in result.get("frames", []):
                     if isinstance(frame, dict) and isinstance(frame.get("artifact_id"), str):
-                        artifacts.append((abs(int(frame.get("pts", center)) - center), frame["artifact_id"]))
+                        pts = int(frame.get("pts", center))
+                        artifacts.append((abs(pts - center), frame["artifact_id"], pts))
                 if artifacts:
                     break
             except (json.JSONDecodeError, TypeError, ValueError):
                 continue
+        inside = [
+            item
+            for item in artifacts
+            if int(candidate.source.start_pts) <= item[2] <= int(candidate.source.end_pts)
+        ]
+        # A nearby frame from another candidate can look plausible while pointing
+        # the model at an invalid offset. Returning no image is safer than mixing
+        # evidence from outside the approved source range.
+        nearest = sorted(inside)[:4]
+        selected = sorted(nearest, key=lambda item: item[2])
         paths = []
-        for _, artifact_id in sorted(artifacts)[:8]:
+        samples = []
+        for _, artifact_id, pts in selected:
             try:
                 paths.append(self.artifacts.path(self.artifacts.get(self.project_id, artifact_id)))
+                offset = Fraction(
+                    (pts - int(candidate.source.start_pts))
+                    * candidate.source.time_base.numerator,
+                    candidate.source.time_base.denominator,
+                )
+                samples.append(
+                    {
+                        "image_index": len(paths) - 1,
+                        "offset_seconds": round(float(offset), 3),
+                    }
+                )
             except (OSError, ProjectError):
                 continue
-        return tuple(paths)
+        return tuple(paths), samples
 
     @staticmethod
     def _require_keys(

@@ -10,6 +10,7 @@ from clipen.projects import ProjectError
 from clipen.providers.codex import ProviderCancelled
 
 from .agent import AgentRun, EditAgentRepository
+from .style_proof import is_style_proof, style_proof_stats
 
 
 class EditAgentCoordinator:
@@ -45,14 +46,51 @@ class EditAgentCoordinator:
         self._lock = threading.Lock()
 
     def recover(self) -> int:
-        return sum(
-            self.repository.interrupt_incomplete(project.project_id)
-            for project in self.repository.projects.list_projects()
-        )
+        recovered = 0
+        for project in self.repository.projects.list_projects():
+            recovered += self.repository.interrupt_incomplete(project.project_id)
+            latest = self.repository.latest(project.project_id)
+            if (
+                latest is not None
+                and latest.state == "succeeded"
+                and latest.provider_attempt_id is None
+            ):
+                # finish_edit is durable before the provider process reports its
+                # usage. A Controller shutdown in that narrow window must not
+                # leave the UI waiting forever for a process that no longer
+                # exists. Preserve the successful revision and mark the usage
+                # handoff as unavailable.
+                self.repository.record_provider_outcome(
+                    project.project_id,
+                    latest.run_id,
+                    "recovered-" + latest.run_id.removeprefix("editrun_"),
+                    usage=None,
+                )
+                recovered += 1
+        return recovered
 
     def status(self, project_id: str) -> dict[str, object]:
         latest = self.repository.latest(project_id)
-        return {"latest_run": None if latest is None else latest.to_public()}
+        published = self.repository.latest_successful(project_id)
+        result = None
+        if published is not None:
+            revision = self.repository.final_revision(project_id, published.run_id)
+            stats = style_proof_stats(revision.timeline)
+            result = {
+                **revision.to_public(include_timeline=True),
+                "is_style_proof": is_style_proof(revision.timeline),
+                "proof_stats": {
+                    "duration_seconds": stats.duration_seconds,
+                    "clip_count": stats.clip_count,
+                    "longest_clip_seconds": stats.longest_clip_seconds,
+                    "title_count": stats.title_count,
+                    "effect_count": stats.effect_count,
+                },
+            }
+        return {
+            "latest_run": None if latest is None else latest.to_public(),
+            "result": result,
+        }
 
     def start(
         self,
@@ -60,7 +98,7 @@ class EditAgentCoordinator:
         request_id: object,
         consent: object,
         *,
-        max_tool_calls: int = 80,
+        max_tool_calls: int = 48,
         max_preview_renders: int = 4,
     ) -> AgentRun:
         if consent is not True:

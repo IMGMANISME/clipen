@@ -374,6 +374,32 @@ class EditAgentRepository:
             ).fetchone()
             return None if row is None else self._read_run(database, row["run_id"])
 
+    def latest_successful(self, project_id: str) -> AgentRun | None:
+        """Return the newest published result, preserving it across failed retries."""
+
+        validate_project_id(project_id)
+        with self.projects.connect(project_id) as database:
+            row = database.execute(
+                "SELECT run_id FROM edit_agent_runs "
+                "WHERE state='succeeded' AND final_revision_id IS NOT NULL "
+                "ORDER BY completed_at DESC,rowid DESC LIMIT 1"
+            ).fetchone()
+            return None if row is None else self._read_run(database, row["run_id"])
+
+    def final_revision(self, project_id: str, run_id: object) -> AgentRevision:
+        """Return the immutable result only after the run finished successfully."""
+
+        normalized = self._validate_run_id(run_id)
+        with self.projects.connect(project_id) as database:
+            run = self._read_run(database, normalized)
+            if run.state != "succeeded" or run.final_revision_id is None:
+                raise ProjectError(
+                    "edit_agent_result_not_ready",
+                    "AI 剪輯版本尚未完成。",
+                    status_code=409,
+                )
+            return self._read_revision(database, run.final_revision_id)
+
     def cancel(self, project_id: str, run_id: object) -> AgentRun:
         normalized = self._validate_run_id(run_id)
         with self.projects.connect(project_id) as database:

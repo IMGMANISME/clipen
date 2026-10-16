@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import os
 import threading
 import time
 from typing import Protocol
 
-from clipen.editing import TimelineRepository
+from clipen.domain import EditTimeline
+from clipen.editing import EditAgentRepository, TimelineRepository
+from clipen.editing.style_proof import (
+    is_style_proof,
+    is_style_proof_draft,
+    style_proof_stats,
+)
 from clipen.filesystem import restrict_permissions
 from clipen.projects import ProjectError
 
@@ -23,6 +30,21 @@ class TimelineStatus(Protocol):
     def status(self, project_id: str) -> dict[str, object]: ...
 
 
+@dataclass(frozen=True, slots=True)
+class _PreviewTarget:
+    timeline_id: str
+    timeline: EditTimeline
+    source: str
+
+    @property
+    def is_style_proof(self) -> bool:
+        return self.source == "ai" and is_style_proof(self.timeline)
+
+    @property
+    def is_style_proof_draft(self) -> bool:
+        return self.source == "ai" and is_style_proof_draft(self.timeline)
+
+
 class PreviewRenderService:
     def __init__(
         self,
@@ -30,11 +52,13 @@ class PreviewRenderService:
         timelines: TimelineRepository,
         renderer: PreviewRenderer,
         timeline_status: TimelineStatus | None = None,
+        edit_agents: EditAgentRepository | None = None,
     ) -> None:
         self.renders = renders
         self.timelines = timelines
         self.renderer = renderer
         self.timeline_status = timeline_status
+        self.edit_agents = edit_agents
         self._lock = threading.Lock()
         self._cancels: dict[str, threading.Event] = {}
         self._threads: dict[str, threading.Thread] = {}
@@ -46,30 +70,49 @@ class PreviewRenderService:
 
     def status(self, project_id: str) -> dict[str, object]:
         render = self.renders.current(project_id)
-        timeline = self.timelines.current(project_id)
-        can_preview = timeline is not None and self._can_preview(project_id)
+        target = self._target(project_id)
+        can_preview = (
+            target is not None
+            and self._can_preview(project_id)
+            and (target.source != "ai" or target.is_style_proof_draft)
+        )
+        target_details = self._target_details(target)
         if render is None:
-            return {"render": None, "can_start": can_preview}
+            return {
+                "render": None,
+                "can_start": can_preview,
+                "source": None if target is None else target.source,
+                "target_timeline_id": None if target is None else target.timeline_id,
+                **target_details,
+            }
         return {
             "render": render,
             "can_start": can_preview
             and render["state"] not in {"queued", "running", "cancelling"},
-            "stale": timeline is None
-            or render["timeline_id"] != timeline.timeline.timeline_id,
+            "stale": target is None or render["timeline_id"] != target.timeline_id,
+            "source": None if target is None else target.source,
+            "target_timeline_id": None if target is None else target.timeline_id,
+            **target_details,
         }
 
     def start(
         self, project_id: str, request_id: object, timeline_id: object
     ) -> dict[str, object]:
-        timeline = self.timelines.current(project_id)
+        target = self._target(project_id)
         if (
-            timeline is None
+            target is None
             or not isinstance(timeline_id, str)
-            or timeline.timeline.timeline_id != timeline_id
+            or target.timeline_id != timeline_id
         ):
             raise ProjectError(
                 "timeline_revision_conflict",
                 "剪輯版本已更新，請重新整理後再輸出。",
+                status_code=409,
+            )
+        if target.source == "ai" and not target.is_style_proof_draft:
+            raise ProjectError(
+                "preview_style_proof_required",
+                "舊版完整初剪不再輸出；請先製作新的剪輯方向樣片。",
                 status_code=409,
             )
         if not self._can_preview(project_id):
@@ -100,7 +143,7 @@ class PreviewRenderService:
             self._cancels[render["render_id"]] = cancel
             thread = threading.Thread(
                 target=self._run,
-                args=(project_id, render["render_id"], timeline.timeline, cancel),
+                args=(project_id, render["render_id"], target.timeline, cancel),
                 daemon=True,
                 name=f"clipen-preview-{render['render_id'][-8:]}",
             )
@@ -218,10 +261,42 @@ class PreviewRenderService:
         issues = report.get("issues") if isinstance(report, dict) else None
         preview_only_rules = {
             "timeline.capability.element_unverified",
+            "timeline.capability.effect_unknown",
+            "timeline.capability.effect_delivery_unverified",
             "timeline.content.audio_missing",
+            "timeline.reference.style_missing",
         }
         return bool(issues) and all(
             isinstance(issue, dict)
             and issue.get("rule_id") in preview_only_rules
             for issue in issues
         )
+
+    def _target(self, project_id: str) -> _PreviewTarget | None:
+        """Resolve the newest trusted timeline without exposing mutable paths."""
+
+        if self.edit_agents is not None:
+            latest = self.edit_agents.latest_successful(project_id)
+            if latest is not None:
+                revision = self.edit_agents.final_revision(project_id, latest.run_id)
+                return _PreviewTarget(revision.revision_id, revision.timeline, "ai")
+        base = self.timelines.current(project_id)
+        if base is None:
+            return None
+        return _PreviewTarget(base.timeline.timeline_id, base.timeline, "base")
+
+    @staticmethod
+    def _target_details(target: _PreviewTarget | None) -> dict[str, object]:
+        if target is None:
+            return {"target_is_style_proof": False, "target_stats": None}
+        stats = style_proof_stats(target.timeline)
+        return {
+            "target_is_style_proof": target.is_style_proof,
+            "target_stats": {
+                "duration_seconds": stats.duration_seconds,
+                "clip_count": stats.clip_count,
+                "longest_clip_seconds": stats.longest_clip_seconds,
+                "title_count": stats.title_count,
+                "effect_count": stats.effect_count,
+            },
+        }
