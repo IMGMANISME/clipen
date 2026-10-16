@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { EditAgentSection } from './EditAgentSection'
 import {
   acceptTimelineWarnings,
   buildEditTimeline,
@@ -25,7 +26,7 @@ const stateCopy = {
   validation_required: ['!', '需要重新檢查', '時間軸已存在，但找不到與它完全一致的安全檢查。'],
   ready: ['✓', '可以產生結構預覽', '目前剪輯版本已通過來源、內容與輸出能力檢查。'],
   needs_confirmation: ['!', '開始前需要你的確認', '這些項目不會阻止剪輯，但可能影響畫面或輸出結果。'],
-  output_pending: ['✓', '剪輯版本已保存', '下一步可以產生本機結構預覽，先檢查選材、順序與原音。'],
+  output_pending: ['✓', '可以製作 AI 剪輯方向樣片', '目前項目只影響尚未完成的預覽或輸出能力，不影響 AI 安全地建立短樣片時間軸。'],
   blocked: ['×', '這份剪輯版本還不能使用', '請查看下方問題，修正後重新建立剪輯版本。'],
 } as const
 
@@ -42,6 +43,10 @@ const renderFailureCopy: Record<string, string> = {
   preview_video_stream_missing: '其中一支毛片找不到可播放的影像串流，請重新檢查素材。',
   preview_audio_stream_missing: '其中一支獨立音訊素材找不到可播放的音訊串流。',
   preview_platform_unsupported: '目前的初剪輸出尚未支援這個作業系統。',
+  preview_title_runtime_missing: 'Clipen 的字卡元件尚未安裝完成，請重新執行 install。',
+  preview_title_font_missing: '系統找不到可顯示繁體中文的字型，暫時無法產生字卡。',
+  preview_title_limit_exceeded: '這一版的字卡數量超過本機預覽上限，請先精簡字卡。',
+  preview_style_proof_required: '這是舊版完整初剪，請先製作新的 45–60 秒剪輯方向樣片。',
   controller_restarted: 'Clipen 關閉時中斷了輸出，請重新產生。',
 }
 
@@ -165,7 +170,7 @@ export function TimelineValidationSection({ projectId, csrf }: Props) {
       setPreview(await startPreviewRender(
         csrf,
         projectId,
-        status.timeline.timeline_id,
+        preview?.target_timeline_id ?? status.timeline.timeline_id,
       ))
     } catch (caught) {
       setError(errorMessage(caught))
@@ -194,13 +199,16 @@ export function TimelineValidationSection({ projectId, csrf }: Props) {
 
   const currentState = status?.state ?? 'not_ready'
   const issues = status?.validation?.report?.issues ?? []
-  const previewOnlyRules = new Set([
+  const draftSafeRules = new Set([
     'timeline.capability.element_unverified',
+    'timeline.capability.effect_unknown',
+    'timeline.capability.effect_delivery_unverified',
     'timeline.content.audio_missing',
+    'timeline.reference.style_missing',
   ])
   const outputPendingOnly = currentState === 'blocked'
     && issues.length > 0
-    && issues.every((issue) => previewOnlyRules.has(issue.rule_id))
+    && issues.every((issue) => draftSafeRules.has(issue.rule_id))
   const displayState = outputPendingOnly ? 'output_pending' : currentState
   const copy = stateCopy[displayState]
   const visibleSourceIssues = outputPendingOnly ? [] : issues
@@ -213,18 +221,27 @@ export function TimelineValidationSection({ projectId, csrf }: Props) {
   const visibleIssues = groupedIssues.slice(0, 20)
   const canBuild = plan !== null
   const previewAllowed = displayState === 'ready' || displayState === 'output_pending'
+  const agentAllowed = status?.can_execute === true || outputPendingOnly
   const currentRender = preview?.render ?? null
   const succeeded = currentRender?.state === 'succeeded' && !preview?.stale
   const retryable = currentRender !== null
     && ['failed', 'cancelled', 'interrupted'].includes(currentRender.state)
   const progress = Math.round((currentRender?.progress ?? 0) * 100)
+  const aiStyleProof = preview?.source === 'ai' && preview.target_is_style_proof === true
+  const incompleteAiProof = preview?.source === 'ai'
+    && preview.target_is_style_proof === false
+    && (preview.target_stats?.duration_seconds ?? 0) >= 30
+    && (preview.target_stats?.duration_seconds ?? 0) <= 75
+  const legacyAiDraft = preview?.source === 'ai'
+    && preview.target_is_style_proof === false
+    && !incompleteAiProof
 
   return (
     <section className="timeline-validation-section" aria-labelledby="timeline-validation-title">
       <div className="analysis-heading"><div>
         <p className="eyebrow">04 · 剪輯</p>
         <h2 id="timeline-validation-title">建立並檢查影片結構</h2>
-        <p>先固定選材與順序，再產生本機結構預覽。這個版本尚未套用字卡、字幕、音樂、音效與視覺特效；毛片只會被讀取，不會被改動。</p>
+        <p>先用 45–60 秒方向樣片驗證選材、順序與鏡頭節奏。字幕、音樂、音效、轉場與成片視覺會由後續製作階段處理；毛片只會被讀取。</p>
       </div></div>
 
       {!status && !error && <div className="validation-card" role="status"><span className="small-spinner" aria-hidden="true" /><div><strong>正在讀取剪輯版本</strong><p>這次查詢不會讀取或修改毛片。</p></div></div>}
@@ -254,17 +271,26 @@ export function TimelineValidationSection({ projectId, csrf }: Props) {
           {currentState === 'needs_confirmation' && <button className="button primary" disabled={busy} onClick={() => void acceptWarnings()}>{busy ? '正在保存確認…' : `接受這 ${issues.length.toLocaleString()} 項警告`}</button>}
         </div>
 
+        {status.timeline && (
+          <EditAgentSection
+            projectId={projectId}
+            csrf={csrf}
+            canStart={agentAllowed}
+            onResultAvailable={() => void refresh()}
+          />
+        )}
+
         {status.timeline && previewAllowed && (
           <div className="preview-render-card">
             <div className="preview-render-heading">
               <div>
-                <span className="preview-step">2</span>
-                <strong>觀看結構預覽</strong>
-                <p>AI 已在上一階段產生剪輯藍圖；這裡只依照藍圖在本機產生 MP4，不會再次使用 AI Token。這支預覽用來檢查選材、順序與原音，尚未套用字卡、字幕、音樂、音效或視覺特效。</p>
+                <span className="preview-step optional">選用</span>
+                <strong>{aiStyleProof ? '觀看 AI 剪輯方向樣片' : incompleteAiProof ? '剪輯方向樣片尚未完成' : legacyAiDraft ? '舊版完整初剪（停止使用）' : '觀看 AI 執行前的結構預覽'}</strong>
+                <p>{aiStyleProof ? 'Clipen 會在本機輸出這支精剪短樣片，不再使用 AI Token。請只判斷選材、順序與鏡頭節奏；這還不是成片效果。' : incompleteAiProof ? '鏡頭長度已符合短樣片範圍，但代表性的字卡或效果沒有完成，因此只供檢查結構。' : legacyAiDraft ? `這版長 ${Math.round(preview?.target_stats?.duration_seconds ?? 0)} 秒，未符合新的短樣片規格，不再重新輸出。請先在上方製作新的剪輯方向樣片。` : '這只會把上方的基礎時間軸在本機產生 MP4，不使用 AI Token。需要先檢查原始選材與順序時再使用。'}</p>
               </div>
               {!renderActive && currentRender?.state !== 'succeeded' && (
                 <button className="button primary" disabled={busy || !preview?.can_start} onClick={() => void startPreview()}>
-                  {retryable ? '重新產生結構預覽' : '產生結構預覽'}
+                  {retryable ? `重新產生${aiStyleProof ? '方向樣片' : incompleteAiProof ? '未完成樣片' : '結構預覽'}` : `產生${aiStyleProof ? '方向樣片' : incompleteAiProof ? '未完成樣片' : '結構預覽'}`}
                 </button>
               )}
             </div>
@@ -288,12 +314,12 @@ export function TimelineValidationSection({ projectId, csrf }: Props) {
                 >
                   你的瀏覽器無法播放這支結構預覽。
                 </video>
-                <div><strong>結構預覽已完成</strong><p>請先確認選材、順序與原音。字卡、字幕、音樂、音效與視覺特效會由後續的正式剪輯流程處理。</p><button className="button ghost" disabled={busy} onClick={() => void startPreview()}>重新產生</button></div>
+                <div><strong>{aiStyleProof ? 'AI 剪輯方向樣片已完成' : incompleteAiProof ? '未完成樣片已輸出' : legacyAiDraft ? '這是舊版完整初剪' : '結構預覽已完成'}</strong><p>{aiStyleProof ? '請判斷這 45–60 秒的選材、順序與鏡頭節奏；字幕、音樂、音效與成片視覺尚未製作。' : incompleteAiProof ? '這版只用來檢查選材、順序與字卡；效果尚未完成，不代表最終質感。' : legacyAiDraft ? '這份結果已證明不可用，請回到上方製作新的短樣片。' : '請先確認選材、順序與原音。'}</p>{!legacyAiDraft && <button className="button ghost" disabled={busy} onClick={() => void startPreview()}>重新產生</button>}</div>
               </div>
             )}
 
             {currentRender && preview?.stale && currentRender.state === 'succeeded' && (
-              <div className="preview-render-message warning"><strong>這是上一版時間軸的預覽</strong><p>時間軸已更新，請產生新的結構預覽再判斷內容。</p><button className="button primary" disabled={busy || !preview.can_start} onClick={() => void startPreview()}>產生新版結構預覽</button></div>
+              <div className="preview-render-message warning"><strong>這是上一版時間軸的預覽</strong><p>{incompleteAiProof ? 'AI 已建立新的短樣片結構，但效果尚未完成。可以先在本機輸出檢查選材與順序。' : preview.source === 'ai' ? 'AI 已建立新的短樣片，請產生新版後再判斷內容。' : '時間軸已更新，請產生新的結構預覽再判斷內容。'}</p><button className="button primary" disabled={busy || !preview.can_start} onClick={() => void startPreview()}>{incompleteAiProof ? '產生未完成樣片' : '產生新版預覽'}</button></div>
             )}
 
             {currentRender && retryable && (
