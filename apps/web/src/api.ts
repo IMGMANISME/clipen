@@ -370,6 +370,101 @@ export type PreviewRenderStatus = {
   render: PreviewRender | null
   can_start: boolean
   stale?: boolean
+  source?: 'base' | 'ai' | null
+  target_timeline_id?: string | null
+  target_is_style_proof?: boolean
+  target_stats?: {
+    duration_seconds: number
+    clip_count: number
+    longest_clip_seconds: number
+    title_count: number
+    effect_count: number
+  } | null
+}
+
+export type EditAgentState =
+  | 'queued'
+  | 'running'
+  | 'succeeded'
+  | 'failed'
+  | 'cancelled'
+  | 'interrupted'
+
+export type EditAgentRun = {
+  run_id: string
+  state: EditAgentState
+  phase: string
+  base_timeline_id: string
+  current_revision_id: string
+  final_revision_id: string | null
+  provider: string
+  provider_attempt_id: string | null
+  usage: {
+    input_tokens: number
+    cached_input_tokens: number
+    output_tokens: number
+    total_tokens: number
+  } | null
+  budget: {
+    tool_calls: number
+    max_tool_calls: number
+    remaining_tool_calls: number
+    preview_renders: number
+    max_preview_renders: number
+  }
+  error_code: string | null
+  created_at: string
+  started_at: string | null
+  completed_at: string | null
+}
+
+export type EditAgentTimelineItem = {
+  kind: 'media' | 'text' | 'graphic'
+  item_id: string
+  start_frame: number
+  duration_frames: number
+  text?: string
+  style_id?: string
+  artifact_id?: string
+  effects?: Array<{
+    effect_id: string
+    version: number
+    parameters: Record<string, unknown>
+  }>
+}
+
+export type EditAgentTimeline = {
+  timeline_id: string
+  frame_rate: { num: number; den: number }
+  duration_frames: number
+  canvas: { width: number; height: number }
+  tracks: Array<{
+    track_id: string
+    kind: 'video' | 'audio' | 'title' | 'graphic'
+    items: EditAgentTimelineItem[]
+  }>
+}
+
+export type EditAgentResult = {
+  revision_id: string
+  ordinal: number
+  parent_revision_id: string | null
+  summary: string
+  created_at: string
+  timeline: EditAgentTimeline
+  is_style_proof: boolean
+  proof_stats: {
+    duration_seconds: number
+    clip_count: number
+    longest_clip_seconds: number
+    title_count: number
+    effect_count: number
+  }
+}
+
+export type EditAgentStatus = {
+  latest_run: EditAgentRun | null
+  result: EditAgentResult | null
 }
 
 export type SystemSkillSummary = {
@@ -832,6 +927,37 @@ export async function getEditTimeline(projectId: string): Promise<EditTimelineSt
 
 export async function getPreviewRender(projectId: string): Promise<PreviewRenderStatus> {
   return request<PreviewRenderStatus>(`/api/projects/${projectId}/preview`)
+}
+
+export async function getEditAgent(projectId: string): Promise<EditAgentStatus> {
+  return request<EditAgentStatus>(`/api/projects/${projectId}/edit-agent`)
+}
+
+export async function startEditAgent(
+  csrf: string,
+  projectId: string,
+): Promise<EditAgentRun> {
+  return (
+    await command<{ run: EditAgentRun }>(
+      `/api/projects/${projectId}/edit-agent/commands/start`,
+      csrf,
+      { request_id: crypto.randomUUID(), consent: true },
+    )
+  ).run
+}
+
+export async function cancelEditAgent(
+  csrf: string,
+  projectId: string,
+  runId: string,
+): Promise<EditAgentRun> {
+  return (
+    await command<{ run: EditAgentRun }>(
+      `/api/projects/${projectId}/edit-agent/${runId}/commands/cancel`,
+      csrf,
+      {},
+    )
+  ).run
 }
 
 export async function startPreviewRender(
