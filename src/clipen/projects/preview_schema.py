@@ -4,7 +4,7 @@ PREVIEW_SCHEMA = """
 CREATE TABLE preview_renders (
     render_id TEXT PRIMARY KEY,
     project_id TEXT NOT NULL REFERENCES project(project_id),
-    timeline_id TEXT NOT NULL REFERENCES edit_timelines(timeline_id),
+    timeline_id TEXT NOT NULL,
     request_id TEXT NOT NULL UNIQUE,
     state TEXT NOT NULL CHECK (
         state IN (

@@ -363,16 +363,17 @@ async def _serve(
                 timeline_validations,
                 CapabilityProfile("clipen-export-unverified", 1),
             )
+            edit_agent_repository = EditAgentRepository(workspace.repository)
             preview_renders = PreviewRenderService(
                 PreviewRenderRepository(workspace.repository),
                 timeline_repository,
                 FfmpegPreviewRenderer(media_previews),
                 timeline_service,
+                edit_agent_repository,
             )
             preview_renders.recover(
                 project.project_id for project in workspace.repository.list_projects()
             )
-            edit_agent_repository = EditAgentRepository(workspace.repository)
             if provider.state is ProviderState.READY:
                 edit_agents = EditAgentCoordinator(
                     edit_agent_repository,

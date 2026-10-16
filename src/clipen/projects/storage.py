@@ -36,7 +36,7 @@ from .agent_schema import EDIT_AGENT_SCHEMA
 from .deletion import ProjectDeletion
 
 
-PROJECT_SCHEMA_VERSION = 14
+PROJECT_SCHEMA_VERSION = 15
 _PROJECT_DIRECTORY = re.compile(r"prj_[0-9a-f]{32}\Z")
 
 _INVENTORY_SCHEMA = """
@@ -646,7 +646,7 @@ class ProjectRepository:
                 + PREVIEW_SCHEMA
                 + EDIT_AGENT_SCHEMA
                 + """
-                PRAGMA user_version = 14;
+                PRAGMA user_version = 15;
                 """
             )
             connection.execute(
@@ -736,6 +736,9 @@ class ProjectRepository:
             if version == 13:
                 self._migrate_v13_to_v14(connection)
                 version = 14
+            if version == 14:
+                self._migrate_v14_to_v15(connection)
+                version = 15
             if version != PROJECT_SCHEMA_VERSION:
                 connection.close()
                 raise ProjectError(
@@ -1138,6 +1141,52 @@ class ProjectRepository:
             + ("" if observed else EDIT_AGENT_SCHEMA)
             + "\nPRAGMA user_version = 14;\nCOMMIT;"
         )
+
+    @staticmethod
+    def _migrate_v14_to_v15(connection: sqlite3.Connection) -> None:
+        """Allow previews to reference an immutable AI edit revision.
+
+        Existing rows and the current-render pointer are copied exactly. The
+        referenced payload remains integrity-checked by either TimelineRepository
+        or EditAgentRepository before a render can start.
+        """
+
+        columns = tuple(
+            row["name"] for row in connection.execute("PRAGMA table_info(preview_renders)")
+        )
+        expected = (
+            "render_id", "project_id", "timeline_id", "request_id", "state",
+            "progress", "output_relative_path", "output_size_bytes", "error_code",
+            "created_at", "started_at", "completed_at",
+        )
+        if columns != expected:
+            raise sqlite3.DatabaseError("unexpected preview render schema")
+        current = connection.execute(
+            "SELECT render_id FROM current_preview_render WHERE slot=1"
+        ).fetchone()
+        connection.execute("PRAGMA foreign_keys=OFF")
+        try:
+            connection.executescript(
+                "BEGIN IMMEDIATE;\n"
+                "DROP TABLE current_preview_render;\n"
+                "DROP INDEX preview_renders_project_created;\n"
+                "ALTER TABLE preview_renders RENAME TO preview_renders_v14;\n"
+                + PREVIEW_SCHEMA
+                + "\nINSERT INTO preview_renders SELECT * FROM preview_renders_v14;\n"
+                "DROP TABLE preview_renders_v14;\n"
+            )
+            if current is not None:
+                connection.execute(
+                    "INSERT INTO current_preview_render(slot,render_id) VALUES(1,?)",
+                    (current["render_id"],),
+                )
+            connection.execute("PRAGMA user_version=15")
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.execute("PRAGMA foreign_keys=ON")
 
     @staticmethod
     def _migrate_v2_to_v3(connection: sqlite3.Connection) -> None:

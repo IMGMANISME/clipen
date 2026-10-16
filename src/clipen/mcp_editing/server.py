@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+from io import BytesIO
 import json
 from pathlib import Path
 import sys
@@ -13,6 +14,8 @@ from clipen.projects import ProjectError
 
 
 _MAX_MESSAGE_BYTES = 1024 * 1024
+_MAX_IMAGE_BYTES = 96 * 1024
+_MAX_IMAGE_SIZE = (640, 360)
 _PROTOCOL_VERSION = "2025-06-18"
 
 
@@ -48,25 +51,42 @@ _TOOLS = (
     ),
     _tool(
         "inspect_clip",
-        "Inspect one candidate's source-bound evidence and up to eight local sample images.",
+        "Inspect one candidate's source-bound evidence and up to four local sample images.",
         {"candidate_id": {"type": "string"}},
         ("candidate_id",),
     ),
     _tool("inspect_sequence", "Read the current immutable timeline revision.", {}),
     _tool(
         "replace_sequence",
-        "Replace the main picture sequence with an ordered list of approved video candidates.",
+        "Build the short style proof from precise in/out ranges inside approved candidates.",
         {
-            "candidate_ids": {
+            "clips": {
                 "type": "array",
-                "items": {"type": "string"},
-                "minItems": 1,
-                "maxItems": 500,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "candidate_id": {"type": "string"},
+                        "start_offset_seconds": {"type": "number", "minimum": 0},
+                        "duration_seconds": {
+                            "type": "number",
+                            "minimum": 0.75,
+                            "maximum": 10,
+                        },
+                    },
+                    "required": [
+                        "candidate_id",
+                        "start_offset_seconds",
+                        "duration_seconds",
+                    ],
+                    "additionalProperties": False,
+                },
+                "minItems": 8,
+                "maxItems": 30,
                 "uniqueItems": True,
             },
             "summary": {"type": "string", "maxLength": 500},
         },
-        ("candidate_ids", "summary"),
+        ("clips", "summary"),
     ),
     _tool(
         "add_title",
@@ -95,11 +115,27 @@ _TOOLS = (
                     "video.slow_push",
                     "video.reframe",
                     "video.speed_ramp",
-                    "audio.dialogue_focus",
-                    "audio.duck_music",
                 ],
             },
-            "parameters": {"type": "object"},
+            "parameters": {
+                "type": "object",
+                "description": (
+                    "Use {} for safe defaults, or exact numeric keys: "
+                    "punch_in {scale,center_x,center_y}; slow_push "
+                    "{scale_from,scale_to}; reframe {x,y}; speed_ramp {rate}."
+                ),
+                "properties": {
+                    "scale": {"type": "number", "minimum": 1.01, "maximum": 2},
+                    "center_x": {"type": "number", "minimum": 0, "maximum": 1},
+                    "center_y": {"type": "number", "minimum": 0, "maximum": 1},
+                    "scale_from": {"type": "number", "minimum": 1, "maximum": 2},
+                    "scale_to": {"type": "number", "minimum": 1, "maximum": 2},
+                    "x": {"type": "number", "minimum": 0, "maximum": 1},
+                    "y": {"type": "number", "minimum": 0, "maximum": 1},
+                    "rate": {"type": "number", "minimum": 0.25, "maximum": 4},
+                },
+                "additionalProperties": False,
+            },
             "summary": {"type": "string", "maxLength": 500},
         },
         ("item_id", "effect_id", "parameters", "summary"),
@@ -201,9 +237,10 @@ class EditingMcpServer:
             {"type": "text", "text": json.dumps(result.payload, ensure_ascii=False)}
         ]
         for path in result.images:
-            data = path.read_bytes()
-            suffix = path.suffix.lower()
-            mime = "image/jpeg" if suffix in {".jpg", ".jpeg"} else "image/png"
+            encoded = _bounded_image(path)
+            if encoded is None:
+                continue
+            data, mime = encoded
             content.append(
                 {
                     "type": "image",
@@ -224,6 +261,35 @@ class EditingMcpServer:
             "id": identifier,
             "error": {"code": code, "message": message},
         }
+
+
+def _bounded_image(path: Path) -> tuple[bytes, str] | None:
+    """Encode a model-readable thumbnail without modifying the evidence artifact."""
+
+    try:
+        from PIL import Image
+
+        with Image.open(path) as source:
+            image = source.convert("RGB")
+            for size in (_MAX_IMAGE_SIZE, (480, 270), (320, 180)):
+                image.thumbnail(size, Image.Resampling.LANCZOS)
+                for quality in (76, 60, 44):
+                    output = BytesIO()
+                    image.save(output, "JPEG", quality=quality, optimize=True)
+                    data = output.getvalue()
+                    if len(data) <= _MAX_IMAGE_BYTES:
+                        return data, "image/jpeg"
+            return None
+    except (ImportError, OSError, ValueError):
+        try:
+            if path.stat().st_size > _MAX_IMAGE_BYTES:
+                return None
+            data = path.read_bytes()
+        except OSError:
+            return None
+        suffix = path.suffix.lower()
+        mime = "image/jpeg" if suffix in {".jpg", ".jpeg"} else "image/png"
+        return data, mime
 
 
 def run_stdio(

@@ -208,7 +208,7 @@ class EditAgentTests(unittest.TestCase):
         self.assertEqual(revision.ordinal, 0)
         self.assertEqual(revision.timeline, self.timeline)
         with self.projects.connect(self.project.project_id) as database:
-            self.assertEqual(database.execute("PRAGMA user_version").fetchone()[0], 14)
+            self.assertEqual(database.execute("PRAGMA user_version").fetchone()[0], 15)
 
     def test_tools_create_revisions_undo_and_finish_without_paths(self):
         run, tools = self.create_tools()
@@ -218,6 +218,10 @@ class EditAgentTests(unittest.TestCase):
         self.assertEqual(direction["authority"], "user_confirmed")
         self.assertEqual(direction["title"], "東京第一天")
         self.assertIn("章節字卡", direction["sections"][0]["edit_notes"])
+        self.assertEqual(
+            direction["proof_constraints"]["target_duration_seconds"],
+            {"minimum": 45, "maximum": 60},
+        )
 
         searched = tools.call("search_media", {"query": "東京", "limit": 10})
         self.assertEqual(searched.payload["returned"], 1)
@@ -225,9 +229,24 @@ class EditAgentTests(unittest.TestCase):
 
         replaced = tools.call(
             "replace_sequence",
-            {"candidate_ids": ["candidate-street"], "summary": "以街景建立開場"},
+            {
+                "clips": [
+                    {
+                        "candidate_id": "candidate-street",
+                        "start_offset_seconds": offset,
+                        "duration_seconds": 4,
+                    }
+                    for offset in (0, 0.5, 1, 1.5, 2, 2.5, 3, 4)
+                ],
+                "summary": "以精確入出點建立短樣片",
+            },
         )
         self.assertEqual(replaced.payload["revision"]["ordinal"], 1)
+        sequence = self.repository.current_revision(
+            self.project.project_id, run.run_id
+        ).timeline
+        self.assertEqual(sequence.duration_frames, 960)
+        self.assertTrue(all(item.duration_frames == 120 for item in sequence.tracks[0].items))
         titled = tools.call(
             "add_title",
             {
@@ -251,10 +270,33 @@ class EditAgentTests(unittest.TestCase):
         self.assertEqual(effected.payload["revision"]["ordinal"], 3)
         undone = tools.call("undo_revision", {})
         self.assertEqual(undone.payload["revision"]["ordinal"], 2)
+        restored = tools.call(
+            "set_clip_effect",
+            {
+                "item_id": "agent-video-0001",
+                "effect_id": "video.slow_push",
+                "parameters": {},
+                "summary": "使用安全預設加入緩慢推進",
+            },
+        )
+        self.assertEqual(restored.payload["revision"]["ordinal"], 3)
+        restored_timeline = self.repository.current_revision(
+            self.project.project_id, run.run_id
+        ).timeline
+        self.assertEqual(
+            restored_timeline.tracks[0].items[0].effects[0].parameters,
+            {"scale_from": 1.0, "scale_to": 1.08},
+        )
         final = tools.call("finish_edit", {"summary": "完成第一版旅行初剪"})
         self.assertEqual(final.payload["state"], "succeeded")
-        self.assertEqual(final.payload["final_revision_id"], undone.payload["revision"]["revision_id"])
-        self.assertEqual(self.repository.get(self.project.project_id, run.run_id).tool_calls, 7)
+        self.assertEqual(
+            final.payload["final_revision_id"],
+            restored.payload["revision"]["revision_id"],
+        )
+        self.assertEqual(
+            self.repository.get(self.project.project_id, run.run_id).tool_calls,
+            8,
+        )
 
         recorded = self.repository.record_provider_outcome(
             self.project.project_id,
@@ -268,6 +310,52 @@ class EditAgentTests(unittest.TestCase):
         )
         self.assertEqual(recorded.usage["input_tokens"], 1200)
         self.assertEqual(recorded.to_public()["usage"]["total_tokens"], 1500)
+
+    def test_style_proof_rejects_whole_candidates_and_long_total_runtime(self):
+        _, tools = self.create_tools()
+        whole_candidates = {
+            "clips": [
+                {
+                    "candidate_id": "candidate-street",
+                    "start_offset_seconds": 0,
+                    "duration_seconds": 10,
+                }
+                for _ in range(8)
+            ],
+            "summary": "invalid proof",
+        }
+        with self.assertRaises(ProjectError) as duplicate:
+            tools.call("replace_sequence", whole_candidates)
+        self.assertEqual(duplicate.exception.code, "agent_input_invalid")
+
+        too_short = {
+            "clips": [
+                {
+                    "candidate_id": "candidate-street",
+                    "start_offset_seconds": offset,
+                    "duration_seconds": 1,
+                }
+                for offset in range(8)
+            ],
+            "summary": "too short",
+        }
+        with self.assertRaises(ProjectError) as runtime:
+            tools.call("replace_sequence", too_short)
+        self.assertEqual(runtime.exception.code, "agent_input_invalid")
+        with self.assertRaises(ProjectError) as unfinished:
+            tools.call("finish_edit", {"summary": "base timeline is not a proof"})
+        self.assertEqual(unfinished.exception.code, "style_proof_invalid")
+
+    def test_candidate_inspection_has_a_separate_token_safety_budget(self):
+        _, tools = self.create_tools(calls=20)
+        for _ in range(10):
+            inspected = tools.call(
+                "inspect_clip", {"candidate_id": "candidate-street"}
+            )
+            self.assertEqual(inspected.payload["image_count"], 0)
+        with self.assertRaises(ProjectError) as exhausted:
+            tools.call("inspect_clip", {"candidate_id": "candidate-street"})
+        self.assertEqual(exhausted.exception.code, "inspection_budget_exhausted")
 
     def test_tool_budget_interrupts_run(self):
         run, tools = self.create_tools(calls=1)
@@ -388,7 +476,8 @@ class EditAgentTests(unittest.TestCase):
             deadline = time.monotonic() + 2
             while time.monotonic() < deadline:
                 response = request("GET", base, headers={"cookie": cookie})
-                latest = json.loads(response[2])["latest_run"]
+                status = json.loads(response[2])
+                latest = status["latest_run"]
                 if latest and latest["state"] == "succeeded":
                     break
                 time.sleep(0.01)
@@ -398,6 +487,9 @@ class EditAgentTests(unittest.TestCase):
             coordinator.close()
 
         self.assertEqual(latest["usage"]["output_tokens"], 30)
+        self.assertEqual(latest["budget"]["max_tool_calls"], 48)
+        self.assertEqual(status["result"]["revision_id"], latest["final_revision_id"])
+        self.assertEqual(status["result"]["timeline"]["timeline_id"], self.timeline.timeline_id)
 
     def test_controller_shutdown_marks_active_agent_interrupted(self):
         coordinator = EditAgentCoordinator(
@@ -420,6 +512,29 @@ class EditAgentTests(unittest.TestCase):
         stopped = self.repository.get(self.project.project_id, run.run_id)
         self.assertEqual(stopped.state, "interrupted")
         self.assertEqual(stopped.error_code, "controller_stopped")
+
+    def test_recovery_seals_successful_run_missing_provider_usage(self):
+        run, _ = self.repository.create_run(
+            self.project.project_id,
+            "request-agent-finished-before-usage",
+        )
+        self.repository.activate(self.project.project_id, run.run_id)
+        self.repository.finish(self.project.project_id, run.run_id, "已完成剪輯")
+        coordinator = EditAgentCoordinator(
+            self.repository,
+            Path(self.temporary.name),
+            adapter_factory=SuccessfulAgent,
+        )
+
+        self.assertEqual(coordinator.recover(), 1)
+
+        recovered = self.repository.get(self.project.project_id, run.run_id)
+        self.assertEqual(recovered.state, "succeeded")
+        self.assertIsNone(recovered.usage)
+        self.assertEqual(
+            recovered.provider_attempt_id,
+            "recovered-" + run.run_id.removeprefix("editrun_"),
+        )
 
 
 if __name__ == "__main__":

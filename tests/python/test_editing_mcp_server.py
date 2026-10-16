@@ -1,3 +1,4 @@
+import base64
 import io
 import json
 from pathlib import Path
@@ -50,6 +51,39 @@ class EditingMcpServerTests(unittest.TestCase):
         )
         self.assertNotIn("shell", json.dumps(response))
         self.assertNotIn("filesystem", json.dumps(response))
+        replace = next(
+            tool for tool in response["result"]["tools"] if tool["name"] == "replace_sequence"
+        )
+        clips = replace["inputSchema"]["properties"]["clips"]
+        self.assertEqual((clips["minItems"], clips["maxItems"]), (8, 30))
+        self.assertEqual(
+            set(clips["items"]["required"]),
+            {"candidate_id", "start_offset_seconds", "duration_seconds"},
+        )
+        effect = next(
+            tool for tool in response["result"]["tools"] if tool["name"] == "set_clip_effect"
+        )
+        self.assertNotIn(
+            "audio.dialogue_focus",
+            effect["inputSchema"]["properties"]["effect_id"]["enum"],
+        )
+        self.assertIn(
+            "safe defaults",
+            effect["inputSchema"]["properties"]["parameters"]["description"],
+        )
+        self.assertEqual(
+            set(effect["inputSchema"]["properties"]["parameters"]["properties"]),
+            {
+                "scale",
+                "center_x",
+                "center_y",
+                "scale_from",
+                "scale_to",
+                "x",
+                "y",
+                "rate",
+            },
+        )
 
     def test_stdio_initializes_calls_tool_and_embeds_local_image(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -71,6 +105,30 @@ class EditingMcpServerTests(unittest.TestCase):
         content = messages[1]["result"]["content"]
         self.assertEqual([item["type"] for item in content], ["text", "image"])
         self.assertEqual(content[1]["mimeType"], "image/png")
+
+    def test_real_sample_image_is_bounded_before_it_reaches_codex(self):
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow is not installed")
+        with tempfile.TemporaryDirectory() as temporary:
+            image = Path(temporary) / "frame.png"
+            Image.new("RGB", (2400, 1600), (80, 130, 95)).save(image)
+            response = EditingMcpServer(FakeTools(image)).handle(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "inspect_clip",
+                        "arguments": {"candidate_id": "candidate-a"},
+                    },
+                }
+            )
+
+        encoded = response["result"]["content"][1]
+        self.assertEqual(encoded["mimeType"], "image/jpeg")
+        self.assertLessEqual(len(base64.b64decode(encoded["data"])), 96 * 1024)
 
     def test_tool_error_is_a_tool_result_not_a_server_crash(self):
         response = EditingMcpServer(FakeTools()).handle(

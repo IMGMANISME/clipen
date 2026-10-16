@@ -38,17 +38,6 @@ class PreviewRenderRepository:
                         )
                     database.rollback()
                     return self._public(existing)
-                timeline = database.execute(
-                    "SELECT 1 FROM edit_timelines WHERE timeline_id=? AND project_id=?",
-                    (timeline_id, project_id),
-                ).fetchone()
-                if timeline is None:
-                    database.rollback()
-                    raise ProjectError(
-                        "timeline_not_found",
-                        "找不到目前的剪輯版本。",
-                        status_code=404,
-                    )
                 render_id = "render_" + secrets.token_hex(16)
                 database.execute(
                     "INSERT INTO preview_renders "
