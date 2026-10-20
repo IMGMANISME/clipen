@@ -1,0 +1,8 @@
+{
+  "palette": {"ink": [20, 24, 29, 242], "paper": [255, 252, 244, 255], "accent": [255, 203, 61, 255], "secondary": [81, 202, 183, 255]},
+  "layout": {"safe_margin": 0.055, "subtitle_top": 0.78, "maximum_component_width": 0.58},
+  "motion": {"entry_frames": 8, "exit_frames": 5, "entry_distance_ratio": 0.018},
+  "typography": {"component_primary": 0.038, "component_detail": 0.024, "component_kicker": 0.017, "reaction": 0.064},
+  "subtitle": {"font_size_ratio": 0.052, "emphasis_color": [255, 203, 61, 255], "outline_color": [20, 24, 29, 255]},
+  "sound": {"music_start_gain_db": -8, "dialogue_duck_db": -7, "duck_attack_seconds": 0.12, "duck_release_seconds": 0.4}
+}

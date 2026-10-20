@@ -59,7 +59,7 @@ def make_id(prefix: str, value: object) -> str:
 class AgentRun:
     run_id: str
     project_id: str
-    base_timeline_id: str
+    base_timeline_id: str | None
     state: str
     phase: str
     max_tool_calls: int

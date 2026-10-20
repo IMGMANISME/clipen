@@ -209,7 +209,7 @@ class EditAgentTests(unittest.TestCase):
         self.assertEqual(revision.ordinal, 0)
         self.assertEqual(revision.timeline, self.timeline)
         with self.projects.connect(self.project.project_id) as database:
-            self.assertEqual(database.execute("PRAGMA user_version").fetchone()[0], 17)
+            self.assertEqual(database.execute("PRAGMA user_version").fetchone()[0], 18)
 
     def test_tools_create_revisions_undo_and_finish_without_paths(self):
         run, tools = self.create_tools()

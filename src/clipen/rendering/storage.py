@@ -187,7 +187,7 @@ class PreviewRenderRepository:
             raise ProjectError(
                 "storage_corrupt", "Clipen 無法安全讀取初剪資料。", status_code=500
             )
-        for candidate in directory.glob(".render_*.partial.mp4"):
+        for candidate in directory.glob(".render_*.partial.*"):
             candidate.unlink(missing_ok=True)
 
     def output_path(

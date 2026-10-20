@@ -39,6 +39,30 @@ from .codex import (
 # finite allowance for a representative set of inspected candidates while
 # still terminating unexpectedly verbose provider output.
 _MAX_CAPTURE_BYTES = 32 * 1024 * 1024
+_PRODUCTION_PROMPT = """You are the director and editor of one Clipen production session.
+Use only the clipen MCP tools. Read get_edit_status, list_editing_tools and
+read_production_skill(resource="SKILL.md") first. The frozen production skill
+defines the programme style and points to detailed resources to load as needed.
+The session intent is authoritative; the story outline is your editable hypothesis.
+There is no required legacy analysis or confirmed plan. Discover source footage,
+obtain evidence as needed, choose a coherent event and produce it with the skill's
+actual graphics, subtitles, sound and editing tools. Source facts must be grounded.
+An empty transcript search means unknown coverage, not that footage has no speech.
+Make a 30-75 second completed programme proof; shorter drafts may be rendered to
+try an idea. Do not silently substitute a captioned raw montage for programme production.
+You choose when and how to call tools; no fixed shot/effect quota or scripted sequence.
+Call list_program_components before graphics and use the supported components.
+Keep style consistent while choosing elements that explain actual footage.
+Search licensed public music, arrange it, preserve natural sound and source credits.
+Metadata/measurements are not listening and stills are not continuous-motion review.
+Repair timing uncertainty rather than claiming estimated subtitles are aligned.
+Render exact revisions, inspect actual results, revise specific failures. Local cut
+tools preserve unaffected post-production; inspect any dependencies they invalidate.
+Finish only when requested content and technical checks are complete and the exact
+final render has been inspected. validate_sequence reports outstanding issues and
+coverage. review_cut records model judgement, never human acceptance. Keep budget
+for rendering, inspection and finish_edit; report concrete incomplete work if blocked.
+"""
 _MCP_TOOLS = (
     "get_edit_status",
     "search_media",
@@ -175,6 +199,7 @@ class CodexEditingAgent:
         binary: str | Path | None = None,
         python: str | Path | None = None,
         environment: Mapping[str, str] | None = None,
+        local_runtime: tuple[Path, Path] | None = None,
     ) -> None:
         self.projects_root = Path(projects_root).resolve(strict=True)
         self.attempt_root = Path(attempt_root).resolve(strict=True)
@@ -193,6 +218,7 @@ class CodexEditingAgent:
         self.python = selected_python
         self.environment = _provider_environment(environment)
         self.repository = repository
+        self.local_runtime = local_runtime
 
     def execute(
         self,
@@ -205,6 +231,7 @@ class CodexEditingAgent:
         if not 30 <= timeout_seconds <= 3600:
             raise ValueError("editing timeout must be between 30 and 3600 seconds")
         run = self.repository.get(project_id, run_id)
+        self._prompt = _PRODUCTION_PROMPT if self.repository.production_session(project_id, run_id) else _PROMPT
         if run.provider != "codex":
             raise ValueError("editing run belongs to another provider")
         attempt_id = "agent-" + uuid.uuid4().hex
@@ -261,6 +288,8 @@ class CodexEditingAgent:
             "--run-id",
             run_id,
         ]
+        if self.local_runtime:
+            args += ['--data-root',str(self.local_runtime[0]),'--asr-requirements',str(self.local_runtime[1])]
         return (
             str(self.binary),
             "--ask-for-approval",
@@ -305,7 +334,7 @@ class CodexEditingAgent:
     ) -> int:
         deadline = time.monotonic() + timeout_seconds
         with tempfile.TemporaryFile() as prompt:
-            prompt.write(_PROMPT.encode("utf-8"))
+            prompt.write(getattr(self, '_prompt', _PROMPT).encode("utf-8"))
             prompt.seek(0)
             with events.open("xb") as stdout, diagnostics.open("xb") as stderr:
                 process = subprocess.Popen(

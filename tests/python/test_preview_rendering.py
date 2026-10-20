@@ -469,7 +469,7 @@ class PreviewRenderingTests(unittest.TestCase):
 
         restarted = ProjectRepository(self.projects.root)
         with restarted.connect(self.project.project_id) as connection:
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 17)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 18)
             row = connection.execute(
                 "SELECT render_id,timeline_id FROM preview_renders WHERE request_id=?",
                 ("request-preview-v14-migration",),
@@ -495,7 +495,7 @@ class PreviewRenderingTests(unittest.TestCase):
         current = TimelineRepository(self.projects).current(self.project.project_id)
         self.assertEqual(current.timeline, self.timeline)
         with self.projects.connect(self.project.project_id) as connection:
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 17)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 18)
             tables = {
                 row[0]
                 for row in connection.execute(

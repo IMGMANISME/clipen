@@ -382,6 +382,7 @@ async def _serve(
                 edit_agents = EditAgentCoordinator(
                     edit_agent_repository,
                     paths.attempt_root,
+                    local_runtime=(paths.attempt_root.parent, paths.asr_requirements) if paths.asr_requirements else None,
                 )
                 edit_agents.recover()
             else:

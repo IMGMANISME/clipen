@@ -24,6 +24,7 @@ class EditAgentCoordinator:
         *,
         adapter_factory=None,
         queue_capacity: int = 4,
+        local_runtime: tuple[Path, Path] | None = None,
     ) -> None:
         root = Path(attempt_root).resolve(strict=True)
         if not root.is_dir() or attempt_root.is_symlink():
@@ -31,6 +32,7 @@ class EditAgentCoordinator:
         if not 1 <= queue_capacity <= 16:
             raise ValueError("editing queue capacity is invalid")
         self.repository = repository
+        self.local_runtime = local_runtime
         self.attempt_root = root
         if adapter_factory is None:
             # Import lazily so the provider can import the agent repository
@@ -50,6 +52,8 @@ class EditAgentCoordinator:
         recovered = 0
         for project in self.repository.projects.list_projects():
             recovered += self.repository.interrupt_incomplete(project.project_id)
+            with self.repository.projects.connect(project.project_id) as db:
+                db.execute("UPDATE production_evidence_jobs SET state='interrupted',error_code='controller_stopped' WHERE state='running'")
             latest = self.repository.latest(project.project_id)
             if (
                 latest is not None
@@ -71,6 +75,7 @@ class EditAgentCoordinator:
         return recovered
 
     def status(self, project_id: str) -> dict[str, object]:
+        from .production_requirements import production_contents
         latest = self.repository.latest(project_id)
         published = self.repository.latest_successful(project_id)
         result = None
@@ -79,6 +84,7 @@ class EditAgentCoordinator:
             stats = style_proof_stats(revision.timeline)
             with self.repository.projects.connect(project_id) as db:
                 rows=db.execute("SELECT payload_json FROM edit_agent_events WHERE run_id=? AND event_type='editorial_review' ORDER BY sequence DESC",(published.run_id,)).fetchall()
+                completed_preview=db.execute("SELECT render_id FROM preview_renders WHERE timeline_id=? AND state='succeeded' ORDER BY created_at DESC LIMIT 1",(revision.revision_id,)).fetchone()
             assessment=next((v for v in (json.loads(r['payload_json']) for r in rows) if v['revision_id']==revision.revision_id),None)
             from .program_story import read_episode
             from .program_subtitles import subtitle_status
@@ -93,6 +99,7 @@ class EditAgentCoordinator:
                 "subtitle_review": subtitle_status(self.repository.projects,project_id,revision.timeline),
                 "production_contents": production_contents(self.repository.projects,project_id,revision.timeline),
                 "export_url": self._export_url(project_id,published.run_id,revision.revision_id),
+                "preview_url": f"/api/projects/{project_id}/preview/{completed_preview['render_id']}/media" if completed_preview else None,
                 "proof_stats": {
                     "duration_seconds": stats.duration_seconds,
                     "clip_count": stats.clip_count,
@@ -104,10 +111,38 @@ class EditAgentCoordinator:
         from .program_reference import latest_reference
         with self.repository.projects.connect(project_id) as db:
             reference=latest_reference(db)
+        production = None
+        if latest is not None:
+            session = self.repository.production_session(project_id, latest.run_id)
+            if session is not None:
+                draft = self.repository.current_revision(project_id, latest.run_id)
+                from clipen.rendering import PreviewRenderRepository
+                with self.repository.projects.connect(project_id) as db:
+                    previews = db.execute("SELECT payload_json FROM edit_agent_events WHERE run_id=? AND event_type='production_preview' ORDER BY sequence DESC LIMIT 1", (latest.run_id,)).fetchone()
+                    checks = db.execute("SELECT payload_json FROM edit_agent_events WHERE run_id=? AND event_type='sequence_validation' ORDER BY sequence DESC LIMIT 30",(latest.run_id,)).fetchall()
+                    jobs = db.execute("SELECT job_id,kind,state,error_code,result_json FROM production_evidence_jobs WHERE run_id=? ORDER BY rowid DESC LIMIT 10",(latest.run_id,)).fetchall()
+                validation=next((value for row in checks if (value:=json.loads(row['payload_json']))['revision_id']==draft.revision_id),None)
+                local_jobs=[]
+                for row in jobs:
+                    value=json.loads(row['result_json']) if row['result_json'] else {}
+                    local_jobs.append({k:row[k] for k in ('job_id','kind','state','error_code')} |
+                                      {k:value[k] for k in ('phase','completed_bytes','total_bytes') if k in value})
+                preview = None
+                if previews:
+                    entry = json.loads(previews['payload_json'])
+                    from .production_preview import render_recipe_id
+                    preview = {**PreviewRenderRepository(self.repository.projects).get(project_id, entry['render_id']),
+                               'revision_id': entry['revision_id'], 'stale': entry['revision_id'] != draft.revision_id or entry.get('recipe_id')!=render_recipe_id(),
+                               'media_url': f"/api/projects/{project_id}/preview/{entry['render_id']}/media"}
+                production = {'intent': session['intent'], 'skill': {k: session['skill'][k] for k in ('skill_id','name','version','content_hash','limitations')},
+                              'draft': draft.to_public(include_timeline=True), 'preview': preview,'validation':validation,'local_jobs':local_jobs,
+                              'production_contents':production_contents(self.repository.projects,project_id,draft.timeline),
+                              'export_url':self._export_url(project_id,latest.run_id,draft.revision_id)}
         return {
             "latest_run": None if latest is None else latest.to_public(),
             "result": result,
             "program_reference": reference,
+            "production": production,
         }
 
     def accept_program_reference(self,project_id,run_id,revision_id):
@@ -142,6 +177,7 @@ class EditAgentCoordinator:
         max_tool_calls: int = 96,
         max_preview_renders: int = 4,
         creative_direction: dict | None = None,
+        production: dict | None = None,
     ) -> AgentRun:
         if consent is not True:
             raise ProjectError(
@@ -161,6 +197,7 @@ class EditAgentCoordinator:
                 max_tool_calls=max_tool_calls,
                 max_preview_renders=max_preview_renders,
                 creative_direction=creative_direction,
+                production=production,
             )
             if not created:
                 return run
@@ -227,6 +264,7 @@ class EditAgentCoordinator:
                     self.repository.projects.root,
                     self.attempt_root,
                     self.repository,
+                    **({'local_runtime':self.local_runtime} if self.local_runtime else {}),
                 )
                 adapter.execute(*key, cancel=cancel)
             except (ProjectError, ProviderCancelled):
@@ -246,6 +284,11 @@ class EditAgentCoordinator:
                         pass
             finally:
                 if key is not None:
+                    try:
+                        with self.repository.projects.connect(key[0]) as db:
+                            db.execute("UPDATE production_evidence_jobs SET state='interrupted',error_code='provider_ended' WHERE run_id=? AND state='running'",(key[1],))
+                    except ProjectError:
+                        pass
                     with self._lock:
                         self._cancel.pop(key, None)
                 self._queue.task_done()

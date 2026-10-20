@@ -40,7 +40,7 @@ def direction_issues(tools):
     from clipen.domain import TrackKind
     from .program_story import read_episode
     issues=[{'code':'title_cards_disabled', 'item_id':i.item_id}
-            for t in tools._timeline().tracks if t.kind is TrackKind.TITLE and t.track_id != 'agent-subtitles' for i in t.items]
+            for t in tools._timeline().tracks if t.kind is TrackKind.TITLE and t.track_id not in {'agent-subtitles','program-components'} for i in t.items]
     from .production_media import load_text_styles
     styles=load_text_styles(tools.repository.projects,tools.project_id)
     issues += [{'code':'program_subtitle_style_required','item_id':i.item_id}
@@ -52,6 +52,6 @@ def direction_issues(tools):
                for t in tools._timeline().tracks if t.track_id=='agent-subtitles' for i in t.items
                if (p:=styles.get(i.style_id,{})).get('verification')=='asr_draft'
                and speech_flags(i.text if p.get('source_excerpt') else p.get('source_text',i.text))]
-    if read_episode(tools.repository.projects,tools.project_id,tools.run_id,tools._timeline()) is None:
+    if tools._session_value() is None and read_episode(tools.repository.projects,tools.project_id,tools.run_id,tools._timeline()) is None:
         issues.append({'code':'episode_treatment_required','message':'請用 plan_episode 說明本段在問什麼、怎麼體驗、最後得到什麼，並連到實際鏡頭。'})
     return issues

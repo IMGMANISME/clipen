@@ -186,7 +186,7 @@ class AutonomousProgrammeTests(unittest.TestCase):
             f.tools._asset_store()
             layer={'layer_id':'music','asset_id':'public-song','start_frame':0,'duration_frames':300,'source_offset_seconds':0,'gain_db':-24,'duck':True,'fade_seconds':.3}
             f.tools._effect('agent-video-0002','audio.layers',{'layers':[layer]},'加入來源配樂')
-            asset={'asset_id':'public-song','name':'Test song','provenance':{'title':'Test song','creator':'Fixture','source_url':'https://example.org/song','license':'cc0','license_url':'https://creativecommons.org/publicdomain/zero/1.0/'}}
+            asset={'asset_id':'public-song','role':'music','name':'Test song','provenance':{'title':'Test song','creator':'Fixture','source_url':'https://example.org/song','license':'cc0','license_url':'https://creativecommons.org/publicdomain/zero/1.0/'}}
             with patch('clipen.editing.production_requirements.AgentAudioStore.public_assets',return_value=[asset]):
                 self.assertFalse(codes())
                 contents=production_contents(f.f.projects,pid,f.tools._timeline())
@@ -194,6 +194,9 @@ class AutonomousProgrammeTests(unittest.TestCase):
                 self.assertEqual(contents['music'][0]['duration_seconds'],10)
                 self.assertEqual(len(contents['transitions']),1)
                 self.assertEqual(contents['cut_count'],7)
+                asset['role']='sfx'
+                self.assertIn('production_music_required',codes())
+                asset['role']='music'
                 asset['provenance']={}
                 self.assertIn('production_music_required',codes())
         finally:f.tearDown()
