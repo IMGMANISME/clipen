@@ -333,7 +333,7 @@ class FinishingWorkflowTests(unittest.TestCase):
             db.execute("INSERT INTO finishing_runs(run_id,request_id,request_hash,kind,state,phase,context_json,result_json,created_at) VALUES('old','request-old','hash','render','succeeded','completed','{}','{}','now')")
             db.execute('PRAGMA user_version=16')
         self.assertEqual(self.projects.get_project(self.project.project_id),self.project)
-        with self.projects.connect(self.project.project_id) as db:self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0],17)
+        with self.projects.connect(self.project.project_id) as db:self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0],18)
         status=self.service.status(self.project.project_id)
         self.assertIsNone(status['result']);self.assertTrue(status['has_legacy_experiment'])
 

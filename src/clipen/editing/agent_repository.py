@@ -38,10 +38,19 @@ class EditAgentRepository:
         max_tool_calls: int = 80,
         max_preview_renders: int = 4,
         creative_direction: dict | None = None,
+        production: dict | None = None,
     ) -> tuple[AgentRun, bool]:
         validate_project_id(project_id)
         request = validate_request_id(request_id)
-        from .program_direction import validate_direction
+        from .program_direction import validate_direction, PROGRAM_DIRECTION, FULL_PRODUCTION_REQUIREMENTS
+        skill = None
+        if production is not None:
+            if not isinstance(production, dict) or set(production) != {"skill_id", "intent"}:
+                raise ProjectError("production_input_invalid", "請指定製作 Skill 與影片需求。", status_code=422)
+            from clipen.skills import get_skill
+            skill = get_skill(production["skill_id"])
+            production = {"skill_id": skill["skill_id"], "intent": bounded_text(production["intent"], "影片需求", 8000)}
+            creative_direction = {**PROGRAM_DIRECTION, "production_requirements": FULL_PRODUCTION_REQUIREMENTS}
         creative_direction = validate_direction(creative_direction)
         if isinstance(max_tool_calls, bool) or not 1 <= max_tool_calls <= 500:
             raise ValueError("max_tool_calls is invalid")
@@ -53,6 +62,7 @@ class EditAgentRepository:
                 "max_tool_calls": max_tool_calls,
                 "max_preview_renders": max_preview_renders,
                 **({"creative_direction":creative_direction} if creative_direction is not None else {}),
+                **({"production": production} if production is not None else {}),
             }
         )
         if provider not in {"codex", "claude", "gemini"}:
@@ -83,7 +93,7 @@ class EditAgentRepository:
                     "JOIN edit_timelines timelines ON timelines.timeline_id=current.timeline_id "
                     "WHERE current.slot=1"
                 ).fetchone()
-                if base is None:
+                if base is None and production is None:
                     raise ProjectError(
                         "timeline_required",
                         "請先建立可執行的剪輯版本。",
@@ -99,8 +109,23 @@ class EditAgentRepository:
                         "已有一個 AI 剪輯工作正在進行。",
                         status_code=409,
                     )
-                payload = json.loads(base["payload_json"])
-                timeline = EditTimeline.from_payload(payload)
+                sources = None
+                if production is not None:
+                    from clipen.domain import Rational, Track, TrackKind
+                    from .production_media import source_rows
+                    sources = source_rows(self.projects, project_id)
+                    inventory = database.execute("SELECT run_id FROM current_inventory WHERE slot=1").fetchone()
+                    if inventory is None or not any(s["kind"] == "video" for s in sources):
+                        raise ProjectError("inventory_required", "請先檢查素材，至少需要一段可用影片。", status_code=409)
+                    timeline = EditTimeline(
+                        make_id("production_", run_id), project_id, None, None, None,
+                        Rational(30, 1), 1280, 720, 0, (Track("video-main", TrackKind.VIDEO, ()),),
+                        production_session_id=run_id,
+                    )
+                    payload = timeline.to_payload()
+                else:
+                    payload = json.loads(base["payload_json"])
+                    timeline = EditTimeline.from_payload(payload)
                 digest = hashlib.sha256(encoded(payload).encode("utf-8")).hexdigest()
                 revision_id = make_id("editrev_", [run_id, 0, digest])
                 database.execute(
@@ -112,7 +137,7 @@ class EditAgentRepository:
                         run_id,
                         project_id,
                         request,
-                        timeline.timeline_id,
+                        None if production is not None else timeline.timeline_id,
                         max_tool_calls,
                         max_preview_renders,
                         revision_id,
@@ -124,8 +149,13 @@ class EditAgentRepository:
                     "INSERT INTO edit_agent_revisions "
                     "(revision_id,run_id,ordinal,parent_revision_id,payload_digest,"
                     "payload_json,summary,created_at) VALUES(?,?,0,NULL,?,?,?,?)",
-                    (revision_id, run_id, digest, encoded(payload), "原始剪輯版本", now),
+                    (revision_id, run_id, digest, encoded(payload), "空白製作草稿" if production else "原始剪輯版本", now),
                 )
+                if production is not None:
+                    database.execute("INSERT INTO production_sessions VALUES(?,?,?,?,?,?)", (
+                        run_id, encoded({"authority": "user", "brief": production["intent"], "allow_local_model_downloads": True}),
+                        encoded(skill), encoded(sources), inventory["run_id"], now,
+                    ))
                 from .program_reference import latest_reference
                 reference=latest_reference(database) if creative_direction else None
                 self._append_event(database, run_id, "run_created", {"revision_id": revision_id,
@@ -148,6 +178,16 @@ class EditAgentRepository:
                     "Clipen 無法建立 AI 剪輯工作。",
                     status_code=500,
                 ) from error
+
+    def production_session(self, project_id: str, run_id: str) -> dict | None:
+        self._validate_run_id(run_id)
+        with self.projects.connect(project_id) as db:
+            row = db.execute("SELECT * FROM production_sessions WHERE run_id=?", (run_id,)).fetchone()
+        if row is None:
+            return None
+        return {"run_id": run_id, "intent": json.loads(row["intent_json"]),
+                "skill": json.loads(row["skill_json"]), "sources": json.loads(row["sources_json"]),
+                "inventory_run_id": row["inventory_run_id"]}
 
     def creative_direction(self, project_id: str, run_id: str) -> dict:
         self._validate_run_id(run_id)
@@ -224,6 +264,8 @@ class EditAgentRepository:
         run_id: object,
         timeline: EditTimeline,
         summary: object,
+        *,
+        expected_revision_id: str | None = None,
     ) -> tuple[AgentRevision, bool]:
         normalized = self._validate_run_id(run_id)
         normalized_summary = bounded_text(summary, "修改摘要", 500)
@@ -232,6 +274,12 @@ class EditAgentRepository:
         with self.projects.connect(project_id) as database:
             database.execute("BEGIN IMMEDIATE")
             run = self._read_run(database, normalized)
+            if expected_revision_id is not None and expected_revision_id != run.current_revision_id:
+                raise ProjectError("revision_conflict", "作品版本已更新，請重新讀取目前版本後再修改。", status_code=409)
+            if timeline.project_id != project_id or timeline.production_session_id != (
+                normalized if run.base_timeline_id is None else None
+            ):
+                raise ProjectError("revision_owner_mismatch", "剪輯版本不屬於這次製作。", status_code=409)
             if run.state != "running":
                 database.rollback()
                 raise ProjectError("edit_agent_not_running", "AI 剪輯工作並未執行。", status_code=409)
@@ -281,11 +329,13 @@ class EditAgentRepository:
             database.commit()
             return result, True
 
-    def undo(self, project_id: str, run_id: object) -> AgentRevision:
+    def undo(self, project_id: str, run_id: object, *, expected_revision_id: str | None = None) -> AgentRevision:
         normalized = self._validate_run_id(run_id)
         with self.projects.connect(project_id) as database:
             database.execute("BEGIN IMMEDIATE")
             run = self._read_run(database, normalized)
+            if expected_revision_id is not None and expected_revision_id!=run.current_revision_id:
+                raise ProjectError('revision_conflict','作品版本已更新，請重新讀取。',status_code=409)
             current = self._read_revision(database, run.current_revision_id)
             if current.parent_revision_id is None:
                 database.rollback()
@@ -305,12 +355,14 @@ class EditAgentRepository:
             database.commit()
             return parent
 
-    def finish(self, project_id: str, run_id: object, summary: object) -> AgentRun:
+    def finish(self, project_id: str, run_id: object, summary: object, *, expected_revision_id: str | None = None) -> AgentRun:
         normalized = self._validate_run_id(run_id)
         normalized_summary = bounded_text(summary, "完成摘要", 1_000)
         with self.projects.connect(project_id) as database:
             database.execute("BEGIN IMMEDIATE")
             run = self._read_run(database, normalized)
+            if expected_revision_id is not None and expected_revision_id!=run.current_revision_id:
+                raise ProjectError('revision_conflict','作品版本已更新，請重新檢視。',status_code=409)
             if run.state != "running":
                 database.rollback()
                 raise ProjectError("edit_agent_not_running", "AI 剪輯工作並未執行。", status_code=409)
@@ -522,7 +574,10 @@ class EditAgentRepository:
         if row is None:
             raise ProjectError("edit_revision_not_found", "找不到剪輯修改版本。", status_code=404)
         try:
-            timeline = EditTimeline.from_payload(json.loads(row["payload_json"]))
+            payload = json.loads(row["payload_json"])
+            if hashlib.sha256(encoded(payload).encode('utf-8')).hexdigest()!=row['payload_digest']:
+                raise ValueError('revision content digest mismatch')
+            timeline = EditTimeline.from_payload(payload)
         except (json.JSONDecodeError, TypeError, ValueError) as error:
             raise ProjectError("storage_corrupt", "Clipen 無法讀取剪輯修改版本。", status_code=500) from error
         return AgentRevision(

@@ -81,7 +81,7 @@ class FfmpegPreviewRenderer:
                 )
                 from clipen.editing.production_media import load_text_styles
                 styles=load_text_styles(getattr(self.media,'projects',None),project_id)
-                if sum(len(t.items) for t in timeline.tracks if t.kind is TrackKind.TITLE)>32 or any(styles.get(i.style_id,{}).get('kind')=='program_subtitle' for t in timeline.tracks if t.kind is TrackKind.TITLE for i in t.items):
+                if sum(len(t.items) for t in timeline.tracks if t.kind is TrackKind.TITLE)>32 or any(styles.get(i.style_id,{}).get('kind') in {'program_subtitle','program_component'} for t in timeline.tracks if t.kind is TrackKind.TITLE for i in t.items):
                     from .titles import compose_dense_titles
                     compose_dense_titles(self.executable,media_output,timeline,directory,output,cancel,styles)
                     progress(1.)
@@ -392,6 +392,7 @@ class FfmpegPreviewRenderer:
                     timeline.height,
                     cursor,
                     (Track("video-primary", TrackKind.VIDEO, tuple(normalized_items)),),
+                    production_session_id=timeline.production_session_id,
                 )
                 segment = directory / f"segment-{batch_index:04d}.mp4"
                 base = completed_frames

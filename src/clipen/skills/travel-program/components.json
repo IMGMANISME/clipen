@@ -1,0 +1,8 @@
+[
+  {"component_id": "location", "name": "地點識別", "purpose": "第一次建立地點或明確換場", "max_characters": 32, "default_position": {"x": 0.06, "y": 0.08}, "requires_target": false},
+  {"component_id": "person", "name": "人物介紹", "purpose": "人物第一次出場或需要辨識身份", "max_characters": 24, "default_position": {"x": 0.06, "y": 0.58}, "requires_target": false},
+  {"component_id": "fact", "name": "品名與資訊", "purpose": "補充有來源的品名、價格與事實", "max_characters": 48, "default_position": {"x": 0.06, "y": 0.16}, "requires_target": false},
+  {"component_id": "pointer", "name": "細節指示", "purpose": "用短標註和箭頭引導觀眾看指定細節", "max_characters": 24, "default_position": {"x": 0.06, "y": 0.12}, "requires_target": true},
+  {"component_id": "circle", "name": "重點圈選", "purpose": "圈出短暫但重要的畫面細節", "max_characters": 16, "default_position": {"x": 0.06, "y": 0.12}, "requires_target": true},
+  {"component_id": "reaction", "name": "反應強調", "purpose": "強調實際發生的反應，不捏造人物心聲或發言", "max_characters": 18, "default_position": {"x": 0.56, "y": 0.18}, "requires_target": false}
+]

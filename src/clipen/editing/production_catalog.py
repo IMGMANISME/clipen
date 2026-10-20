@@ -107,6 +107,44 @@ EXTRA_TOOLS=(
  schema('restore_revision','Restore a run-owned immutable revision as a new current selection.',{'revision_id':ID,**SUMMARY}),
  schema('export_edit','Save native editable timeline JSON and source/license credits for the current revision. This is not a Resolve project.'),
 )
+TARGET = {"type": "object", "properties": {"x": UNIT, "y": UNIT,
+          "radius": {"type": "number", "minimum": 0.015, "maximum": 0.2}},
+          "required": ["x", "y", "radius"], "additionalProperties": False}
+COMPONENT_FIELDS = {
+    "element_id": ID, "item_id": ID,
+    "component_id": {"enum": ["location", "person", "fact", "pointer", "circle", "reaction"]},
+    "start_offset_frames": FRAME, "duration_frames": LENGTH,
+    "text": {"type": "string", "minLength": 1, "maxLength": 48},
+    "detail": {"type":"string","minLength":1,"maxLength":48,"description":"Optional grounded secondary line, e.g. the observed price or person's role."},
+    "evidence": TEXT, "x": UNIT, "y": UNIT, "target": TARGET, **SUMMARY,
+}
+COMPONENT_REQUIRED = [key for key in COMPONENT_FIELDS if key not in {"x", "y", "target", "detail"}]
+SKILL_TOOLS = (
+    schema("list_production_skills", "List bundled production skills; selecting one never analyzes or uploads footage."),
+    schema("read_production_skill", "Read one resource from the skill version frozen for this session. Start with SKILL.md, then load relevant references.",
+           {"resource": {"type": "string", "maxLength": 120}}, []),
+    schema("list_program_components", "Read executable components, visual presets, exact tool parameters and limitations for the selected skill."),
+    schema("add_program_component", "Add a purposeful in-picture programme graphic, anchored to a shot and bound to this skill. Not an independent title card. Positions are normalized canvas coordinates. Provide real source evidence; inspect faces/targets yourself.", COMPONENT_FIELDS, COMPONENT_REQUIRED),
+    schema("update_program_component", "Replace the settings of an existing programme graphic; preserves its identity and supports exact revision undo.", COMPONENT_FIELDS, COMPONENT_REQUIRED),
+    schema("remove_program_component", "Remove one programme graphic without changing the cut, captions or music.", {"element_id": ID, **SUMMARY}),
+)
+
+EXTRA_TOOLS += SKILL_TOOLS
+EXTRA_TOOLS += (
+ schema('transcribe_source_range','Transcribe one registered source range locally, on demand. No old analysis/plan needed. Async job with explicit coverage; does not invent word timing.',
+        {'candidate_id':ID,'language':{'enum':['zh','en','ja']},'align_words':{'type':'boolean'}},['candidate_id']),
+ schema('align_source_speech','Align the exact ASR text from a successful transcription job to its source audio using an installed offline aligner. Does not verify wording or upload audio.',
+        {'transcript_job_id':ID}),
+ schema('read_evidence_job','Read a run-owned local evidence job. Wait up to 15 seconds; polling never repeats inference.',
+        {'job_id':ID,'wait_seconds':{'type':'number','minimum':0,'maximum':15}},['job_id']),
+ schema('cancel_evidence_job','Cancel local source transcription/alignment; preserves completed evidence and edit revisions.',{'job_id':ID}),
+ schema('inspect_mix','Read measurements and dialogue-driven duck envelopes from an actual run-owned render. Reports camera/music/final stems separately; numeric evidence is not audio listening.',{'render_id':ID}),
+ schema('prepare_local_speech','Prepare the fixed local transcription or word-alignment runtime when unavailable. Requires the session model-download grant. Async and cancellable; never uploads source audio.',{'target':{'enum':['transcription','alignment']}}),
+ schema('retry_evidence_job','Explicitly retry a failed/cancelled/interrupted LOCAL evidence job as a new attempt. The old outcome is preserved; reuse request_id to avoid starting the same retry twice.',{'job_id':ID,'request_id':ID}),
+ schema('revise_source_speech','Propose a grounded correction to one source utterance and re-align it locally. Preserves original ASR, reason and model-authored authority; never claims human verification.',
+        {'transcript_job_id':ID,'segment_ordinal':{'type':'integer','minimum':0,'maximum':99},'text':TEXT,'evidence':TEXT}),
+ schema('read_mutation_receipt','Read one run-owned mutation outcome after a lost response. A started receipt means outcome unknown: inspect the current revision before choosing another action.',{'mutation_id':ID}),
+)
 EXTRA_NAMES=tuple(t['name'] for t in EXTRA_TOOLS)
 BY_NAME={t['name']:t for t in EXTRA_TOOLS}
 

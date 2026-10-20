@@ -5,7 +5,7 @@ CREATE TABLE edit_agent_runs (
     run_id TEXT PRIMARY KEY,
     project_id TEXT NOT NULL REFERENCES project(project_id),
     request_id TEXT NOT NULL UNIQUE,
-    base_timeline_id TEXT NOT NULL REFERENCES edit_timelines(timeline_id),
+    base_timeline_id TEXT REFERENCES edit_timelines(timeline_id),
     state TEXT NOT NULL CHECK (
         state IN ('queued', 'running', 'succeeded', 'failed', 'cancelled', 'interrupted')
     ),
@@ -58,4 +58,37 @@ CREATE INDEX edit_agent_revisions_run_ordinal
     ON edit_agent_revisions(run_id, ordinal DESC);
 CREATE INDEX edit_agent_events_run_sequence
     ON edit_agent_events(run_id, sequence);
+"""
+
+PRODUCTION_SESSION_SCHEMA = """
+CREATE TABLE production_sessions (
+    run_id TEXT PRIMARY KEY REFERENCES edit_agent_runs(run_id),
+    intent_json TEXT NOT NULL,
+    skill_json TEXT NOT NULL,
+    sources_json TEXT NOT NULL,
+    inventory_run_id TEXT NOT NULL REFERENCES inventory_runs(run_id),
+    created_at TEXT NOT NULL
+);
+CREATE TABLE production_evidence_jobs (
+    job_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES edit_agent_runs(run_id),
+    cache_key TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK(kind IN ('transcribe','align','setup')),
+    state TEXT NOT NULL CHECK(state IN ('running','succeeded','failed','cancelled','interrupted')),
+    request_json TEXT NOT NULL,
+    result_json TEXT,
+    error_code TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE(run_id,cache_key)
+);
+CREATE TABLE production_tool_receipts (
+    run_id TEXT NOT NULL REFERENCES edit_agent_runs(run_id),
+    mutation_id TEXT NOT NULL,
+    tool_name TEXT NOT NULL,
+    arguments_hash TEXT NOT NULL,
+    state TEXT NOT NULL CHECK(state IN ('started','completed','failed')),
+    result_json TEXT,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY(run_id,mutation_id)
+);
 """

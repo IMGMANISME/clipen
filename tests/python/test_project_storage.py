@@ -220,7 +220,7 @@ class ProjectStorageTests(unittest.TestCase):
         restarted = ProjectRepository(self.projects)
         self.assertEqual(restarted.get_project(created.project_id), created)
         with restarted.connect(created.project_id) as connection:
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 17)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 18)
             observation = connection.execute(
                 "SELECT state FROM evidence_observations "
                 "WHERE observation_id = 'obs_test'"
@@ -239,7 +239,7 @@ class ProjectStorageTests(unittest.TestCase):
         restarted = ProjectRepository(self.projects)
         self.assertEqual(restarted.get_project(created.project_id), created)
         with restarted.connect(created.project_id) as connection:
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 17)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 18)
             tables = {
                 row["name"]
                 for row in connection.execute(
@@ -261,7 +261,7 @@ class ProjectStorageTests(unittest.TestCase):
         restarted = ProjectRepository(self.projects)
         self.assertEqual(restarted.get_project(created.project_id), created)
         with restarted.connect(created.project_id) as connection:
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 17)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 18)
             columns = {
                 row["name"]: row
                 for row in connection.execute("PRAGMA table_info(transcript_annotations)")
@@ -282,7 +282,7 @@ class ProjectStorageTests(unittest.TestCase):
         restarted = ProjectRepository(self.projects)
         self.assertEqual(restarted.get_project(created.project_id), created)
         with restarted.connect(created.project_id) as connection:
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 17)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 18)
             tables = {
                 row["name"]
                 for row in connection.execute(

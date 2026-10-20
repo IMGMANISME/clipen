@@ -45,8 +45,8 @@ def draw_program_subtitle(draw,font_path,timeline,item,profile,relative_frame=No
     for line in lines:
         x=(timeline.width-draw.textlength(line,font=font))/2
         for character in line:
-            color=(255,217,55,opacity) if offset in highlighted else (255,255,255,opacity)
+            color=tuple(profile.get('emphasis_color',[255,217,55,255])[:3])+(opacity,) if offset in highlighted else (255,255,255,opacity)
             draw.text((x+2,baseline+3),character,font=font,anchor='ls',fill=(0,0,0,110),stroke_width=stroke+1,stroke_fill=(0,0,0,110))
-            draw.text((x,baseline),character,font=font,anchor='ls',fill=color,stroke_width=stroke,stroke_fill=(10,10,14,opacity))
+            draw.text((x,baseline),character,font=font,anchor='ls',fill=color,stroke_width=stroke,stroke_fill=tuple(profile.get('outline_color',[10,10,14,255])[:3])+(opacity,))
             x+=draw.textlength(character,font=font);offset+=1
         baseline+=line_height

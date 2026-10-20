@@ -22,3 +22,4 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 clipen = ["py.typed"]
+"clipen.skills" = ["travel-program/*.md", "travel-program/*.json", "travel-program/references/*.md", "travel-program/assets/*.png", "travel-program/scripts/*.py"]

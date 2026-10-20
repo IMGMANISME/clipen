@@ -1,6 +1,8 @@
 """Revision-bound render/review tools; no model-visible filesystem handles."""
 import json
+import hashlib
 import os
+from pathlib import Path
 import threading
 import time
 
@@ -18,9 +20,21 @@ def _event(tools,kind,payload):
         tools.repository._append_event(db,tools.run_id,kind,payload,utc_now())
 
 
+def render_recipe_id():
+    """Cache executable rendering code as well as the immutable edit payload."""
+    from clipen.rendering import renderer, titles, program_components, program_subtitles, production_effects
+    from . import program_audio, production_media
+    digest=hashlib.sha256()
+    for module in (renderer,titles,program_components,program_subtitles,production_effects,program_audio,production_media):
+        digest.update(Path(module.__file__).read_bytes())
+    return digest.hexdigest()
+
+
 def render_preview(tools):
     revision=tools.repository.current_revision(tools.project_id,tools.run_id)
-    issues=tools._production_validate_sequence({}).payload['issues']
+    recipe_id=render_recipe_id()
+    validation=tools._production_validate_sequence({}).payload
+    issues=validation['render_issues'] if tools._session_value() else validation['issues']
     if issues:raise ProjectError('agent_sequence_invalid','請先使用 validate_sequence 修正時間軸。',status_code=422)
     store=PreviewRenderRepository(tools.repository.projects)
     # The exact revision is the cache key. Polling/reviewing never rerenders it.
@@ -28,7 +42,7 @@ def render_preview(tools):
         prior=db.execute("SELECT payload_json FROM edit_agent_events WHERE run_id=? AND event_type='production_preview' ORDER BY sequence DESC",(tools.run_id,)).fetchall()
     for row in prior:
         entry=json.loads(row['payload_json'])
-        if entry['revision_id']==revision.revision_id:
+        if entry['revision_id']==revision.revision_id and entry.get('recipe_id')==recipe_id:
             saved=store.get(tools.project_id,entry['render_id'])
             if saved['state'] in {'queued','running','succeeded'}:
                 return ToolResult({'render':saved,'revision_id':revision.revision_id,'reused':True})
@@ -43,7 +57,7 @@ def render_preview(tools):
         db.execute('UPDATE edit_agent_runs SET preview_renders=preview_renders+1 WHERE run_id=?',(tools.run_id,))
         db.commit()
     render=store.create(tools.project_id,'agent-preview-'+tools.run_id+'-'+str(run.preview_renders+1),revision.revision_id)
-    _event(tools,'production_preview',{'render_id':render['render_id'],'revision_id':revision.revision_id})
+    _event(tools,'production_preview',{'render_id':render['render_id'],'revision_id':revision.revision_id,'recipe_id':recipe_id})
     cancel=threading.Event()
     if not hasattr(tools,'_preview_jobs'):tools._preview_jobs={}
     renderer=getattr(tools,'preview_renderer',None) or FfmpegPreviewRenderer(MediaPreviewRepository(tools.repository.projects))
@@ -62,15 +76,23 @@ def render_preview(tools):
             if cancel.is_set():raise ProjectError('user_cancelled','已取消預覽。',status_code=409)
             verify_output(staging,revision.timeline,cancel)
             os.replace(staging,final);final.chmod(0o600)
+            for suffix in ('.music.wav','.camera.wav','.mix.wav','.mix.json'):
+                stem=staging.with_suffix(suffix)
+                if stem.is_file():
+                    os.replace(stem,final.with_suffix(suffix));final.with_suffix(suffix).chmod(0o600)
             store.complete(tools.project_id,render['render_id'],'previews/'+final.name,final.stat().st_size)
         except Exception as error:
             _event(tools,'production_preview_failed',{'render_id':render['render_id'],'revision_id':revision.revision_id,
                 'error_code':getattr(error,'code','agent_render_failed'),'error_type':type(error).__name__,
                 'message':getattr(error,'message','Local render failed')})
-            if final is not None:final.unlink(missing_ok=True)
+            if final is not None:
+                final.unlink(missing_ok=True)
+                for suffix in ('.music.wav','.camera.wav','.mix.wav','.mix.json'):final.with_suffix(suffix).unlink(missing_ok=True)
             store.finish_unsuccessful(tools.project_id,render['render_id'],'cancelled' if cancel.is_set() else 'failed',error_code=getattr(error,'code','agent_render_failed'))
         finally:
             if staging is not None:staging.unlink(missing_ok=True)
+            if staging is not None:
+                for suffix in ('.music.wav','.camera.wav','.mix.wav','.mix.json'):staging.with_suffix(suffix).unlink(missing_ok=True)
     thread=threading.Thread(target=worker,name='clipen-agent-preview',daemon=True)
     tools._preview_jobs[render['render_id']]=(cancel,thread);thread.start()
     return ToolResult({'render':render,'revision_id':revision.revision_id,'reused':False,'next':'inspect_preview with wait_seconds up to 30; do not call render_preview to poll'})
@@ -88,7 +110,8 @@ def inspect_preview(tools,args):
         if render['state'] not in {'queued','running','cancelling'} or time.monotonic()>=deadline:break
         tools._cancel_event().wait(min(.2,max(0,deadline-time.monotonic())))
     current=tools.repository.current_revision(tools.project_id,tools.run_id)
-    payload={'render':render,'revision_id':entry['revision_id'],'stale':entry['revision_id']!=current.revision_id,'coverage':'selected instants only; audio not listened to'}
+    payload={'render':render,'revision_id':entry['revision_id'],'recipe_id':entry.get('recipe_id'),
+             'stale':entry['revision_id']!=current.revision_id or entry.get('recipe_id')!=render_recipe_id(),'coverage':'selected instants only; audio not listened to'}
     if render['state']!='succeeded':return ToolResult(payload)
     path=store.output_path(tools.project_id,args['render_id'],prepare=False)
     if path.is_symlink() or not path.is_file() or path.stat().st_size!=render['size_bytes']:
@@ -103,7 +126,7 @@ def inspect_preview(tools,args):
         run_process(['ffmpeg','-v','error','-nostdin','-ss',str(offset),'-i',str(path),'-frames:v','1','-vf','scale=640:-2','-threads','1',str(image)],tools._cancel_event(),timeout=30)
         if not image.is_file():raise ProjectError('preview_frame_missing','指定時間沒有可解碼畫面。',status_code=409)
         images.append(image)
-    if images:_event(tools,'production_review',{'render_id':args['render_id'],'revision_id':entry['revision_id'],'offsets_seconds':args['offsets_seconds']})
+    if images:_event(tools,'production_review',{'render_id':args['render_id'],'revision_id':entry['revision_id'],'recipe_id':entry.get('recipe_id'),'offsets_seconds':args['offsets_seconds']})
     return ToolResult({**payload,'sample_offsets_seconds':args['offsets_seconds']},tuple(images))
 
 
@@ -114,8 +137,9 @@ def finish_review_status(tools):
         entries=[json.loads(r['payload_json']) for r in db.execute("SELECT payload_json FROM edit_agent_events WHERE run_id=? AND event_type='production_review'",(tools.run_id,))]
         reports=[json.loads(r['payload_json']) for r in db.execute("SELECT payload_json FROM edit_agent_events WHERE run_id=? AND event_type='editorial_review' ORDER BY sequence",(tools.run_id,))]
     store=PreviewRenderRepository(tools.repository.projects);offsets=[]
+    recipe_id=render_recipe_id()
     for entry in entries:
-        if entry['revision_id']!=revision.revision_id:continue
+        if entry['revision_id']!=revision.revision_id or entry.get('recipe_id')!=recipe_id:continue
         saved=store.get(tools.project_id,entry['render_id'])
         path=store.output_path(tools.project_id,entry['render_id'],prepare=False)
         if saved['state']=='succeeded' and not path.is_symlink() and path.is_file() and path.stat().st_size==saved['size_bytes']:offsets.extend(entry['offsets_seconds'])
@@ -125,7 +149,7 @@ def finish_review_status(tools):
     missing_shots={k:v for k,v in missing_shots.items() if v}
     missing_texts={k:v for k,v in text_targets(revision.timeline).items() if not seen(v)}
     complete=not missing_shots and not missing_texts
-    report=next((r for r in reversed(reports) if r['revision_id']==revision.revision_id),None)
+    report=next((r for r in reversed(reports) if r['revision_id']==revision.revision_id and r.get('recipe_id')==recipe_id),None)
     unresolved=[] if report is None else [s['item_id'] for s in report['shots'] if s['decision']=='revise']+[c['item_id'] for c in report['text_checks'] if not c['matches']]
     return {'reviewed_revision':complete and report is not None and not unresolved,'render_coverage_complete':complete,
         'missing_shots':missing_shots,'missing_texts':missing_texts,'editorial_assessment_recorded':report is not None,'unresolved':unresolved,

@@ -38,7 +38,8 @@ def inspect_cut(tools,args):
     if any(i not in clips for i in args['item_ids']):
         raise ProjectError('timeline_item_not_found','指定鏡頭不在目前剪輯。',status_code=404)
     fps=Fraction(timeline.frame_rate.numerator,timeline.frame_rate.denominator)
-    cues,limitations=transcript_cues(tools.repository.projects,tools.project_id,timeline)
+    speech=tools._production_list_transcripts({'include_drafts':True}).payload
+    cues,limitations=speech['cues'],speech['limitations']
     images=[];shots=[]
     for identifier in args['item_ids']:
         item=clips[identifier]
@@ -90,7 +91,8 @@ def review_cut(tools,args):
         still_unresolved={s['item_id'] for s in shots if s['decision']=='revise'}|{c['item_id'] for c in checks if not c['matches']}
         if not set(status['unresolved'])<=still_unresolved:
             raise ProjectError('agent_revision_required','這個版本已記錄待修問題；請先實際修改時間軸，再輸出並檢視新版，不能只改評語清除問題。',status_code=409)
-    report={'revision_id':revision.revision_id,'authority':'model_authored',**args}
+    from .production_preview import render_recipe_id
+    report={'revision_id':revision.revision_id,'recipe_id':render_recipe_id(),'authority':'model_authored',**args}
     _event(tools,'editorial_review',report)
     return ToolResult({'assessment':report,'unresolved':[s['item_id'] for s in shots if s['decision']=='revise']+[c['item_id'] for c in checks if not c['matches']],
         'human_review':'pending','quality_claim':'This records model findings, not independent approval.'})

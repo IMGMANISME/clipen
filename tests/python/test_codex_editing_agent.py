@@ -20,7 +20,7 @@ class CodexEditingAgentTests(unittest.TestCase):
             root=Path(temporary);projects=root/'projects';projects.mkdir();attempts=root/'attempts';attempts.mkdir()
             outcomes=[]
             finished=SimpleNamespace(provider='codex',state='succeeded',final_revision_id='editrev_'+'c'*32)
-            repository=SimpleNamespace(get=lambda *args:finished,record_provider_outcome=lambda *args,**kwargs:outcomes.append(kwargs) or finished)
+            repository=SimpleNamespace(production_session=lambda *args:None,get=lambda *args:finished,record_provider_outcome=lambda *args,**kwargs:outcomes.append(kwargs) or finished)
             agent=CodexEditingAgent(projects,attempts,repository,binary='/bin/echo',python='/usr/bin/python3',environment={'PATH':'/usr/bin','HOME':str(root)})
             def success(command,workspace,events,diagnostics,timeout,cancel):
                 events.write_text(json.dumps({'type':'item.completed','image':'x'*2_100_000})+'\n'+json.dumps({'type':'turn.completed','usage':{'input_tokens':2443115,'cached_input_tokens':2342528,'output_tokens':8546}})+'\n')
@@ -34,7 +34,7 @@ class CodexEditingAgentTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary);projects=root/'projects';projects.mkdir();attempts=root/'attempts';attempts.mkdir()
             outcomes=[]
-            repository=SimpleNamespace(get=lambda *args:SimpleNamespace(provider='codex'),record_provider_outcome=lambda *args,**kwargs:outcomes.append(kwargs))
+            repository=SimpleNamespace(production_session=lambda *args:None,get=lambda *args:SimpleNamespace(provider='codex'),record_provider_outcome=lambda *args,**kwargs:outcomes.append(kwargs))
             agent=CodexEditingAgent(projects,attempts,repository,binary='/bin/echo',python='/usr/bin/python3',environment={'PATH':'/usr/bin','HOME':str(root)})
             def failed(command,workspace,events,diagnostics,timeout,cancel):
                 events.write_text(json.dumps({'type':'turn.failed','error':{'message':"You've hit your usage limit."}})+'\n');diagnostics.write_text('');return 1

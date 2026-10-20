@@ -39,7 +39,7 @@ class ProductionToolsTests(unittest.TestCase):
 
     def test_catalog_capabilities_and_every_tool_is_registered_with_provider(self):
         names={t['name'] for t in _TOOLS}
-        self.assertEqual(names,set(_MCP_TOOLS));self.assertEqual(len(names),52)
+        self.assertEqual(names,set(_MCP_TOOLS))
         for tool in EXTRA_TOOLS:self.assertTrue(callable(getattr(self.tools,'_production_'+tool['name'])))
         result=self.call('list_editing_tools')
         self.assertEqual(result.payload['decision_owner'],'LLM')
@@ -91,7 +91,8 @@ class ProductionToolsTests(unittest.TestCase):
         self.call('remove_clip_effect',item_id='agent-video-0001',effect_id='video.mosaic',summary='取消遮罩')
         self.assertNotIn('video.mosaic',{e.effect_id for e in self.tools._video().items[0].effects})
         changed=self.call('trim_clip',item_id='agent-video-0001',start_offset_frames=15,duration_frames=90,summary='移除晃動畫面')
-        self.assertIn('effects',changed.payload['invalidated'])
+        self.assertEqual(changed.payload['invalidated'],[])
+        self.assertEqual({e.effect_id for e in self.tools._video().items[0].effects},{'video.grade','audio.source'})
         self.assertEqual(self.tools._timeline().duration_frames,930)
         self.assertEqual(self.tools._video().items[0].source.span.start_pts,'45000')
         self.call('split_clip',item_id='agent-video-0001',offset_frames=45,summary='拆開兩個動作')

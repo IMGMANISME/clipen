@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { EvidenceSection } from './EvidenceSection'
 import { TranscriptResults } from './TranscriptResults'
 import { TimelineValidationSection } from './TimelineValidationSection'
+import { ProductionSection } from './ProductionSection'
 import { PlanningSection } from './PlanningSection'
 import type { FormEvent } from 'react'
 import {
@@ -49,14 +50,17 @@ type ApplicationState =
   | { kind: 'failed'; message: string; serverUnavailable: boolean }
   | { kind: 'ready'; status: StatusPayload; projects: Project[] }
 
-type WorkspaceStage = 'materials' | 'analysis' | 'planning' | 'editing' | 'export'
+type WorkspaceStage = 'materials' | 'production' | 'analysis' | 'planning' | 'editing' | 'export'
 
 const stages: Array<{ id: WorkspaceStage; label: string }> = [
   { id: 'materials', label: '素材' },
-  { id: 'analysis', label: '分析' },
-  { id: 'planning', label: '計畫' },
-  { id: 'editing', label: '剪輯' },
-  { id: 'export', label: '匯出' },
+  { id: 'production', label: 'AI 節目製作' },
+]
+
+const legacyStages: Array<{ id: WorkspaceStage; label: string }> = [
+  { id: 'analysis', label: '分析工具' },
+  { id: 'planning', label: '舊剪輯計畫' },
+  { id: 'editing', label: '舊時間軸與輸出' },
 ]
 
 const providerHelp: Record<Exclude<ProviderState, 'ready'>, string> = {
@@ -805,14 +809,11 @@ function MaterialsWorkspace({
 
   const recommendedStage: WorkspaceStage = !currentInventoryId
     ? 'materials'
-    : planning?.current_plan?.status === 'confirmed'
-      ? 'editing'
-      : planning?.preflight || planning?.current_plan
-        ? 'planning'
-        : 'analysis'
+    : 'production'
 
   function stageAvailable(stage: WorkspaceStage): boolean {
     if (stage === 'materials') return true
+    if (stage === 'production') return Boolean(currentInventoryId)
     if (stage === 'analysis' || stage === 'planning') return Boolean(currentInventoryId)
     if (stage === 'editing') return planning?.current_plan?.status === 'confirmed'
     return false
@@ -1108,6 +1109,14 @@ function MaterialsWorkspace({
               )
             })}
           </ol>
+          <details className="legacy-workflow-navigation">
+            <summary>舊流程與進階工具</summary>
+            <ol>{legacyStages.map((stage) => <li key={stage.id} className={activeStage === stage.id ? 'active' : ''}>
+              <button type="button" disabled={!stageAvailable(stage.id)} onClick={() => setSelectedStage(stage.id)}>
+                <span aria-hidden="true">↗</span><div><strong>{stage.label}</strong></div>
+              </button>
+            </li>)}</ol>
+          </details>
         </aside>
 
         <section className="materials-panel" aria-label="作品工作區">
@@ -1187,7 +1196,7 @@ function MaterialsWorkspace({
             onStart={() => void inspectMedia()}
             onCancel={(run) => void stopInventory(run)}
           />
-          {currentInventoryId && <div className="stage-next"><span>素材已經整理完成</span><button className="button primary" type="button" onClick={() => setSelectedStage('analysis')}>前往分析</button></div>}
+          {currentInventoryId && <div className="stage-next"><span>素材已經整理完成</span><button className="button primary" type="button" onClick={() => setSelectedStage('production')}>開始 AI 節目製作</button></div>}
           <section className="danger-zone" aria-labelledby="delete-project-title">
             <div>
               <h2 id="delete-project-title">刪除作品</h2>
@@ -1214,6 +1223,7 @@ function MaterialsWorkspace({
               </button>
             </div>
           </section></div>}
+          {activeStage === 'production' && currentInventoryId && <ProductionSection key={project.project_id} projectId={project.project_id} csrf={csrf} brief={project.brief} sourceReady={source?.availability === 'available'} />}
           {activeStage === 'analysis' && currentInventoryId && <div className="stage-view">
             <EvidenceSection key={`${project.project_id}:${currentInventoryId}`} projectId={project.project_id} csrf={csrf} inventoryId={currentInventoryId} />
             <AnalysisSection

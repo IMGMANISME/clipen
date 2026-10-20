@@ -966,6 +966,24 @@ def create_app(
         except ProjectError as error:
             return await project_error_response(error)
 
+    async def production_skills(request: Request) -> Response:
+        from clipen.skills import list_skills
+        return JSONResponse({'skills': list_skills()})
+
+    async def start_production(request: Request) -> Response:
+        try:
+            payload = await read_json(request)
+            require_fields(payload, {'request_id', 'consent', 'skill_id', 'intent'}, {'max_tool_calls', 'max_preview_renders'})
+            run = await run_in_threadpool(require_edit_agents().start,
+                request.path_params['project_id'], payload['request_id'], payload['consent'],
+                production={'skill_id':payload['skill_id'], 'intent':payload['intent']},
+                max_tool_calls=payload.get('max_tool_calls', 120), max_preview_renders=payload.get('max_preview_renders', 4))
+            return JSONResponse({'run':run.to_public()},status_code=202)
+        except (TypeError, ValueError) as error:
+            return await project_error_response(ProjectError('command_invalid', str(error), status_code=422))
+        except ProjectError as error:
+            return await project_error_response(error)
+
     async def cancel_edit_agent(request: Request) -> Response:
         try:
             payload = await read_json(request)
@@ -1400,6 +1418,8 @@ def create_app(
             Route("/api/projects/{project_id}/finishing/{run_id}/media", finishing_media, methods=["GET", "HEAD"]),
             Route("/api/health", health, methods=["GET"]),
             Route("/api/projects/{project_id}/edit-agent/{run_id}/exports/{revision_id}", edit_agent_export, methods=["GET"]),
+            Route("/api/production/skills", production_skills, methods=["GET"]),
+            Route("/api/projects/{project_id}/production/commands/start", start_production, methods=["POST"]),
             Route("/api/session/connect", connect_local_browser, methods=["POST"]),
             Route("/api/instance/reopen", reopen_instance, methods=["POST"]),
             Route("/api/status", status, methods=["GET"]),

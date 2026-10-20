@@ -94,6 +94,10 @@ class TitleCardRenderer:
         self, draw, image_font, font_path: Path, timeline: EditTimeline, item: TextClip, relative_frame=None
     ) -> None:
         width, height = timeline.width, timeline.height
+        if self.custom_styles.get(item.style_id,{}).get('kind')=='program_component':
+            from .program_components import draw_program_component
+            draw_program_component(draw,font_path,timeline,item,self.custom_styles[item.style_id],relative_frame)
+            return
         if self.custom_styles.get(item.style_id,{}).get('kind')=='program_subtitle':
             from .program_subtitles import draw_program_subtitle
             draw_program_subtitle(draw,font_path,timeline,item,self.custom_styles[item.style_id],relative_frame)
@@ -304,6 +308,9 @@ def compose_dense_titles(executable,source,timeline,directory,output,cancel,cust
     boundaries=sorted({0,timeline.duration_frames,*(i.start_frame for i in items),*(i.start_frame+i.duration_frames for i in items)})
     from .program_subtitles import animation_boundaries
     boundaries=sorted(set(boundaries)|{b for i in items if (custom_styles or {}).get(i.style_id,{}).get('kind')=='program_subtitle' for b in animation_boundaries(i)})
+    from .program_components import animation_boundaries as component_boundaries
+    boundaries=sorted(set(boundaries)|{b for i in items if (custom_styles or {}).get(i.style_id,{}).get('kind')=='program_component'
+                                      for b in component_boundaries(i,custom_styles[i.style_id])})
     lines=['ffconcat version 1.0']
     for index,(start,end) in enumerate(zip(boundaries,boundaries[1:])):
         if cancel.is_set():raise TitleRenderError('cancelled')

@@ -138,6 +138,7 @@ def validate_production_timeline(timeline):
     issues=[];cursor=0
     video=next((t for t in timeline.tracks if t.kind is TrackKind.VIDEO),None)
     if video is None:return [{'code':'video_required','message':'至少需要一個畫面軌。'}]
+    if not video.items:return [{'code':'video_required','message':'空白草稿尚無可渲染畫面；請先加入來源片段。'}]
     if len([t for t in timeline.tracks if t.kind is TrackKind.VIDEO])!=1:issues.append({'code':'multiple_video_tracks_unsupported'})
     if any(t.items for t in timeline.tracks if t.kind is TrackKind.GRAPHIC):issues.append({'code':'graphics_delivery_unsupported'})
     for i in video.items:
@@ -161,6 +162,9 @@ def validate_production_timeline(timeline):
 
 
 def mix_audio_layers(media,project_id,timeline,base,output,cancel):
+    if timeline.production_session_id is not None:
+        from .program_audio import mix_program_audio
+        return mix_program_audio(media,project_id,timeline,base,output,cancel)
     store=AgentAudioStore(media.projects,project_id)
     fps=timeline.frame_rate.numerator/timeline.frame_rate.denominator;seconds=timeline.duration_frames/fps
     layers=[(i,l) for t in timeline.tracks for i in t.items if isinstance(i,MediaClip) for e in i.effects if e.effect_id=='audio.layers' for l in e.parameters['layers']]

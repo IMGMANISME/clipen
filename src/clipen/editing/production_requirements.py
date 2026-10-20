@@ -17,7 +17,7 @@ def production_contents(projects,project_id,timeline):
                 for layer in effect.parameters['layers']:
                     asset=assets.get(layer['asset_id'],{});provenance=asset.get('provenance',{})
                     licensed=all(provenance.get(k) for k in ('title','creator','source_url','license_url','license')) and provenance.get('license')!='unknown'
-                    music.append({'asset_id':layer['asset_id'],'name':asset.get('name','未取得音訊來源'),
+                    music.append({'asset_id':layer['asset_id'],'name':asset.get('name','未取得音訊來源'),'role':asset.get('role','unknown'),
                         'start_seconds':(item.start_frame+layer['start_frame'])/fps,'duration_seconds':layer['duration_frames']/fps,
                         'gain_db':layer['gain_db'],'duck':layer['duck'],'licensed':bool(licensed),'provenance':provenance})
             elif effect.effect_id=='video.transition' and n>0 and effect.parameters['kind']!='none':
@@ -33,7 +33,7 @@ def requirement_issues(tools):
     required=direction.get('production_requirements',{})
     if not any(required.values()):return []
     contents=production_contents(tools.repository.projects,tools.project_id,tools._timeline());issues=[]
-    if required.get('music') and not any(m['licensed'] and m['duration_seconds']>0 and m['gain_db']>-60 for m in contents['music']):
+    if required.get('music') and not any(m['role']=='music' and m['licensed'] and m['duration_seconds']>0 and m['gain_db']>-60 for m in contents['music']):
         issues.append({'code':'production_music_required','message':'使用者要求配樂。請搜尋或選擇有作者、來源與授權的公開音樂，實際用 place_audio 放入並調整音量／人聲壓低；只有原音或讀取曲目清單不算完成。'})
     if required.get('transitions') and not contents['transitions']:
         issues.append({'code':'production_transition_required','message':'使用者要求轉場。請在有敘事用途的剪點使用 set_transition；只有片尾淡出不算剪點轉場。'})

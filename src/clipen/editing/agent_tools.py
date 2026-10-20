@@ -37,9 +37,11 @@ from .agent_repository import EditAgentRepository
 from .style_proof import is_style_proof
 from .production_tools import ProductionTools
 from .production_catalog import EXTRA_NAMES
+from .skill_tools import SkillTools, SourceContext
+from .evidence_jobs import EvidenceTools
 
 
-class EditAgentTools(ProductionTools):
+class EditAgentTools(SkillTools, EvidenceTools, ProductionTools):
     """Small allowlisted tool surface; it never returns source filesystem paths."""
 
     def __init__(
@@ -62,7 +64,8 @@ class EditAgentTools(ProductionTools):
         self._inspection_count = 0
 
     def activate(self) -> AgentRun:
-        self._confirmed_input()
+        if self._session_value() is None:
+            self._confirmed_input()
         return self.repository.activate(self.project_id, self.run_id)
 
     def call(self, name: str, arguments: object) -> ToolResult:
@@ -82,13 +85,28 @@ class EditAgentTools(ProductionTools):
             raise ProjectError("tool_not_allowed", "這個工具未獲 Clipen 授權。", status_code=404)
         if not isinstance(arguments, Mapping):
             raise ProjectError("agent_input_invalid", "工具參數必須是物件。", status_code=422)
-        self.repository.consume_tool_call(self.project_id, self.run_id, name)
+        arguments = dict(arguments)
+        self._expected_revision_id = arguments.pop('expected_revision_id', None)
+        mutation_id = arguments.pop('mutation_id', None) if name!='read_mutation_receipt' else None
+        from .tool_receipts import TIMELINE_MUTATIONS, begin_receipt, finish_receipt
+        if self._session_value() and name in TIMELINE_MUTATIONS and (self._expected_revision_id is None or mutation_id is None):
+            raise ProjectError('mutation_guard_required','修改前請提供目前 expected_revision_id 與本次 mutation_id。',status_code=422)
+        if mutation_id is not None:
+            if name not in TIMELINE_MUTATIONS:
+                raise ProjectError('agent_input_invalid','這個讀取／工作工具不接受 mutation_id。',status_code=422)
+            replay=begin_receipt(self,name,arguments,self._expected_revision_id,mutation_id)
+            if replay is not None:return replay
+        elif self._expected_revision_id is not None and self._expected_revision_id != self.repository.current_revision(self.project_id,self.run_id).revision_id:
+            raise ProjectError('revision_conflict','作品版本已更新，請先讀取目前版本。',status_code=409)
         try:
+            self.repository.consume_tool_call(self.project_id, self.run_id, name)
             result = handler(arguments)
         except Exception as error:
+            if mutation_id is not None:finish_receipt(self,mutation_id,error=error)
             with self.repository.projects.connect(self.project_id) as db:
                 self.repository._append_event(db,self.run_id,'tool_failed',{'tool':name,'arguments':dict(arguments),'error_code':getattr(error,'code','tool_failed')},utc_now())
             raise
+        if mutation_id is not None:finish_receipt(self,mutation_id,result=result)
         with self.repository.projects.connect(self.project_id) as db:
             self.repository._append_event(db,self.run_id,'tool_completed',{'tool':name,'arguments':dict(arguments)},utc_now())
         return ToolResult(
@@ -97,6 +115,9 @@ class EditAgentTools(ProductionTools):
         )
 
     def _context_value(self) -> PlanningContext:
+        session = self._session_value()
+        if session is not None:
+            return SourceContext(session["intent"]["brief"])
         self._confirmed_input()
         assert self._context is not None
         return self._context
@@ -123,6 +144,14 @@ class EditAgentTools(ProductionTools):
 
     def _get_edit_status(self, arguments: Mapping[str, object]) -> ToolResult:
         self._require_keys(arguments, set())
+        session = self._session_value()
+        if session is not None:
+            return ToolResult({**self.repository.get(self.project_id, self.run_id).to_public(),
+                "mode": "skill_production", "intent": session["intent"], "skill": self._skill_summary(),
+                "creative_direction": self.repository.creative_direction(self.project_id, self.run_id),
+                "source_count": len(session["sources"]),
+                "evidence_coverage": "Unknown until inspected; no prior analysis or plan required.",
+                "next_step": "Read read_production_skill(resource='SKILL.md'), then explore sources and decide your workflow."})
         plan, context = self._confirmed_input()
         sections = [
             {
@@ -270,7 +299,7 @@ class EditAgentTools(ProductionTools):
             cursor * timeline.frame_rate.denominator,
             timeline.frame_rate.numerator,
         )
-        if not Fraction(30, 1) <= seconds <= Fraction(75, 1):
+        if not (Fraction(3, 4) if self._session_value() else Fraction(30, 1)) <= seconds <= Fraction(75, 1):
             raise ProjectError(
                 "agent_input_invalid",
                 "剪輯方向樣片總長度必須介於 30 到 75 秒。",
@@ -283,7 +312,7 @@ class EditAgentTools(ProductionTools):
             markers=(),
         )
         saved, created = self.repository.save_revision(
-            self.project_id, self.run_id, updated, arguments["summary"]
+            self.project_id, self.run_id, updated, arguments["summary"], expected_revision_id=self._expected_revision_id
         )
         return ToolResult({"revision": saved.to_public(), "created": created})
 
@@ -309,7 +338,7 @@ class EditAgentTools(ProductionTools):
         )
         updated = replace(timeline, tracks=tracks)
         saved, created = self.repository.save_revision(
-            self.project_id, self.run_id, updated, arguments["summary"]
+            self.project_id, self.run_id, updated, arguments["summary"], expected_revision_id=self._expected_revision_id
         )
         return ToolResult({"revision": saved.to_public(), "created": created})
 
@@ -349,13 +378,13 @@ class EditAgentTools(ProductionTools):
             raise ProjectError("timeline_item_not_found", "找不到指定的剪輯片段。", status_code=404)
         updated = replace(revision.timeline, tracks=tuple(tracks))
         saved, created = self.repository.save_revision(
-            self.project_id, self.run_id, updated, arguments["summary"]
+            self.project_id, self.run_id, updated, arguments["summary"], expected_revision_id=self._expected_revision_id
         )
         return ToolResult({"revision": saved.to_public(), "created": created})
 
     def _undo_revision(self, arguments: Mapping[str, object]) -> ToolResult:
         self._require_keys(arguments, set())
-        return ToolResult({"revision": self.repository.undo(self.project_id, self.run_id).to_public()})
+        return ToolResult({"revision": self.repository.undo(self.project_id, self.run_id,expected_revision_id=self._expected_revision_id).to_public()})
 
     def _finish_edit(self, arguments: Mapping[str, object]) -> ToolResult:
         self._require_keys(arguments, {"summary"})
@@ -376,7 +405,7 @@ class EditAgentTools(ProductionTools):
         if not review['reviewed_revision']:
             raise ProjectError('agent_preview_review_required','請先逐鏡檢視目前預覽及文字，使用 review_cut 記錄判斷並修正未解決問題；validate_sequence 會列出缺少的取樣。',status_code=409)
         exported=self._production_export_edit({}).payload
-        return ToolResult({**self.repository.finish(self.project_id, self.run_id, arguments["summary"]).to_public(),'review':review,'export':exported})
+        return ToolResult({**self.repository.finish(self.project_id, self.run_id, arguments["summary"],expected_revision_id=self._expected_revision_id).to_public(),'review':review,'export':exported})
 
     def _candidate(self, value: object) -> PlanningCandidate:
         if not isinstance(value, str):

@@ -317,32 +317,39 @@ class Marker:
 class EditTimeline:
     timeline_id: str
     project_id: str
-    plan_id: str
-    plan_revision: int
-    plan_content_hash: str
+    plan_id: str | None
+    plan_revision: int | None
+    plan_content_hash: str | None
     frame_rate: Rational
     width: int
     height: int
     duration_frames: int
     tracks: tuple[Track, ...]
     markers: tuple[Marker, ...] = ()
+    production_session_id: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "tracks", tuple(self.tracks))
         object.__setattr__(self, "markers", tuple(self.markers))
-        for field in ("timeline_id", "project_id", "plan_id"):
+        for field in ("timeline_id", "project_id"):
             require_identifier(getattr(self, field), field)
-        _positive_integer(self.plan_revision, "plan_revision")
-        if (
-            not isinstance(self.plan_content_hash, str)
-            or _SHA256.fullmatch(self.plan_content_hash) is None
-        ):
-            raise ValueError("plan_content_hash must be a lowercase SHA-256 digest")
+        if self.production_session_id is not None:
+            require_identifier(self.production_session_id, "production_session_id")
+            if any(value is not None for value in (self.plan_id, self.plan_revision, self.plan_content_hash)):
+                raise ValueError("production drafts cannot claim legacy plan provenance")
+        else:
+            require_identifier(self.plan_id, "plan_id")
+            _positive_integer(self.plan_revision, "plan_revision")
+            if not isinstance(self.plan_content_hash, str) or _SHA256.fullmatch(self.plan_content_hash) is None:
+                raise ValueError("plan_content_hash must be a lowercase SHA-256 digest")
         if not isinstance(self.frame_rate, Rational):
             raise ValueError("timeline frame rate is invalid")
         _positive_integer(self.width, "width", 65_535)
         _positive_integer(self.height, "height", 65_535)
-        _positive_integer(self.duration_frames, "duration_frames")
+        if self.production_session_id is not None:
+            _non_negative_integer(self.duration_frames, "duration_frames")
+        else:
+            _positive_integer(self.duration_frames, "duration_frames")
         if not self.tracks:
             raise ValueError("timeline must contain at least one track")
         if len(self.tracks) > _MAX_TRACKS or len(self.markers) > _MAX_MARKERS:
@@ -388,12 +395,14 @@ class EditTimeline:
 
     def to_payload(self) -> dict[str, object]:
         return {
-            "schema_version": 1,
+            "schema_version": 2 if self.production_session_id is not None else 1,
             "timeline_id": self.timeline_id,
             "project_id": self.project_id,
-            "plan_id": self.plan_id,
-            "plan_revision": self.plan_revision,
-            "plan_content_hash": self.plan_content_hash,
+            **({"production_session_id": self.production_session_id} if self.production_session_id is not None else {
+                "plan_id": self.plan_id,
+                "plan_revision": self.plan_revision,
+                "plan_content_hash": self.plan_content_hash,
+            }),
             "frame_rate": self.frame_rate.to_storage(),
             "canvas": {"width": self.width, "height": self.height},
             "duration_frames": self.duration_frames,
@@ -405,19 +414,21 @@ class EditTimeline:
     def from_payload(cls, value: object) -> "EditTimeline":
         """Rebuild a validated timeline from its canonical persisted payload."""
 
-        if not isinstance(value, dict) or set(value) != {
+        common = {
             "schema_version",
             "timeline_id",
             "project_id",
-            "plan_id",
-            "plan_revision",
-            "plan_content_hash",
             "frame_rate",
             "canvas",
             "duration_frames",
             "tracks",
             "markers",
-        } or value["schema_version"] != 1:
+        }
+        if not isinstance(value, dict) or not (
+            (value.get("schema_version") == 1 and set(value) == common | {"plan_id", "plan_revision", "plan_content_hash"})
+            or (value.get("schema_version") == 2 and set(value) == common | {"production_session_id"}
+                and isinstance(value.get("production_session_id"), str))
+        ):
             raise ValueError("stored timeline is invalid")
         canvas = value["canvas"]
         tracks = value["tracks"]
@@ -552,15 +563,16 @@ class EditTimeline:
         return cls(
             value["timeline_id"],
             value["project_id"],
-            value["plan_id"],
-            value["plan_revision"],
-            value["plan_content_hash"],
+            value.get("plan_id"),
+            value.get("plan_revision"),
+            value.get("plan_content_hash"),
             Rational.from_storage(value["frame_rate"]),
             canvas["width"],
             canvas["height"],
             value["duration_frames"],
             tuple(parsed_tracks),
             tuple(parsed_markers),
+            value.get("production_session_id"),
         )
 
 

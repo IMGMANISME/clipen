@@ -1191,3 +1191,11 @@ input:focus, textarea:focus { border-color: #6c8b73; box-shadow: 0 0 0 3px rgba(
 .finishing-music-credit a { color: #285b42; text-decoration: underline; }
 .finishing-music-credit p { overflow-wrap: anywhere; }
 .finishing-decisions { padding: 1rem 0; }
+.production-workspace { display: grid; gap: 1.5rem; }
+.production-brief, .production-output { display: grid; gap: 1rem; padding: 1.5rem; border: 1px solid var(--line, #d3ded3); border-radius: 18px; }
+.production-brief > label:not(.consent-check) { font-weight: 700; }
+.production-brief textarea, .production-brief select { width: 100%; font: inherit; padding: .8rem; border: 1px solid #bacaba; border-radius: 8px; background: #fffefa; color: inherit; }
+.production-output video { width: 100%; max-height: 70vh; background: #14181d; border-radius: 12px; }
+.production-workspace .consent-check { font-size: 14px; line-height: 1.6; }
+.legacy-workflow-navigation { margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--line); }
+.legacy-workflow-navigation > summary { cursor: pointer; color: var(--muted); font-size: .85rem; }

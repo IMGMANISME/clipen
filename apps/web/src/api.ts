@@ -448,7 +448,7 @@ export type EditAgentTimeline = {
 export type EditAgentResult = {
   production_contents?: {
     cut_count: number
-    music: Array<{ name: string; start_seconds: number; duration_seconds: number; gain_db: number; duck: boolean; provenance: { title?: string; creator?: string; source_url?: string; license?: string; license_url?: string } }>
+    music: Array<{ name: string; role?: string; start_seconds: number; duration_seconds: number; gain_db: number; duck: boolean; provenance: { title?: string; creator?: string; source_url?: string; license?: string; license_version?: string; license_url?: string; attribution?: string; changes?: string } }>
     transitions: Array<{ at_seconds: number; kind: string; duration_frames: number }>
     motion: Array<{ item_id: string; effect_id: string }>
   }
@@ -464,6 +464,7 @@ export type EditAgentResult = {
     text_checks: Array<{ item_id: string; evidence: string; matches: boolean }>
   } | null
   export_url?: string | null
+  preview_url?: string | null
   revision_id: string
   ordinal: number
   parent_revision_id: string | null
@@ -484,6 +485,27 @@ export type EditAgentStatus = {
   latest_run: EditAgentRun | null
   result: EditAgentResult | null
   program_reference?: ProgramReference | null
+  production?: {
+    intent: { authority: string; brief: string }
+    skill: ProductionSkill & { limitations: string[] }
+    draft: { revision_id: string; ordinal: number; summary: string; timeline: EditAgentTimeline }
+    preview: (PreviewRender & { stale: boolean; revision_id: string; media_url: string }) | null
+    validation: { revision_id: string; valid: boolean; issues: Array<{ code: string; message?: string }> } | null
+    local_jobs: Array<{ job_id: string; kind: string; state: string; error_code: string | null; phase?: string; completed_bytes?: number; total_bytes?: number }>
+    production_contents: EditAgentResult['production_contents']
+    export_url: string | null
+  } | null
+}
+
+export type ProductionSkill = { skill_id: string; name: string; description?: string; version: string; content_hash: string }
+
+export async function getProductionSkills(): Promise<ProductionSkill[]> {
+  return (await request<{ skills: ProductionSkill[] }>('/api/production/skills')).skills
+}
+
+export async function startProduction(csrf: string, projectId: string, skillId: string, intent: string): Promise<EditAgentRun> {
+  return (await command<{ run: EditAgentRun }>(`/api/projects/${projectId}/production/commands/start`, csrf,
+    { request_id: crypto.randomUUID(), consent: true, skill_id: skillId, intent })).run
 }
 
 export type ProgramReference = { run_id: string; revision_id: string; authority: 'user_selected_style_reference' }

@@ -33,11 +33,11 @@ from .timeline_schema import TIMELINE_SCHEMA
 from .preview_schema import PREVIEW_SCHEMA
 from .finishing_schema import FINISHING_SCHEMA, FINISHING_RUNS_SCHEMA
 from .annotation_schema import ANNOTATION_SCHEMA
-from .agent_schema import EDIT_AGENT_SCHEMA
+from .agent_schema import EDIT_AGENT_SCHEMA, PRODUCTION_SESSION_SCHEMA
 from .deletion import ProjectDeletion
 
 
-PROJECT_SCHEMA_VERSION = 17
+PROJECT_SCHEMA_VERSION = 18
 _PROJECT_DIRECTORY = re.compile(r"prj_[0-9a-f]{32}\Z")
 
 _INVENTORY_SCHEMA = """
@@ -646,9 +646,10 @@ class ProjectRepository:
                 + ANNOTATION_SCHEMA
                 + PREVIEW_SCHEMA
                 + EDIT_AGENT_SCHEMA
+                + PRODUCTION_SESSION_SCHEMA
                 + FINISHING_SCHEMA
                 + """
-                PRAGMA user_version = 17;
+                PRAGMA user_version = 18;
                 """
             )
             connection.execute(
@@ -747,6 +748,9 @@ class ProjectRepository:
             if version == 16:
                 self._migrate_v16_to_v17(connection)
                 version = 17
+            if version == 17:
+                self._migrate_v17_to_v18(connection)
+                version = 18
             if version != PROJECT_SCHEMA_VERSION:
                 connection.close()
                 raise ProjectError(
@@ -762,6 +766,34 @@ class ProjectRepository:
         finally:
             if "connection" in locals():
                 connection.close()
+
+    @staticmethod
+    def _migrate_v17_to_v18(connection: sqlite3.Connection) -> None:
+        # Replace the parent table without renaming it: SQLite would otherwise
+        # rewrite revision/event FKs to a temporary table name. All child rows
+        # and legacy provenance survive; fresh sessions have no base timeline.
+        create = EDIT_AGENT_SCHEMA.split("CREATE TABLE edit_agent_revisions", 1)[0]
+        create = create.replace("CREATE TABLE edit_agent_runs", "CREATE TABLE edit_agent_runs_v18", 1)
+        connection.execute("PRAGMA foreign_keys=OFF")
+        try:
+            prior_violations = {tuple(row) for row in connection.execute("PRAGMA foreign_key_check")}
+            connection.executescript(
+                "BEGIN IMMEDIATE;\n" + create
+                + "INSERT INTO edit_agent_runs_v18 SELECT * FROM edit_agent_runs;\n"
+                "DROP TABLE edit_agent_runs;\n"
+                "ALTER TABLE edit_agent_runs_v18 RENAME TO edit_agent_runs;\n"
+                "CREATE INDEX edit_agent_runs_project_created ON edit_agent_runs(project_id,created_at DESC);\n"
+                + PRODUCTION_SESSION_SCHEMA.replace("CREATE TABLE ", "CREATE TABLE IF NOT EXISTS ")
+            )
+            if {tuple(row) for row in connection.execute("PRAGMA foreign_key_check")} - prior_violations:
+                raise sqlite3.DatabaseError("production migration broke foreign keys")
+            connection.execute("PRAGMA user_version=18")
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.execute("PRAGMA foreign_keys=ON")
 
     @staticmethod
     def _migrate_v1_to_v2(connection: sqlite3.Connection) -> None:

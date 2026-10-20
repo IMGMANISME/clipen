@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+from copy import deepcopy
 from io import BytesIO
 import json
 from pathlib import Path
@@ -12,6 +13,7 @@ from typing import BinaryIO, Mapping
 from clipen.editing import EditAgentTools, ToolResult
 from clipen.projects import ProjectError
 from clipen.editing.production_catalog import EXTRA_TOOLS
+from clipen.editing.tool_receipts import TIMELINE_MUTATIONS
 
 
 _MAX_MESSAGE_BYTES = 1024 * 1024
@@ -151,6 +153,17 @@ _TOOLS = (
     ),
 ) + EXTRA_TOOLS
 
+# The same optional compare-and-swap guard applies to every independent tool.
+# Tools strip it before domain argument validation; actual revision writes also
+# check inside the SQLite transaction.
+for _entry in _TOOLS:
+    if _entry['name'] in TIMELINE_MUTATIONS:
+        _entry['inputSchema']['properties']['expected_revision_id'] = {
+            'type':'string', 'pattern':'^editrev_[0-9a-f]{32}$',
+            'description':'Current revision guard. A stale value fails without overwriting newer edits.'}
+        _entry['inputSchema']['properties']['mutation_id'] = {'type':'string','minLength':1,'maxLength':160,
+            'description':'Unique operation key; reuse with identical arguments only when retrying the same operation.'}
+
 
 class EditingMcpServer:
     """Handle MCP JSON-RPC without exposing a shell, resources, or arbitrary files."""
@@ -179,16 +192,21 @@ class EditingMcpServer:
                     "capabilities": {"tools": {"listChanged": False}},
                     "serverInfo": {"name": "clipen-editing", "version": "0.1.0"},
                     "instructions": (
-                        "Use only these bounded tools. Start with get_edit_status and execute "
-                        "its user-confirmed direction. Use evidence only for bounded corrections, "
-                        "keep source media immutable, and call finish_edit once."
+                        "Start with get_edit_status. For skill_production read the frozen "
+                        "SKILL.md through read_production_skill and explore authorized sources. "
+                        "You decide the workflow; keep source media immutable and inspect results."
                     ),
                 },
             )
         if method == "ping":
             return self._result(identifier, {})
         if method == "tools/list":
-            return self._result(identifier, {"tools": list(_TOOLS)})
+            entries=deepcopy(list(_TOOLS))
+            if hasattr(self.tools,'_session_value') and self.tools._session_value():
+                for entry in entries:
+                    if entry['name'] in TIMELINE_MUTATIONS:
+                        entry['inputSchema'].setdefault('required',[]).extend(['expected_revision_id','mutation_id'])
+            return self._result(identifier, {"tools": entries})
         if method == "tools/call":
             return self._call_tool(identifier, params)
         return self._error(identifier, -32601, "Method not found")

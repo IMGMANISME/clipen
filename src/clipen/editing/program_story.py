@@ -48,7 +48,7 @@ def plan_episode(tools,args):
         cursor=right
     if cursor!=tools._timeline().duration_frames:
         raise ProjectError('episode_invalid','每個鏡頭都需要明確的節目用途，不可遺漏或重複歸類。',status_code=422)
-    if not {'setup','experience','payoff'}<={b['role'] for b in args['beats']}:
+    if tools._session_value() is None and not {'setup','experience','payoff'}<={b['role'] for b in args['beats']}:
         raise ProjectError('episode_invalid','需要交代期待、實際體驗與回應結果，不能把行程列表當完整節目。',status_code=422)
     value={'authority':'model_authored','cut_signature':cut_signature(tools._timeline()),**args}
     atomic_json(tools._workdir('analysis')/'episode.json',value)

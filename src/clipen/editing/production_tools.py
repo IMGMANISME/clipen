@@ -25,7 +25,8 @@ class ProductionTools:
         return self.repository.current_revision(self.project_id,self.run_id).timeline
 
     def _save(self,timeline,summary,**details):
-        revision,created=self.repository.save_revision(self.project_id,self.run_id,timeline,summary)
+        revision,created=self.repository.save_revision(self.project_id,self.run_id,timeline,summary,
+            expected_revision_id=getattr(self,'_expected_revision_id',None))
         return ToolResult({'revision':revision.to_public(),'created':created,**details})
 
     def _video(self):
@@ -53,15 +54,11 @@ class ProductionTools:
         return self._change_item(replace(item,effects=effects),summary)
 
     def _recut(self,items,summary):
-        timeline=self._timeline();cursor=0;clips=[]
-        for item in items:
-            # Recutting invalidates screen-space masks, timed effects and audio layers.
-            clips.append(replace(item,start_frame=cursor,effects=()))
-            cursor+=item.duration_frames
-        if not clips:raise problem('至少保留一個畫面片段。')
-        return self._save(replace(timeline,duration_frames=cursor,tracks=(replace(self._video(),items=tuple(clips)),),markers=()),summary,
-                          invalidated=['titles','subtitles','effects','audio_layers'],
-                          next_step='Inspect the new cut and reapply desired timed elements. No old timing was silently reused.')
+        if not items:raise problem('至少保留一個畫面片段。')
+        from .recut import remap_cut
+        timeline,invalidated=remap_cut(self,items)
+        return self._save(timeline,summary,invalidated=invalidated,
+                          next_step='Unchanged post-production was remapped. Review changed boundaries and repair listed dependencies.')
 
     def _production_list_editing_tools(self,args):
         from clipen.mcp_editing.server import _TOOLS
@@ -85,7 +82,7 @@ class ProductionTools:
 
     def _production_list_source_media(self,args):
         from .production_media import source_rows
-        rows=source_rows(self.repository.projects,self.project_id);offset=args.get('offset',0);limit=args.get('limit',20)
+        rows=self._source_rows();offset=args.get('offset',0);limit=args.get('limit',20)
         return ToolResult({'sources':rows[offset:offset+limit],'total':len(rows),'next_offset':offset+limit if offset+limit<len(rows) else None,
                           'next_step':'register_source_range creates candidates for sample_source, transcripts and editing; no prior analysis window is required.'})
 
@@ -103,7 +100,7 @@ class ProductionTools:
         from clipen.finishing.models import digest
         from clipen.domain import Rational
         from clipen.planning.models import PlanningCandidate,TranscriptReliability
-        row=next((r for r in source_rows(self.repository.projects,self.project_id) if r['version_id']==args['version_id'] and r['stream_index']==args['stream_index']),None)
+        row=next((r for r in self._source_rows() if r['version_id']==args['version_id'] and r['stream_index']==args['stream_index']),None)
         if row is None:raise problem('來源不在目前作品的可用原片清單。')
         base=Fraction(row['time_base']['num'],row['time_base']['den']);offset=Fraction(str(args['start_offset_seconds']));duration=Fraction(str(args['duration_seconds']))
         start=int(row['start_pts'])+round(offset/base);end=start+round(duration/base)
@@ -178,7 +175,7 @@ class ProductionTools:
         from clipen.domain import Rational
         item=self._item(args['item_id']);source=args['source']
         if item not in self._video().items:raise problem('只能替換主畫面來源。')
-        row=next((r for r in source_rows(self.repository.projects,self.project_id) if r['version_id']==source['version_id'] and r['stream_index']==source['stream_index']),None)
+        row=next((r for r in self._source_rows() if r['version_id']==source['version_id'] and r['stream_index']==source['stream_index']),None)
         if row is None or row['kind']!='video' or row['time_base']!=source['time_base']:raise problem('指定來源不在目前影像原片清單，或時間基準不符。')
         start,end=int(source['start_pts']),int(source['end_pts'])
         if not int(row['start_pts'])<=start<end<=int(row['end_pts']):raise problem('來源範圍超出原片。')
@@ -208,6 +205,12 @@ class ProductionTools:
             frames=max(1,round(span.duration_pts*Fraction(span.time_base.numerator,span.time_base.denominator)*Fraction(timeline.frame_rate.numerator,timeline.frame_rate.denominator)))
             timeline=replace(timeline,duration_frames=frames,tracks=(Track('source-inspection',TrackKind.VIDEO,(MediaClip(candidate.candidate_id,0,frames,ClipSource(span)),)),))
         cues,limitations=transcript_cues(self.repository.projects,self.project_id,timeline,**({'include_drafts':True} if args.get('include_drafts') else {}))
+        from .evidence_jobs import local_cues
+        local,local_limits=local_cues(self,timeline,include_drafts=args.get('include_drafts',False))
+        if local:
+            cues=[c for c in cues if not any(c['item_id']==l['item_id'] and c['start_frame']<l['start_frame']+l['duration_frames'] and l['start_frame']<c['start_frame']+c['duration_frames'] for l in local)]+local
+            cues.sort(key=lambda c:c['start_frame'])
+        limitations+=local_limits
         return ToolResult({'cues':cues,'limitations':limitations,'policy':'Complete source utterances only. asr_draft is provisional, never human-approved. No fabricated speech.'})
 
     def _production_replace_subtitles(self,args):
@@ -260,7 +263,7 @@ class ProductionTools:
 
     def _require_generic_text(self,item):
         from .production_media import load_text_styles
-        if load_text_styles(self.repository.projects,self.project_id).get(item.style_id,{}).get('kind')=='program_subtitle':
+        if load_text_styles(self.repository.projects,self.project_id).get(item.style_id,{}).get('kind') in {'program_subtitle','program_component'}:
             raise problem('節目字幕需保留來源與斷句資訊。請用 replace_subtitles 調整 text、source_excerpt、delivery、emphasis；通用字卡工具不能覆寫來源字幕。')
 
     def _trim(self,item,offset,duration):
@@ -271,7 +274,7 @@ class ProductionTools:
         start=int(span.start_pts)+round(Fraction(offset,1)/fps/unit)
         end=start+round(Fraction(duration,1)/fps/unit)
         if end>int(span.end_pts):raise problem('裁切超出原片時間範圍。')
-        return replace(item,duration_frames=duration,source=ClipSource(replace(span,start_pts=str(start),end_pts=str(end))),effects=())
+        return replace(item,duration_frames=duration,source=ClipSource(replace(span,start_pts=str(start),end_pts=str(end))))
 
     def _production_trim_clip(self,args):
         item=self._item(args['item_id'])
@@ -287,7 +290,8 @@ class ProductionTools:
     def _production_split_clip(self,args):
         item=self._item(args['item_id']);offset=args['offset_frames']
         if item not in self._video().items or not offset<item.duration_frames:raise problem('分割點必須在畫面片段內。')
-        left=self._trim(item,0,offset);right=replace(self._trim(item,offset,item.duration_frames-offset),item_id='split-'+secrets.token_hex(12))
+        left=self._trim(item,0,offset);right=replace(self._trim(item,offset,item.duration_frames-offset),item_id='split-'+secrets.token_hex(12),
+            effects=tuple(e for e in item.effects if e.effect_id in {'video.grade','audio.source','video.punch_in','video.reframe'}))
         items=[]
         for i in self._video().items:items.extend([left,right] if i.item_id==item.item_id else [i])
         return self._recut(items,args['summary'])
@@ -424,10 +428,54 @@ class ProductionTools:
         from .production_preview import finish_review_status
         from clipen.finishing.audio import open_asset
         issues=validate_production_timeline(self._timeline())
+        component_issues=self._component_issues()
+        issues+=[i for i in component_issues if i['code']!='program_component_collision']
         from .program_direction import direction_issues
-        issues+=direction_issues(self)
+        delivery_issues=direction_issues(self)
+        delivery_issues+=[i for i in component_issues if i['code']=='program_component_collision']
         from .production_requirements import requirement_issues
-        issues+=requirement_issues(self)
+        delivery_issues+=requirement_issues(self)
+        if self._session_value() and not any(t.items for t in self._timeline().tracks if t.track_id=='program-components'):
+            delivery_issues.append({'code':'program_graphics_missing','message':'節目 Skill 需要有用途的後製畫面，請檢視素材後選擇合適元件。'})
+        if self._session_value():
+            from .speech_coverage import speech_coverage
+            coverage=speech_coverage(self)
+            if not coverage['complete']:delivery_issues.append({'code':'source_speech_evidence_missing','ranges':coverage['unknown_ranges'],
+                'message':'保留的原音仍有未取證範圍，請按需轉寫或明確調整剪輯；空搜尋不能視為沒有對話。'})
+            from .program_subtitles import subtitle_status
+            subtitle_review=subtitle_status(self.repository.projects,self.project_id,self._timeline())
+            pending=subtitle_review['unaligned_item_ids']
+            if pending:delivery_issues.append({'code':'subtitle_alignment_required','item_ids':pending,
+                'message':'字幕仍使用 ASR 視窗／比例估時。請對來源做字詞對齊，再重新建立字幕；可以先看草稿。'})
+            if not subtitle_review['count'] and self._production_list_transcripts({'include_drafts':True}).payload['cues']:
+                delivery_issues.append({'code':'program_subtitles_missing','message':'目前保留口語但沒有節目字幕，請依來源建立並對齊字幕。'})
+            from .production_media import load_text_styles
+            profiles=load_text_styles(self.repository.projects,self.project_id)
+            shots={i.item_id:i for i in self._video().items}
+            caption_items=[i for t in self._timeline().tracks if t.track_id=='agent-subtitles' for i in t.items]
+            for clip in shots.values():
+                anchored=[i.item_id for i in caption_items if profiles.get(i.style_id,{}).get('anchor_item_id')==clip.item_id]
+                muted=any(e.effect_id=='audio.source' and e.parameters['mode']=='mute' for e in clip.effects)
+                if muted and anchored:delivery_issues.append({'code':'subtitle_muted_source','item_ids':anchored,'message':'字幕所引用的原音已靜音，請確認聲音安排並重建對應字幕。'})
+                if any(e.effect_id=='video.speed_ramp' for e in clip.effects) and (not muted or anchored):
+                    delivery_issues.append({'code':'retimed_speech_mapping_unavailable','item_id':clip.item_id,
+                        'message':'這段變速尚無可靠的語音時間映射。請移除語音鏡頭的變速，或將它改為不帶口語字幕的靜音畫面。'})
+            with self.repository.projects.connect(self.project_id) as db:
+                corrections=db.execute("SELECT request_json FROM production_evidence_jobs WHERE run_id=? AND kind='align' AND state='succeeded'",(self.run_id,)).fetchall()
+            changed={(value['transcript_job_id'],str(value['correction']['segment_ordinal'])) for row in corrections
+                     if 'correction' in (value:=json.loads(row['request_json']))}
+            stale_text=[i.item_id for t in self._timeline().tracks if t.track_id=='agent-subtitles' for i in t.items
+                        if (profiles.get(i.style_id,{}).get('source_revision_id'),str(profiles.get(i.style_id,{}).get('segment_id'))) in changed]
+            if stale_text:delivery_issues.append({'code':'subtitle_source_changed','item_ids':stale_text,'message':'來源口語已有更正，請使用最新證據重新建立相關字幕。'})
+            revision_id=self.repository.current_revision(self.project_id,self.run_id).revision_id
+            with self.repository.projects.connect(self.project_id) as db:
+                rows=db.execute("SELECT payload_json FROM edit_agent_events WHERE run_id=? AND event_type='mix_review' ORDER BY sequence DESC",(self.run_id,)).fetchall()
+            from .production_preview import render_recipe_id
+            recipe_id=render_recipe_id()
+            mix=next((value for r in rows if (value:=json.loads(r['payload_json']))['revision_id']==revision_id and value.get('recipe_id')==recipe_id),None)
+            if mix is None:delivery_issues.append({'code':'mix_review_required','message':'請在預覽完成後呼叫 inspect_mix，檢查實際配樂與混音量測。'})
+            else:delivery_issues+=mix['issues']
+        issues+=delivery_issues
         styles=load_text_styles(self.repository.projects,self.project_id)
         fps=self._timeline().frame_rate.numerator/self._timeline().frame_rate.denominator
         with self.repository.projects.connect(self.project_id) as db:
@@ -449,13 +497,25 @@ class ProductionTools:
                                 issues.append({'code':'audio_out_of_bounds','layer_id':layer['layer_id']})
                         except ProjectError as error:issues.append({'code':error.code,'layer_id':layer['layer_id']})
         from .production_requirements import production_contents
-        return ToolResult({'valid':not issues,'issues':issues,'production_contents':production_contents(self.repository.projects,self.project_id,self._timeline()),'revision_id':self.repository.current_revision(self.project_id,self.run_id).revision_id,'render_review':finish_review_status(self),'aesthetic_review':'not performed'})
+        validation={'valid':not issues,'issues':issues,'render_issues':[i for i in issues if i not in delivery_issues],
+                    'delivery_issues':delivery_issues,'production_contents':production_contents(self.repository.projects,self.project_id,self._timeline()),'revision_id':self.repository.current_revision(self.project_id,self.run_id).revision_id,'render_review':finish_review_status(self),'aesthetic_review':'not performed'}
+        from .production_preview import _event
+        _event(self,'sequence_validation',{k:validation[k] for k in ('revision_id','valid','issues','render_issues','delivery_issues')})
+        return ToolResult(validation)
 
     def _production_get_edit_history(self,args):
         with self.repository.projects.connect(self.project_id) as db:
             revisions=[dict(r) for r in db.execute('SELECT revision_id,ordinal,parent_revision_id,summary FROM edit_agent_revisions WHERE run_id=? ORDER BY ordinal',(self.run_id,))]
             events=[dict(r) for r in db.execute('SELECT sequence,event_type,payload_json FROM edit_agent_events WHERE run_id=? ORDER BY sequence',(self.run_id,))]
         return ToolResult({'revisions':revisions,'events':events})
+
+    def _production_read_mutation_receipt(self,args):
+        with self.repository.projects.connect(self.project_id) as db:
+            row=db.execute('SELECT mutation_id,tool_name,state,result_json FROM production_tool_receipts WHERE run_id=? AND mutation_id=?',(self.run_id,args['mutation_id'])).fetchone()
+        if row is None:raise ProjectError('mutation_not_found','找不到這次操作的回報紀錄。',status_code=404)
+        return ToolResult({'mutation_id':row['mutation_id'],'tool':row['tool_name'],'state':row['state'],
+                          'result':json.loads(row['result_json']) if row['result_json'] else None,
+                          'current_revision_id':self.repository.current_revision(self.project_id,self.run_id).revision_id})
 
     def _production_restore_revision(self,args):
         with self.repository.projects.connect(self.project_id) as db:
@@ -480,6 +540,7 @@ class ProductionTools:
         used_styles={i.style_id for t in revision.timeline.tracks if t.kind is TrackKind.TITLE for i in t.items}
         atomic_json(path,{'timeline':revision.timeline.to_payload(),'credits':credits,'text_styles':{k:v for k,v in styles.items() if k in used_styles},
             'production_contents':production_contents(self.repository.projects,self.project_id,revision.timeline),
+            **({'production_skill':self._skill_value(),'production_intent':self._session_value()['intent']} if self._session_value() else {}),
             'program_reference':reference_for(self.repository,self.project_id,self.run_id),
             'creative_direction':self.repository.creative_direction(self.project_id,self.run_id),
             'episode':read_episode(self.repository.projects,self.project_id,self.run_id,revision.timeline),
@@ -506,11 +567,32 @@ class ProductionTools:
         from .production_preview import inspect_preview
         return inspect_preview(self,args)
 
+    def _production_inspect_mix(self,args):
+        from clipen.rendering import PreviewRenderRepository
+        from clipen.projects.storage import utc_now
+        with self.repository.projects.connect(self.project_id) as db:
+            entries=[json.loads(r['payload_json']) for r in db.execute("SELECT payload_json FROM edit_agent_events WHERE run_id=? AND event_type='production_preview'",(self.run_id,))]
+        entry=next((v for v in entries if v['render_id']==args['render_id']),None)
+        if entry is None:raise problem('混音預覽不屬於這次製作。')
+        store=PreviewRenderRepository(self.repository.projects)
+        if store.get(self.project_id,args['render_id'])['state']!='succeeded':raise problem('請先等待預覽完成。')
+        path=store.output_path(self.project_id,args['render_id'],prepare=False).with_suffix('.mix.json')
+        if path.is_symlink() or not path.is_file() or path.stat().st_size>512000:
+            raise ProjectError('mix_evidence_unavailable','這版預覽沒有保存分軌混音證據。',status_code=409)
+        from .production_preview import render_recipe_id
+        payload={**json.loads(path.read_text()),'revision_id':entry['revision_id'],'render_id':args['render_id'],'recipe_id':entry.get('recipe_id'),
+                 'stale':entry['revision_id']!=self.repository.current_revision(self.project_id,self.run_id).revision_id or entry.get('recipe_id')!=render_recipe_id()}
+        with self.repository.projects.connect(self.project_id) as db:
+            self.repository._append_event(db,self.run_id,'mix_review',payload,utc_now())
+        return ToolResult(payload)
+
     def _production_cancel_preview(self,args):
         from .production_preview import cancel_preview
         return cancel_preview(self,args)
 
     def close_production(self):
         self._cancel_event().set()
+        for cancel,thread in getattr(self,'_evidence_jobs',{}).values():cancel.set()
         for cancel,thread in getattr(self,'_preview_jobs',{}).values():cancel.set()
+        for cancel,thread in getattr(self,'_evidence_jobs',{}).values():thread.join(3)
         for cancel,thread in getattr(self,'_preview_jobs',{}).values():thread.join(3)
