@@ -446,6 +446,24 @@ export type EditAgentTimeline = {
 }
 
 export type EditAgentResult = {
+  production_contents?: {
+    cut_count: number
+    music: Array<{ name: string; start_seconds: number; duration_seconds: number; gain_db: number; duck: boolean; provenance: { title?: string; creator?: string; source_url?: string; license?: string; license_url?: string } }>
+    transitions: Array<{ at_seconds: number; kind: string; duration_frames: number }>
+    motion: Array<{ item_id: string; effect_id: string }>
+  }
+  run_id: string
+  creative_direction?: { format?: string; title_cards?: boolean; direction?: string }
+  episode?: { premise: string; audience_question: string; payoff: string; beats: Array<{ beat_id: string; role: string; audience_takeaway: string }> } | null
+  subtitle_review?: { count: number; draft_count: number; audio_listened: boolean }
+  editorial_review?: {
+    authority: 'model_authored'
+    story_assessment: string
+    audio_limitations: string
+    shots: Array<{ item_id: string; observation: string; decision: 'keep' | 'revise' }>
+    text_checks: Array<{ item_id: string; evidence: string; matches: boolean }>
+  } | null
+  export_url?: string | null
   revision_id: string
   ordinal: number
   parent_revision_id: string | null
@@ -465,7 +483,10 @@ export type EditAgentResult = {
 export type EditAgentStatus = {
   latest_run: EditAgentRun | null
   result: EditAgentResult | null
+  program_reference?: ProgramReference | null
 }
+
+export type ProgramReference = { run_id: string; revision_id: string; authority: 'user_selected_style_reference' }
 
 export type SystemSkillSummary = {
   id: string
@@ -941,9 +962,20 @@ export async function startEditAgent(
     await command<{ run: EditAgentRun }>(
       `/api/projects/${projectId}/edit-agent/commands/start`,
       csrf,
-      { request_id: crypto.randomUUID(), consent: true },
+      { request_id: crypto.randomUUID(), consent: true, creative_direction: {
+        format: 'travel_program', title_cards: false, subtitle_style: 'program',
+        direction: '以人物對話、期待、實際體驗與回應串起故事；不用獨立字卡交代行程。',
+        production_requirements: { music: true, editing: true, transitions: true },
+      } },
     )
   ).run
+}
+
+export async function acceptProgramReference(csrf: string, projectId: string, result: EditAgentResult): Promise<ProgramReference> {
+  return (await command<{ program_reference: ProgramReference }>(
+    `/api/projects/${projectId}/edit-agent/commands/accept-reference`, csrf,
+    { run_id: result.run_id, revision_id: result.revision_id },
+  )).program_reference
 }
 
 export async function cancelEditAgent(
@@ -1201,4 +1233,40 @@ export function getEvidence(projectId: string, offset = 0) {
 }
 export function evidenceCommand(projectId: string, csrf: string, action: 'start' | 'cancel' | 'resume' | 'observe', payload: Record<string, unknown>) {
   return command<EvidenceSummary>(`/api/projects/${projectId}/evidence/commands/${action}`, csrf, payload)
+}
+
+export type FinishingRun = {
+  local_resume_available: boolean
+  run_id: string; kind: string; state: string; phase: string; progress: number
+  error_code: string | null; playback_url: string | null; stale?: boolean
+  usage: { input_tokens: number; cached_input_tokens: number; output_tokens: number; complete: boolean } | null
+  result: {
+    message?: string; summary?: string; duration_seconds?: number
+    music?: { title: string; reason: string; regions?: { reason: string }[]; provenance: {
+      creator: string; source_url: string; license: string; license_version: string
+      license_url: string; attribution: string; changes: string; verification: string
+    } }
+    cut_changes?: { clip_id: string; source_offset_frames: number; duration_frames: number; reason: string }[]
+    music_alternatives?: { title: string; reason: string }[]
+    decisions?: { alternatives: { asset_id: string; reason_not_selected: string }[] }
+  } | null
+}
+export type FinishingStatus = {
+  workflow_version: number; latest_run: FinishingRun | null; result: FinishingRun | null
+  recent_runs: FinishingRun[]; has_legacy_experiment: boolean
+  blocked: { code: string; message: string } | null
+  preflight: { context_hash: string; base_revision_id: string; duration_seconds: number
+    cue_count: number; shot_count: number; maximum_ai_calls: number; maximum_images: number } | null
+}
+export function getFinishing(projectId: string): Promise<FinishingStatus> {
+  return request(`/api/projects/${projectId}/finishing`)
+}
+export function finishingCommand<T>(csrf: string, projectId: string, action: string, body: object): Promise<T> {
+  return command(`/api/projects/${projectId}/finishing/commands/${action}`, csrf, body)
+}
+export function cancelFinishing(csrf: string, projectId: string, runId: string): Promise<FinishingRun> {
+  return command(`/api/projects/${projectId}/finishing/${runId}/commands/cancel`, csrf, {})
+}
+export function resumeFinishing(csrf: string, projectId: string, runId: string): Promise<FinishingRun> {
+  return command(`/api/projects/${projectId}/finishing/${runId}/commands/resume`, csrf, {})
 }

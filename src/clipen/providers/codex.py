@@ -551,6 +551,7 @@ class CodexExecAdapter:
             )
             stdout = self._read_artifact(events_path, _MAX_CAPTURE_BYTES)
             stderr = self._read_artifact(diagnostics_path, _MAX_CAPTURE_BYTES)
+            self._raise_for_failed_turn(stdout)
             if returncode != 0:
                 self._raise_for_exit(returncode, stderr)
             result = self._validated_result(attempt, output_path, stdout)
@@ -824,6 +825,27 @@ class CodexExecAdapter:
         )
 
     @staticmethod
+    def _raise_for_failed_turn(stdout: bytes, *, limit: int = _MAX_CAPTURE_BYTES) -> None:
+        """CLI failures can be reported only in JSONL while stderr stays empty."""
+        events=[]
+        for line in _decode_capture(stdout,'JSONL stream',limit).splitlines():
+            try:event=json.loads(line)
+            except json.JSONDecodeError:continue  # Normal protocol validation follows.
+            if isinstance(event,dict):events.append(event)
+        terminal=next((e for e in reversed(events) if e.get('type') in {'turn.completed','turn.failed'}),None)
+        if terminal is not None and terminal.get('type')=='turn.completed':return
+        messages=[]
+        for event in events:
+            if event.get('type') not in {'error','turn.failed'}:continue
+            detail=event.get('error',event)
+            message=detail.get('message') if isinstance(detail,dict) else detail
+            if isinstance(message,str):messages.append(message)
+        if messages:
+            CodexExecAdapter._raise_for_exit(1,'\n'.join(messages).encode('utf-8'))
+        if terminal is not None:
+            raise ProviderProtocolError('Codex reported a failed turn without a diagnostic')
+
+    @staticmethod
     def _raise_for_exit(returncode: int, stderr: bytes) -> None:
         diagnostic = _decode_capture(stderr, "stderr").lower()
         if any(marker in diagnostic for marker in ("not logged in", "unauthorized", "login required")):
@@ -911,10 +933,11 @@ class CodexExecAdapter:
     @staticmethod
     def _events_and_usage(
         stdout: bytes,
+        *, limit: int = _MAX_CAPTURE_BYTES,
     ) -> tuple[tuple[str, ...], ProviderUsage | None]:
         event_types: list[str] = []
         usage: ProviderUsage | None = None
-        lines = _decode_capture(stdout, "JSONL stream").splitlines()
+        lines = _decode_capture(stdout, "JSONL stream", limit).splitlines()
         for line in lines:
             if not line.strip():
                 continue

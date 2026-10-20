@@ -20,7 +20,10 @@ def main() -> int:
     projects = ProjectRepository(Path(arguments.projects_root))
     repository = EditAgentRepository(projects)
     tools = EditAgentTools(repository, arguments.project_id, arguments.run_id)
-    return run_stdio(EditingMcpServer(tools))
+    try:
+        return run_stdio(EditingMcpServer(tools))
+    finally:
+        tools.close_production()
 
 
 if __name__ == "__main__":

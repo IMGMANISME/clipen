@@ -31,12 +31,13 @@ from .validation_schema import VALIDATION_WORKFLOW_SCHEMA
 from .planning_schema import PLANNING_SCHEMA
 from .timeline_schema import TIMELINE_SCHEMA
 from .preview_schema import PREVIEW_SCHEMA
+from .finishing_schema import FINISHING_SCHEMA, FINISHING_RUNS_SCHEMA
 from .annotation_schema import ANNOTATION_SCHEMA
 from .agent_schema import EDIT_AGENT_SCHEMA
 from .deletion import ProjectDeletion
 
 
-PROJECT_SCHEMA_VERSION = 15
+PROJECT_SCHEMA_VERSION = 17
 _PROJECT_DIRECTORY = re.compile(r"prj_[0-9a-f]{32}\Z")
 
 _INVENTORY_SCHEMA = """
@@ -645,8 +646,9 @@ class ProjectRepository:
                 + ANNOTATION_SCHEMA
                 + PREVIEW_SCHEMA
                 + EDIT_AGENT_SCHEMA
+                + FINISHING_SCHEMA
                 + """
-                PRAGMA user_version = 15;
+                PRAGMA user_version = 17;
                 """
             )
             connection.execute(
@@ -739,6 +741,12 @@ class ProjectRepository:
             if version == 14:
                 self._migrate_v14_to_v15(connection)
                 version = 15
+            if version == 15:
+                self._migrate_v15_to_v16(connection)
+                version = 16
+            if version == 16:
+                self._migrate_v16_to_v17(connection)
+                version = 17
             if version != PROJECT_SCHEMA_VERSION:
                 connection.close()
                 raise ProjectError(
@@ -1140,6 +1148,39 @@ class ProjectRepository:
             "BEGIN IMMEDIATE;\n"
             + ("" if observed else EDIT_AGENT_SCHEMA)
             + "\nPRAGMA user_version = 14;\nCOMMIT;"
+        )
+
+    @staticmethod
+    def _migrate_v16_to_v17(connection: sqlite3.Connection) -> None:
+        connection.executescript(
+            "BEGIN IMMEDIATE;\n"
+            "DROP INDEX finishing_runs_created;\n"
+            "ALTER TABLE finishing_runs RENAME TO finishing_runs_v16;\n"
+            + FINISHING_RUNS_SCHEMA
+            + "INSERT INTO finishing_runs SELECT * FROM finishing_runs_v16;\n"
+            "DROP TABLE finishing_runs_v16;\n"
+            "CREATE INDEX finishing_runs_created ON finishing_runs(created_at DESC);\n"
+            "PRAGMA user_version=17;\nCOMMIT;"
+        )
+
+    @staticmethod
+    def _migrate_v15_to_v16(connection: sqlite3.Connection) -> None:
+        expected = {
+            "finishing_library": ("role", "directory_json", "assets_json", "issues_json"),
+            "finishing_runs": ("run_id", "request_id", "request_hash", "kind", "state", "phase", "progress", "context_json", "result_json", "usage_json", "error_code", "created_at", "completed_at"),
+            "finishing_draft": ("slot", "revision", "context_json", "payload_json"),
+        }
+        observed = {row["name"] for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'finishing_%'"
+        )}
+        if observed and observed != set(expected):
+            raise sqlite3.DatabaseError("incomplete finishing schema")
+        for table in observed:
+            if tuple(row["name"] for row in connection.execute(f"PRAGMA table_info({table})")) != expected[table]:
+                raise sqlite3.DatabaseError("unexpected finishing schema")
+        connection.executescript(
+            "BEGIN IMMEDIATE;\n" + ("" if observed else FINISHING_SCHEMA)
+            + "\nPRAGMA user_version = 16;\nCOMMIT;"
         )
 
     @staticmethod

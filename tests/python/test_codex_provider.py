@@ -522,6 +522,28 @@ class CodexProviderTests(unittest.TestCase):
                         self.root, fake, environment={"PATH": "/usr/bin"}
                     ).execute(self.attempt(attempt_id=f"attempt-failure-{index}"))
 
+    def test_jsonl_only_usage_limit_is_classified_and_preserves_unknown_usage(self):
+        for code in (0,1):
+            with self.subTest(returncode=code):
+                fake=self.fake_codex('''
+                    import json
+                    print(json.dumps({'type':'error','message':"You've hit your usage limit."}))
+                    print(json.dumps({'type':'turn.failed','error':{'message':"You've hit your usage limit."}}))
+                    raise SystemExit('''+str(code)+''')
+                ''')
+                attempt=self.attempt(attempt_id=f'quota-jsonl-{code}')
+                with self.assertRaises(ProviderUsageLimitError):
+                    CodexExecAdapter(self.root,fake,environment={'PATH':'/usr/bin'}).execute(attempt)
+                receipt=AttemptReceiptStore(attempt.workspace,attempt.attempt_id).read()
+                self.assertEqual(receipt.error_code,'usage_limit');self.assertIsNone(receipt.usage)
+
+    def test_failure_classifier_ignores_ordinary_model_text_and_recovered_errors(self):
+        for events in (
+            [{'type':'item.completed','item':{'text':'usage limit'}},{'type':'turn.completed'}],
+            [{'type':'error','message':'rate limit'},{'type':'turn.completed'}],
+        ):
+            CodexExecAdapter._raise_for_failed_turn('\n'.join(json.dumps(e) for e in events).encode())
+
     def test_failed_attempt_preserves_reported_usage(self) -> None:
         fake = self.fake_codex(
             """

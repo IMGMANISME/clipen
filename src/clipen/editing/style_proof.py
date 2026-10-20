@@ -8,15 +8,15 @@ from fractions import Fraction
 from clipen.domain import EditTimeline, MediaClip, TrackKind
 
 
-MIN_CLIPS = 8
+MIN_CLIPS = 1
 MAX_CLIPS = 30
 MIN_DURATION_SECONDS = 30
 MAX_DURATION_SECONDS = 75
-MAX_CLIP_SECONDS = 10
-MIN_TITLES = 1
-MAX_TITLES = 3
-MIN_EFFECTS = 1
-MAX_EFFECTS = 6
+MAX_CLIP_SECONDS = 30
+MIN_TITLES = 0
+MAX_TITLES = 96
+MIN_EFFECTS = 0
+MAX_EFFECTS = 256
 
 
 @dataclass(frozen=True, slots=True)

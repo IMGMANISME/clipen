@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   cancelEditAgent,
+  acceptProgramReference,
   getEditAgent,
   startEditAgent,
 } from './api'
-import type { EditAgentResult, EditAgentRun } from './api'
+import type { EditAgentResult, EditAgentRun, ProgramReference } from './api'
 
 type Props = {
   projectId: string
@@ -26,6 +27,10 @@ const phaseCopy: Record<string, string> = {
 }
 
 const failureCopy: Record<string, string> = {
+  provider_usage_limit: 'Codex 回報這次工作遇到帳號額度上限。請確認執行 Clipen 的 Codex CLI 所登入帳號與額度，再手動重試；Clipen 沒有自動重送。',
+  provider_authentication_required: 'Codex CLI 需要重新登入，這次工作沒有繼續執行。',
+  provider_network_error: 'Codex 連線失敗，這次工作沒有完成；已保留先前結果。',
+  provider_permission_error: 'Codex 的執行權限受阻，請檢查本次診斷紀錄。',
   provider_unavailable: '目前無法啟動 Codex，請確認登入狀態後重新啟動 Clipen。',
   provider_timed_out: '這次 AI 剪輯方向樣片超過時間上限，已安全停止。',
   provider_protocol_error: 'Codex 沒有依照 Clipen 的安全流程完成剪輯。',
@@ -47,7 +52,7 @@ function runLabel(run: EditAgentRun): string {
   return phaseCopy[run.phase] ?? (run.state === 'running' ? phaseCopy.editing : '正在更新剪輯狀態')
 }
 
-const trackCopy = { video: '畫面', audio: '音訊', title: '字卡', graphic: '插圖' }
+const trackCopy = { video: '畫面', audio: '音訊', title: '字幕／文字', graphic: '插圖' }
 
 function TimelineResultView({ result }: { result: EditAgentResult }) {
   const timeline = result.timeline
@@ -55,8 +60,7 @@ function TimelineResultView({ result }: { result: EditAgentResult }) {
   const seconds = timeline.duration_frames / frameRate
   const items = timeline.tracks.flatMap((track) => track.items)
   const mediaCount = items.filter((item) => item.kind === 'media').length
-  const titleCount = items.filter((item) => item.kind === 'text').length
-  const effectCount = items.reduce((sum, item) => sum + (item.effects?.length ?? 0), 0)
+  const captionCount = timeline.tracks.filter((track) => track.track_id === 'agent-subtitles').reduce((sum, track) => sum + track.items.length, 0)
   const proof = result.is_style_proof
   const incompleteProof = !proof
     && result.proof_stats.duration_seconds >= 30
@@ -71,11 +75,27 @@ function TimelineResultView({ result }: { result: EditAgentResult }) {
     <div className="agent-timeline" aria-label={timelineLabel}>
       <div className="agent-timeline-heading"><div><strong>{timelineLabel}</strong><p>{result.summary}</p></div><span>{seconds.toFixed(1)} 秒</span></div>
       <dl className="agent-timeline-summary">
-        <div><dt>軌道</dt><dd>{timeline.tracks.length}</dd></div>
+        <div><dt>節目段落</dt><dd>{result.episode?.beats.length ?? '—'}</dd></div>
         <div><dt>媒體片段</dt><dd>{mediaCount}</dd></div>
-        <div><dt>字卡</dt><dd>{titleCount}</dd></div>
-        <div><dt>效果</dt><dd>{effectCount}</dd></div>
+        <div><dt>口語字幕</dt><dd>{captionCount}</dd></div>
+        <div><dt>字幕待核對</dt><dd>{result.subtitle_review?.draft_count ?? '—'}</dd></div>
       </dl>
+      {result.production_contents && <details open>
+        <summary>本版實際後製：{result.production_contents.cut_count} 個剪點、{result.production_contents.music.length} 段配樂、{result.production_contents.transitions.length} 個轉場</summary>
+        {result.production_contents.music.length === 0 && <p>這個版本沒有配樂；新的完整後製工作必須加入。</p>}
+        {result.production_contents.music.map((music, index) => <p key={index}>
+          配樂：{music.provenance.title ?? music.name}／{music.provenance.creator ?? '作者未提供'}，{music.start_seconds.toFixed(1)}–{(music.start_seconds + music.duration_seconds).toFixed(1)} 秒，{music.gain_db} dB{music.duck ? '，對話時自動壓低' : ''}。
+          {music.provenance.source_url && <a href={music.provenance.source_url} target="_blank" rel="noreferrer">來源</a>}{' '}
+          {music.provenance.license_url && <a href={music.provenance.license_url} target="_blank" rel="noreferrer">授權：{music.provenance.license}</a>}
+        </p>)}
+        {result.production_contents.transitions.map((transition, index) => <p key={index}>轉場：{transition.at_seconds.toFixed(1)} 秒，{transition.kind === 'dip_black' ? '淡黑' : transition.kind === 'dip_white' ? '淡白' : transition.kind}。</p>)}
+      </details>}
+      {result.episode && <details><summary>{result.episode.premise}</summary>
+        <p>觀眾會想知道：{result.episode.audience_question}</p>
+        <ol>{result.episode.beats.map((beat) => <li key={beat.beat_id}>{beat.audience_takeaway}</li>)}</ol>
+        <p>這段的回應：{result.episode.payoff}</p>
+      </details>}
+      {(result.subtitle_review?.draft_count ?? 0) > 0 && <p className="agent-timeline-note">字幕含 AI 辨識草稿，尚待聽音核對；沒有冒稱已由你確認。</p>}
       <div className="agent-track-list">
         {timeline.tracks.map((track) => (
           <div className={`agent-track track-${track.kind}`} key={track.track_id}>
@@ -98,10 +118,25 @@ function TimelineResultView({ result }: { result: EditAgentResult }) {
         ))}
       </div>
       <p className="agent-timeline-note">{proof
-        ? '這支樣片只用來判斷選材、順序與鏡頭節奏。字幕、音樂、音效、轉場與成片視覺會由後續製作階段處理。'
+        ? '這是 AI 透過工具製作的樣片時間軸。請檢查選材、敘事、文字、畫面及聲音；完整解碼與取樣檢視不代表成片品質已通過。'
         : incompleteProof
-          ? '鏡頭長度已符合短樣片範圍，但代表性的字卡或效果沒有完成。這版會保留供檢查，不能當成完成的剪輯方向樣片。'
+          ? '目前版本尚未通過樣片範圍檢查，已保留供你檢視。'
           : '這是舊流程產生的完整初剪，不符合新的短樣片規格。它會保留供比較，但不能作為新版預覽來源。'}</p>
+      {result.editorial_review ? <details>
+        <summary>查看 AI 的逐鏡判斷與文字依據</summary>
+        <p>{result.editorial_review.story_assessment}</p>
+        <ol>{result.editorial_review.shots.map((shot) => {
+          const clip = items.find((item) => item.item_id === shot.item_id)
+          return <li key={shot.item_id}>{clip ? `${(clip.start_frame / frameRate).toFixed(1)} 秒：` : ''}{shot.observation}</li>
+        })}</ol>
+        {result.editorial_review.text_checks.length > 0 && <ul>{result.editorial_review.text_checks.map((check) => {
+          const text = items.find((item) => item.item_id === check.item_id)?.text
+          return <li key={check.item_id}>「{text}」：{check.evidence}</li>
+        })}</ul>}
+        <p>聲音檢視限制：{result.editorial_review.audio_limitations}</p>
+        <p>以上是 AI 自評；取樣畫面不代表已看完連續動作或聽過成片，仍需你驗收。</p>
+      </details> : <p className="agent-timeline-note">這個舊版本沒有逐鏡審片與文字依據紀錄。</p>}
+      {result.export_url && <a className="button ghost" href={result.export_url} download>下載可編輯時間軸與來源紀錄</a>}
     </div>
   )
 }
@@ -109,6 +144,7 @@ function TimelineResultView({ result }: { result: EditAgentResult }) {
 export function EditAgentSection({ projectId, csrf, canStart, onResultAvailable }: Props) {
   const [run, setRun] = useState<EditAgentRun | null>(null)
   const [result, setResult] = useState<EditAgentResult | null>(null)
+  const [reference, setReference] = useState<ProgramReference | null>(null)
   const [consent, setConsent] = useState(false)
   const [busy, setBusy] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -122,7 +158,7 @@ export function EditAgentSection({ projectId, csrf, canStart, onResultAvailable 
   useEffect(() => {
     let mounted = true
     getEditAgent(projectId)
-      .then((status) => { if (mounted) { setRun(status.latest_run); setResult(status.result) } })
+      .then((status) => { if (mounted) { setRun(status.latest_run); setResult(status.result); setReference(status.program_reference ?? null) } })
       .catch((caught) => { if (mounted) setError(errorMessage(caught)) })
       .finally(() => { if (mounted) setLoading(false) })
     return () => { mounted = false }
@@ -198,6 +234,15 @@ export function EditAgentSection({ projectId, csrf, canStart, onResultAvailable 
     }
   }
 
+  async function acceptReference() {
+    if (!result || busy) return
+    setBusy(true)
+    setError(null)
+    try { setReference(await acceptProgramReference(csrf, projectId, result)) }
+    catch (caught) { setError(errorMessage(caught)) }
+    finally { setBusy(false) }
+  }
+
   const failed = run && ['failed', 'cancelled', 'interrupted'].includes(run.state)
   const succeeded = run?.state === 'succeeded'
   const proofReady = succeeded && result?.is_style_proof === true
@@ -217,8 +262,8 @@ export function EditAgentSection({ projectId, csrf, canStart, onResultAvailable 
       <div className="edit-agent-heading">
         <span className="preview-step">2</span>
         <div>
-          <strong id="edit-agent-title">先製作 45–60 秒 AI 剪輯方向樣片</strong>
-          <p>AI 會精確選擇入點與出點，只驗證選材、順序與鏡頭節奏，不代表最終成片質感。Codex 不能修改毛片；關閉瀏覽器不會中斷工作。</p>
+          <strong id="edit-agent-title">讓 AI 使用工具製作與檢視樣片</strong>
+          <p>AI 自行選材與精剪、安排節目字幕、選取有來源授權的配樂並混音，以及在合適剪點加入轉場；不使用獨立字卡。這次交付 30–75 秒 SDR 完整後製樣片，仍需你看片驗收。</p>
         </div>
       </div>
 
@@ -227,7 +272,7 @@ export function EditAgentSection({ projectId, csrf, canStart, onResultAvailable 
 
       {!loading && polling && run && (
         <div className="edit-agent-running" role="status" aria-live="polite">
-          <div className="edit-agent-progress-copy"><div><strong>{finalizing ? '正在保存 Token 用量…' : runLabel(run)}</strong><span>{calls} / {maxCalls} 次工具操作</span></div><p>{finalizing ? 'AI 剪輯版本已保存，正在等待 Codex 回報這次工作的最終用量。' : 'AI 只會讀取已確認的計畫、核准的素材資訊與縮圖，並建立新的可回復時間軸版本。'}</p></div>
+          <div className="edit-agent-progress-copy"><div><strong>{finalizing ? '正在保存 Token 用量…' : runLabel(run)}</strong><span>{calls} / {maxCalls} 次工具操作</span></div><p>{finalizing ? 'AI 剪輯版本已保存，正在等待 Codex 回報這次工作的最終用量。' : 'AI 正在依需要調用素材、剪輯、畫面、聲音與預覽工具；每次修改都有可回復版本。'}</p></div>
           <progress max="100" value={finalizing ? 99 : progress}>{finalizing ? 99 : progress}%</progress>
           {!finalizing && <button className="button ghost" disabled={busy} onClick={() => void cancel()}>{busy ? '正在取消…' : '取消樣片製作'}</button>}
         </div>
@@ -235,7 +280,7 @@ export function EditAgentSection({ projectId, csrf, canStart, onResultAvailable 
 
       {!loading && succeeded && !finalizing && run && (
         <div className="edit-agent-result success" role="status">
-          <div><span aria-hidden="true">{proofReady ? '✓' : '!'}</span><div><strong>{proofReady ? 'AI 剪輯方向樣片已建立' : incompleteResult ? '剪輯方向樣片尚未完成' : '這是舊版完整初剪'}</strong><p>{proofReady ? '精剪時間軸已保存；先判斷選材與節奏是否值得進入成片製作。' : incompleteResult ? '鏡頭結構已保存，但代表性的字卡或效果沒有完成。請修正後重新製作。' : '舊結果已保留，但不符合新的短樣片規格。請製作新的剪輯方向樣片。'}</p></div></div>
+          <div><span aria-hidden="true">{proofReady ? '✓' : '!'}</span><div><strong>{proofReady ? 'AI 剪輯方向樣片已建立' : incompleteResult ? '剪輯方向樣片尚未完成' : '這是舊版完整初剪'}</strong><p>{proofReady ? '精剪時間軸已保存；先判斷選材與節奏是否值得進入成片製作。' : incompleteResult ? '目前結果尚未通過樣片檢查，請查看工作紀錄。' : '舊結果已保留，但不符合新的短樣片規格。請製作新的剪輯方向樣片。'}</p></div></div>
           <dl>
             <div><dt>工具操作</dt><dd>{formatTokens(run.budget.tool_calls)} 次</dd></div>
             <div><dt>新 Input</dt><dd>{uncachedInput !== null ? formatTokens(uncachedInput) : '未回報'}</dd></div>
@@ -249,7 +294,7 @@ export function EditAgentSection({ projectId, csrf, canStart, onResultAvailable 
       )}
 
       {!loading && failed && run && (
-        <div className="edit-agent-result error" role="alert"><div><span aria-hidden="true">×</span><div><strong>{runLabel(run)}</strong><p>{failureCopy[run.error_code ?? ''] ?? '剪輯版本與毛片都保持不變，可以重新開始。'}</p></div></div></div>
+        <div className="edit-agent-result error" role="alert"><div><span aria-hidden="true">×</span><div><strong>{runLabel(run)}</strong><p>{failureCopy[run.error_code ?? ''] ?? '本次工作未完成；已保留原片與先前結果。'}</p><p>本次工具操作 {run.budget.tool_calls} 次。{run.usage ? `已回報：輸入 ${formatTokens(run.usage.input_tokens)}、輸出 ${formatTokens(run.usage.output_tokens)} Tokens。` : 'Token 用量未回報，不代表零用量。'}</p></div></div></div>
       )}
 
       {!loading && !succeeded && result && (
@@ -262,12 +307,17 @@ export function EditAgentSection({ projectId, csrf, canStart, onResultAvailable 
 
       {!loading && !polling && (
         <div className="edit-agent-consent">
+          {result?.creative_direction?.format === 'travel_program' && <div>
+            <strong>{reference?.revision_id === result.revision_id ? '這版已設為節目基準' : '喜歡這版的節目方向？'}</strong>
+            <p>保存你認可的敘事與字幕呈現。下一次 AI 會以此尋找另一個事件，不會直接重播相同素材；字幕和聲音仍需核對。</p>
+            <button className="button ghost" disabled={busy || reference?.revision_id === result.revision_id} onClick={() => void acceptReference()}>以這版作為節目基準</button>
+          </div>}
           <div>
             <strong>{proofReady ? '需要重新製作嗎？' : incompleteResult ? '重新建立完整方向樣片' : legacyResult ? '製作新的剪輯方向樣片' : '開始前確認'}</strong>
-            <p>這會使用一次 Codex 工作額度。Clipen 會保存本次實際 Token；不會上傳完整影片或音訊。</p>
+            <p>{reference ? 'AI 會參考你認可的節目方向，自行搜尋其他原片對話、選材、製作並回看修改。' : 'AI 會依節目方向搜尋原片對話、選材、製作並回看修改。'}最多 96 次工具操作、4 次本機預覽。Clipen 會保存實際 Token；配樂搜尋只傳一般音樂詞，不會上傳完整原片或音訊。</p>
           </div>
-          <label className="consent-check"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} /><span>我同意使用 Codex 額度製作這次剪輯方向樣片</span></label>
-          <button className="button primary" disabled={!canStart || !consent || busy} onClick={() => void start()}>{busy ? '正在啟動…' : proofReady ? '重新製作方向樣片' : '製作新的方向樣片'}</button>
+          <label className="consent-check"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} /><span>我同意 AI 使用 Codex 額度、讀取素材縮圖與口語，並依需要搜尋及下載有來源與授權資料的公開配樂</span></label>
+          <button className="button primary" disabled={!canStart || !consent || busy} onClick={() => void start()}>{busy ? '正在啟動…' : '製作完整後製樣片'}</button>
           {!canStart && <p className="edit-agent-blocked">請先完成上方的剪輯版本檢查。</p>}
         </div>
       )}

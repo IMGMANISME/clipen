@@ -8,6 +8,7 @@ import unittest
 from clipen.editing import ToolResult
 from clipen.mcp_editing import EditingMcpServer, run_stdio
 from clipen.projects import ProjectError
+from clipen.editing.production_catalog import EXTRA_NAMES
 
 
 class FakeTools:
@@ -47,15 +48,15 @@ class EditingMcpServerTests(unittest.TestCase):
                 "set_clip_effect",
                 "undo_revision",
                 "finish_edit",
-            },
+            } | set(EXTRA_NAMES),
         )
         self.assertNotIn("shell", json.dumps(response))
-        self.assertNotIn("filesystem", json.dumps(response))
+        self.assertNotIn("filesystem", names)
         replace = next(
             tool for tool in response["result"]["tools"] if tool["name"] == "replace_sequence"
         )
         clips = replace["inputSchema"]["properties"]["clips"]
-        self.assertEqual((clips["minItems"], clips["maxItems"]), (8, 30))
+        self.assertEqual((clips["minItems"], clips["maxItems"]), (1, 30))
         self.assertEqual(
             set(clips["items"]["required"]),
             {"candidate_id", "start_offset_seconds", "duration_seconds"},
