@@ -11,6 +11,7 @@ from typing import BinaryIO, Mapping
 
 from clipen.editing import EditAgentTools, ToolResult
 from clipen.projects import ProjectError
+from clipen.editing.production_catalog import EXTRA_TOOLS
 
 
 _MAX_MESSAGE_BYTES = 1024 * 1024
@@ -47,6 +48,7 @@ _TOOLS = (
         {
             "query": {"type": "string", "maxLength": 200},
             "limit": {"type": "integer", "minimum": 1, "maximum": 50},
+            "offset": {"type":"integer","minimum":0,"maximum":100000},
         },
     ),
     _tool(
@@ -70,7 +72,7 @@ _TOOLS = (
                         "duration_seconds": {
                             "type": "number",
                             "minimum": 0.75,
-                            "maximum": 10,
+                            "maximum": 30,
                         },
                     },
                     "required": [
@@ -80,11 +82,11 @@ _TOOLS = (
                     ],
                     "additionalProperties": False,
                 },
-                "minItems": 8,
+                "minItems": 1,
                 "maxItems": 30,
-                "uniqueItems": True,
             },
             "summary": {"type": "string", "maxLength": 500},
+            "reprise_reason": {"type":"string","minLength":1,"maxLength":500,"description":"Explicit editorial reason for intentionally repeating a source range as a cold open/callback. Without this, duplicate source ranges are rejected."},
         },
         ("clips", "summary"),
     ),
@@ -147,7 +149,7 @@ _TOOLS = (
         {"summary": {"type": "string", "maxLength": 1000}},
         ("summary",),
     ),
-)
+) + EXTRA_TOOLS
 
 
 class EditingMcpServer:

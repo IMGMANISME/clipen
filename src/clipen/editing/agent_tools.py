@@ -24,6 +24,7 @@ from clipen.planning import PlanningRepository
 from clipen.planning.models import PlanningCandidate, PlanningContext
 from clipen.projects import ProjectError
 from clipen.projects.models import validate_project_id
+from clipen.projects.storage import utc_now
 
 from .agent_models import (
     ALLOWED_EFFECTS,
@@ -34,9 +35,11 @@ from .agent_models import (
 )
 from .agent_repository import EditAgentRepository
 from .style_proof import is_style_proof
+from .production_tools import ProductionTools
+from .production_catalog import EXTRA_NAMES
 
 
-class EditAgentTools:
+class EditAgentTools(ProductionTools):
     """Small allowlisted tool surface; it never returns source filesystem paths."""
 
     def __init__(
@@ -74,15 +77,22 @@ class EditAgentTools:
             "undo_revision": self._undo_revision,
             "finish_edit": self._finish_edit,
         }
-        handler = handlers.get(name)
+        handler = (lambda args: self.production_call(name,args)) if name in EXTRA_NAMES else handlers.get(name)
         if handler is None:
             raise ProjectError("tool_not_allowed", "這個工具未獲 Clipen 授權。", status_code=404)
         if not isinstance(arguments, Mapping):
             raise ProjectError("agent_input_invalid", "工具參數必須是物件。", status_code=422)
-        budget = self.repository.consume_tool_call(self.project_id, self.run_id, name)
-        result = handler(arguments)
+        self.repository.consume_tool_call(self.project_id, self.run_id, name)
+        try:
+            result = handler(arguments)
+        except Exception as error:
+            with self.repository.projects.connect(self.project_id) as db:
+                self.repository._append_event(db,self.run_id,'tool_failed',{'tool':name,'arguments':dict(arguments),'error_code':getattr(error,'code','tool_failed')},utc_now())
+            raise
+        with self.repository.projects.connect(self.project_id) as db:
+            self.repository._append_event(db,self.run_id,'tool_completed',{'tool':name,'arguments':dict(arguments)},utc_now())
         return ToolResult(
-            {**result.payload, "budget": budget.to_public()["budget"]},
+            {**result.payload, "budget": self.repository.get(self.project_id,self.run_id).to_public()["budget"]},
             result.images,
         )
 
@@ -128,9 +138,12 @@ class EditAgentTools:
         return ToolResult(
             {
                 **self.repository.get(self.project_id, self.run_id).to_public(),
+                "creative_direction": self.repository.creative_direction(self.project_id,self.run_id),
                 "confirmed_direction": {
                     "authority": "user_confirmed",
                     "brief": context.brief,
+                    "reference_notes": list(context.reference_notes),
+                    "evidence_limitations": list(context.limitations),
                     "plan_id": plan.plan_id,
                     "plan_revision": plan.revision,
                     "title": plan.title,
@@ -140,30 +153,32 @@ class EditAgentTools:
                         None if plan.blueprint is None else plan.blueprint.to_payload()
                     ),
                     "correction_policy": (
-                        "Execute this direction as authoritative. Make only the smallest "
-                        "necessary correction for an obvious contradiction or invalid timing, "
-                        "and record that correction in the revision summary."
+                        "Preserve the user's story intent and factual constraints. You own shot "
+                        "selection, order, rhythm, sound and presentation. Explain material "
+                        "departures from suggested treatments in revision summaries."
                     ),
                     "proof_constraints": {
                         "purpose": "Create a short style proof, not the full film.",
                         "target_duration_seconds": {"minimum": 45, "maximum": 60},
                         "allowed_duration_seconds": {"minimum": 30, "maximum": 75},
-                        "target_clip_count": {"minimum": 12, "maximum": 24},
-                        "preferred_clip_duration_seconds": {"minimum": 1.5, "maximum": 5},
-                        "maximum_clip_duration_seconds": 10,
-                        "maximum_candidate_inspections": 10,
+                        "selection_policy": "Choose a coherent scene with action and payoff. Do not use a montage or a clip count as a substitute for the user's story.",
+                        "maximum_clip_duration_seconds": 30,
+                        "maximum_candidate_inspections": self.repository.get(self.project_id,self.run_id).max_tool_calls,
                     },
                 },
             }
         )
 
     def _search_media(self, arguments: Mapping[str, object]) -> ToolResult:
-        self._require_keys(arguments, {"query", "limit"}, optional={"query", "limit"})
+        self._require_keys(arguments, set(), optional={"query", "limit", "offset"})
         query = bounded_text(arguments.get("query", ""), "搜尋文字", 200, empty=True).casefold()
         limit = arguments.get("limit", 20)
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 50:
             raise ProjectError("agent_input_invalid", "搜尋筆數必須介於 1 到 50。", status_code=422)
-        candidates = self._context_value().candidates
+        candidates = self._context_value().candidates + self._custom_candidates()
+        offset = arguments.get('offset',0)
+        if isinstance(offset,bool) or not isinstance(offset,int) or not 0 <= offset <= 100000:
+            raise ProjectError('agent_input_invalid','分頁位置無效。',status_code=422)
         if query:
             candidates = tuple(
                 item
@@ -174,19 +189,20 @@ class EditAgentTools:
             )
         return ToolResult(
             {
-                "candidates": [item.to_provider() for item in candidates[:limit]],
-                "returned": min(len(candidates), limit),
-                "has_more": len(candidates) > limit,
+                "candidates": [item.to_provider() for item in candidates[offset:offset+limit]],
+                "returned": len(candidates[offset:offset+limit]),
+                "has_more": len(candidates) > offset+limit,
+                "next_offset": offset+limit if len(candidates)>offset+limit else None,
                 "limitations": list(self._context_value().limitations),
             }
         )
 
     def _inspect_clip(self, arguments: Mapping[str, object]) -> ToolResult:
         self._require_keys(arguments, {"candidate_id"})
-        if self._inspection_count >= 10:
+        if self._inspection_count >= self.repository.get(self.project_id,self.run_id).max_tool_calls:
             raise ProjectError(
                 "inspection_budget_exhausted",
-                "這次短樣片最多檢視 10 組候選素材，請使用已取得的資訊完成剪輯。",
+                "本次素材檢視已達工具預算上限。",
                 status_code=409,
             )
         self._inspection_count += 1
@@ -208,17 +224,19 @@ class EditAgentTools:
         return ToolResult(payload)
 
     def _replace_sequence(self, arguments: Mapping[str, object]) -> ToolResult:
-        self._require_keys(arguments, {"clips", "summary"})
+        self._require_keys(arguments, {"clips", "summary"},optional={'reprise_reason'})
         selections = arguments["clips"]
-        if not isinstance(selections, list) or not 8 <= len(selections) <= 30:
+        if not isinstance(selections, list) or not 1 <= len(selections) <= 30:
             raise ProjectError(
                 "agent_input_invalid",
-                "剪輯方向樣片必須包含 8 到 30 個精剪鏡頭。",
+                "剪輯方向樣片必須包含 1 到 30 個鏡頭。",
                 status_code=422,
             )
         parsed = [self._trimmed_candidate(value) for value in selections]
         identities = [identity for _, _, identity in parsed]
-        if len(identities) != len(set(identities)):
+        reprise=arguments.get('reprise_reason')
+        if reprise is not None:reprise=bounded_text(reprise,'預告／回扣用途',500)
+        if len(identities) != len(set(identities)) and not reprise:
             raise ProjectError(
                 "agent_input_invalid", "不能重複使用完全相同的來源範圍。", status_code=422
             )
@@ -270,6 +288,8 @@ class EditAgentTools:
         return ToolResult({"revision": saved.to_public(), "created": created})
 
     def _add_title(self, arguments: Mapping[str, object]) -> ToolResult:
+        from .program_direction import require_title_cards
+        require_title_cards(self)
         self._require_keys(arguments, {"start_frame", "duration_frames", "text", "style_id", "summary"})
         start = arguments["start_frame"]
         duration = arguments["duration_frames"]
@@ -281,10 +301,10 @@ class EditAgentTools:
         text = bounded_text(arguments["text"], "字卡", 500)
         revision = self.repository.current_revision(self.project_id, self.run_id)
         timeline = revision.timeline
-        title_tracks = [track for track in timeline.tracks if track.kind is TrackKind.TITLE]
+        title_tracks = [track for track in timeline.tracks if track.track_id == 'titles-main']
         title_items = list(title_tracks[0].items) if title_tracks else []
         title_items.append(TextClip(f"agent-title-{len(title_items)+1:04d}", start, duration, text, style))
-        tracks = tuple(track for track in timeline.tracks if track.kind is not TrackKind.TITLE) + (
+        tracks = tuple(track for track in timeline.tracks if track.track_id != 'titles-main') + (
             Track("titles-main", TrackKind.TITLE, tuple(title_items)),
         )
         updated = replace(timeline, tracks=tracks)
@@ -342,18 +362,26 @@ class EditAgentTools:
         timeline = self.repository.current_revision(
             self.project_id, self.run_id
         ).timeline
+        issues=self._production_validate_sequence({}).payload['issues']
+        if issues:
+            raise ProjectError('agent_sequence_invalid','時間軸仍有技術問題，請先呼叫 validate_sequence 修正。',status_code=422)
         if not is_style_proof(timeline):
             raise ProjectError(
                 "style_proof_invalid",
-                "剪輯方向樣片尚未符合片長、精剪鏡頭與代表性樣式限制。",
+                "剪輯方向樣片尚未符合片長或鏡頭範圍限制。",
                 status_code=422,
             )
-        return ToolResult(self.repository.finish(self.project_id, self.run_id, arguments["summary"]).to_public())
+        from .production_preview import finish_review_status
+        review=finish_review_status(self)
+        if not review['reviewed_revision']:
+            raise ProjectError('agent_preview_review_required','請先逐鏡檢視目前預覽及文字，使用 review_cut 記錄判斷並修正未解決問題；validate_sequence 會列出缺少的取樣。',status_code=409)
+        exported=self._production_export_edit({}).payload
+        return ToolResult({**self.repository.finish(self.project_id, self.run_id, arguments["summary"]).to_public(),'review':review,'export':exported})
 
     def _candidate(self, value: object) -> PlanningCandidate:
         if not isinstance(value, str):
             raise ProjectError("agent_input_invalid", "候選片段識別資訊無效。", status_code=422)
-        candidate = self._context_value().candidate_map().get(value)
+        candidate = self._context_value().candidate_map().get(value) or next((c for c in self._custom_candidates() if c.candidate_id==value),None)
         if candidate is None:
             raise ProjectError("candidate_not_found", "找不到指定的候選片段。", status_code=404)
         return candidate
@@ -424,10 +452,10 @@ class EditAgentTools:
         candidate = self._candidate(value["candidate_id"])
         start = self._finite_fraction(value["start_offset_seconds"], "鏡頭入點")
         duration = self._finite_fraction(value["duration_seconds"], "鏡頭長度")
-        if start < 0 or not Fraction(3, 4) <= duration <= Fraction(10, 1):
+        if start < 0 or not Fraction(3, 4) <= duration <= Fraction(30, 1):
             raise ProjectError(
                 "agent_input_invalid",
-                "單一鏡頭必須介於 0.75 到 10 秒。",
+                "單一鏡頭必須介於 0.75 到 30 秒。",
                 status_code=422,
             )
         source = candidate.source

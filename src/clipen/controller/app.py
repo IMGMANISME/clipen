@@ -33,6 +33,7 @@ from clipen.editing import EditAgentCoordinator, TimelineService
 from clipen.media import InventoryCoordinator, MediaPreviewRepository
 from clipen.planning import PlanningService
 from clipen.rendering import PreviewRenderService
+from clipen.finishing import FinishingService
 from clipen.projects import (
     DirectoryRole,
     ProjectError,
@@ -291,6 +292,7 @@ def create_app(
     media_previews: MediaPreviewRepository | None = None,
     preview_renders: PreviewRenderService | None = None,
     edit_agents: EditAgentCoordinator | None = None,
+    finishing: FinishingService | None = None,
 ) -> ASGIApp:
     static_root = config.static_root.resolve(strict=True)
     if timeline_validations is None and workspace is not None:
@@ -784,6 +786,56 @@ def create_app(
         except ProjectError as error:
             return await project_error_response(error)
 
+    def require_finishing() -> FinishingService:
+        if finishing is None:
+            raise ProjectError("finishing_unavailable", "目前無法使用完成度製作。", status_code=503)
+        return finishing
+
+    async def finishing_status(request: Request) -> Response:
+        try:
+            return JSONResponse(await run_in_threadpool(require_finishing().status, request.path_params["project_id"]))
+        except ProjectError as error:
+            return await project_error_response(error)
+
+    async def finishing_command(request: Request) -> Response:
+        try:
+            payload = await read_json(request)
+            service = require_finishing()
+            project_id = request.path_params["project_id"]
+            command = request.path_params["command"]
+            if command != "produce":
+                raise ProjectError("finishing_workflow_changed", "請使用新版「AI 自動製作樣片」。", status_code=409)
+            require_fields(payload, {"request_id", "consent", "direction_confirmed", "context_hash"}, {"feedback"})
+            result = await run_in_threadpool(
+                service.start, project_id, payload["request_id"], command,
+                consent=payload["consent"], direction_confirmed=payload["direction_confirmed"],
+                context_hash=payload["context_hash"], feedback=payload.get("feedback", ""),
+            )
+            return JSONResponse(result, status_code=202)
+        except ProjectError as error:
+            return await project_error_response(error)
+
+    async def cancel_finishing(request: Request) -> Response:
+        try:
+            require_fields(await read_json(request), set())
+            return JSONResponse(await run_in_threadpool(require_finishing().cancel, request.path_params["project_id"], request.path_params["run_id"]))
+        except ProjectError as error:
+            return await project_error_response(error)
+
+    async def resume_finishing(request: Request) -> Response:
+        try:
+            require_fields(await read_json(request), set())
+            return JSONResponse(await run_in_threadpool(require_finishing().resume, request.path_params["project_id"], request.path_params["run_id"]), status_code=202)
+        except ProjectError as error:
+            return await project_error_response(error)
+
+    async def finishing_media(request: Request) -> Response:
+        try:
+            path = await run_in_threadpool(require_finishing().media_path, request.path_params["project_id"], request.path_params["run_id"])
+            return FileResponse(path, media_type="video/mp4", headers={"Cache-Control":"private, no-store"})
+        except ProjectError as error:
+            return await project_error_response(error)
+
     async def preview_render_status(request: Request) -> Response:
         try:
             result = await run_in_threadpool(
@@ -872,21 +924,39 @@ def create_app(
         except ProjectError as error:
             return await project_error_response(error)
 
+    async def edit_agent_export(request: Request) -> Response:
+        try:
+            path=await run_in_threadpool(require_edit_agents().export_path,request.path_params['project_id'],request.path_params['run_id'],request.path_params['revision_id'])
+            return FileResponse(path,media_type='application/json',filename=path.name)
+        except ProjectError as error:
+            return await project_error_response(error)
+
+    async def accept_program_reference(request: Request) -> Response:
+        try:
+            payload=await read_json(request)
+            require_fields(payload,{'run_id','revision_id'})
+            reference=await run_in_threadpool(require_edit_agents().accept_program_reference,
+                request.path_params['project_id'],payload['run_id'],payload['revision_id'])
+            return JSONResponse({'program_reference':reference})
+        except ProjectError as error:
+            return await project_error_response(error)
+
     async def start_edit_agent(request: Request) -> Response:
         try:
             payload = await read_json(request)
             require_fields(
                 payload,
                 {"request_id", "consent"},
-                {"max_tool_calls", "max_preview_renders"},
+                {"max_tool_calls", "max_preview_renders", "creative_direction"},
             )
             run = await run_in_threadpool(
                 require_edit_agents().start,
                 request.path_params["project_id"],
                 payload["request_id"],
                 payload["consent"],
-                max_tool_calls=payload.get("max_tool_calls", 48),
+                max_tool_calls=payload.get("max_tool_calls", 96),
                 max_preview_renders=payload.get("max_preview_renders", 4),
+                creative_direction=payload.get("creative_direction"),
             )
             return JSONResponse({"run": run.to_public()}, status_code=202)
         except (TypeError, ValueError) as error:
@@ -1323,7 +1393,13 @@ def create_app(
     app = Starlette(
         debug=False,
         routes=[
+            Route("/api/projects/{project_id}/finishing", finishing_status, methods=["GET"]),
+            Route("/api/projects/{project_id}/finishing/commands/{command}", finishing_command, methods=["POST"]),
+            Route("/api/projects/{project_id}/finishing/{run_id}/commands/cancel", cancel_finishing, methods=["POST"]),
+            Route("/api/projects/{project_id}/finishing/{run_id}/commands/resume", resume_finishing, methods=["POST"]),
+            Route("/api/projects/{project_id}/finishing/{run_id}/media", finishing_media, methods=["GET", "HEAD"]),
             Route("/api/health", health, methods=["GET"]),
+            Route("/api/projects/{project_id}/edit-agent/{run_id}/exports/{revision_id}", edit_agent_export, methods=["GET"]),
             Route("/api/session/connect", connect_local_browser, methods=["POST"]),
             Route("/api/instance/reopen", reopen_instance, methods=["POST"]),
             Route("/api/status", status, methods=["GET"]),
@@ -1414,6 +1490,11 @@ def create_app(
             Route(
                 "/api/projects/{project_id}/edit-agent/commands/start",
                 start_edit_agent,
+                methods=["POST"],
+            ),
+            Route(
+                "/api/projects/{project_id}/edit-agent/commands/accept-reference",
+                accept_program_reference,
                 methods=["POST"],
             ),
             Route(

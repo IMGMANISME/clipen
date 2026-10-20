@@ -1,0 +1,5 @@
+"""Public musical vocabulary shared by planning and search tool contracts."""
+MUSIC_TAGS = ['travel', 'cinematic', 'ambient', 'acoustic', 'electronic', 'folk', 'jazz', 'classical',
+              'happy', 'calm', 'peaceful', 'energetic', 'dramatic', 'nostalgic', 'uplifting',
+              'piano', 'guitar', 'strings', 'percussion', 'chill', 'adventure', 'nature',
+              'japanese', 'citypop', 'bossa nova', 'lofi', 'kawaii', 'upbeat', 'funk', 'soul']

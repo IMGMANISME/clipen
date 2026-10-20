@@ -36,6 +36,9 @@ class TitleCardRenderer:
     # memory pressure on consumer machines.
     _MAX_TITLES = 32
 
+    def __init__(self,custom_styles=None):
+        self.custom_styles=custom_styles or {}
+
     def render(self, timeline: EditTimeline, directory: Path) -> tuple[RenderedTitle, ...]:
         items = tuple(
             item
@@ -88,9 +91,29 @@ class TitleCardRenderer:
         return next((path for path in candidates if path is not None and path.is_file()), None)
 
     def _draw_card(
-        self, draw, image_font, font_path: Path, timeline: EditTimeline, item: TextClip
+        self, draw, image_font, font_path: Path, timeline: EditTimeline, item: TextClip, relative_frame=None
     ) -> None:
         width, height = timeline.width, timeline.height
+        if self.custom_styles.get(item.style_id,{}).get('kind')=='program_subtitle':
+            from .program_subtitles import draw_program_subtitle
+            draw_program_subtitle(draw,font_path,timeline,item,self.custom_styles[item.style_id],relative_frame)
+            return
+        if item.style_id in self.custom_styles:
+            profile=self.custom_styles[item.style_id]
+            size=max(1,round(height*profile['font_size_ratio']))
+            font=image_font.truetype(str(font_path),size)
+            maximum=round(width*profile['width_ratio'])
+            lines=self._wrap(draw,item.text,font,maximum)
+            line_height=max(1,round(size*1.5));pad=max(1,round(size*.25))
+            x=round(width*profile['x']);y=round(height*profile['y'])
+            if y+line_height*len(lines)+pad>height or x+maximum>width:
+                raise TitleRenderError('preview_text_overflow')
+            for row in lines:
+                length=draw.textlength(row,font=font)
+                at=x if profile['align']=='left' else x+(maximum-length)/(2 if profile['align']=='center' else 1)
+                draw.rounded_rectangle((at-pad,y-pad,at+length+pad,y+line_height),radius=pad,fill=tuple(profile['background_color']))
+                draw.text((at,y),row,font=font,fill=tuple(profile['text_color']));y+=line_height
+            return
         if item.style_id == "title.chapter":
             size = max(28, round(height * 0.055))
             font = image_font.truetype(str(font_path), size)
@@ -160,7 +183,7 @@ class TitleCardRenderer:
                     current = candidate
             if current:
                 lines.append(current)
-        return tuple(lines[:4]) or (text,)
+        return tuple(lines) or (text,)
 
     @staticmethod
     def _text_box(draw, lines: Iterable[str], font, spacing: int) -> tuple[int, int]:
@@ -267,3 +290,31 @@ class FfmpegTitleCompositor:
         if code != 0 or not output.is_file() or output.stat().st_size < 1:
             raise TitleRenderError("ffmpeg_render_failed")
         progress(1.0)
+
+
+def compose_dense_titles(executable,source,timeline,directory,output,cancel,custom_styles=None):
+    """One event-based RGBA stream avoids opening dozens of full-HD inputs."""
+    from PIL import Image,ImageDraw,ImageFont
+    from clipen.finishing.audio import run_process
+    items=[i for t in timeline.tracks if t.kind is TrackKind.TITLE for i in t.items]
+    if len(items)>96:raise TitleRenderError('preview_title_limit_exceeded')
+    font=TitleCardRenderer._font_path()
+    if font is None:raise TitleRenderError('preview_title_font_missing')
+    renderer=TitleCardRenderer(custom_styles);fps=timeline.frame_rate.numerator/timeline.frame_rate.denominator
+    boundaries=sorted({0,timeline.duration_frames,*(i.start_frame for i in items),*(i.start_frame+i.duration_frames for i in items)})
+    from .program_subtitles import animation_boundaries
+    boundaries=sorted(set(boundaries)|{b for i in items if (custom_styles or {}).get(i.style_id,{}).get('kind')=='program_subtitle' for b in animation_boundaries(i)})
+    lines=['ffconcat version 1.0']
+    for index,(start,end) in enumerate(zip(boundaries,boundaries[1:])):
+        if cancel.is_set():raise TitleRenderError('cancelled')
+        image=Image.new('RGBA',(timeline.width,timeline.height),(0,0,0,0));draw=ImageDraw.Draw(image)
+        for item in items:
+            if item.start_frame<=start<item.start_frame+item.duration_frames:renderer._draw_card(draw,ImageFont,font,timeline,item,start-item.start_frame)
+        name=f'text-event-{index}.png';image.save(directory/name)
+        lines.extend((f"file '{name}'",f'option framerate {timeline.frame_rate.numerator}/{timeline.frame_rate.denominator}',f'duration {(end-start)/fps:.9f}'))
+    lines.extend((f"file 'text-event-{len(boundaries)-2}.png'",f'option framerate {timeline.frame_rate.numerator}/{timeline.frame_rate.denominator}'))
+    manifest=directory/'text-events.ffconcat';manifest.write_text('\n'.join(lines)+'\n')
+    run_process([executable,'-v','error','-nostdin','-y','-filter_complex_threads','2','-i',str(source),'-f','concat','-safe','0','-i',str(manifest),
+                 '-filter_complex','[0:v][1:v]overlay=eof_action=repeat:format=auto,format=yuv420p[v]',
+                 '-map','[v]','-map','0:a?','-t',str(timeline.duration_frames/fps),'-r',f'{timeline.frame_rate.numerator}/{timeline.frame_rate.denominator}',
+                 '-c:v','libx264','-preset','veryfast','-crf','21','-c:a','copy','-movflags','+faststart',str(output)],cancel,timeout=300)

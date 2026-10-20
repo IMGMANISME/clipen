@@ -48,6 +48,7 @@ from clipen.rendering import (
 )
 from clipen.providers import CodexExecAdapter, ProviderUnavailable
 from clipen.analysis.evidence_service import EvidenceService
+from clipen.finishing import FinishingService
 from clipen.annotations import AnnotationRepository
 from clipen.projects import ProjectWorkspace, TimelineValidationRepository
 from clipen.system_skills import VerifiedSystemSkillRelease
@@ -345,6 +346,7 @@ async def _serve(
     media_previews = None
     preview_renders = None
     edit_agents = None
+    finishing = None
     try:
         workspace = (
             ProjectWorkspace(paths.projects_root)
@@ -364,6 +366,8 @@ async def _serve(
                 CapabilityProfile("clipen-export-unverified", 1),
             )
             edit_agent_repository = EditAgentRepository(workspace.repository)
+            finishing = FinishingService(workspace.repository, edit_agent_repository, media_previews, paths.attempt_root)
+            finishing.recover()
             preview_renders = PreviewRenderService(
                 PreviewRenderRepository(workspace.repository),
                 timeline_repository,
@@ -432,6 +436,7 @@ async def _serve(
             media_previews=media_previews,
             preview_renders=preview_renders,
             edit_agents=edit_agents,
+            finishing=finishing,
         )
         config = uvicorn.Config(
             app,
@@ -490,6 +495,8 @@ async def _serve(
             if hasattr(signal, "SIGHUP") and previous_hup is not None:
                 signal.signal(signal.SIGHUP, previous_hup)
     finally:
+        if finishing is not None:
+            finishing.close()
         if edit_agents is not None:
             edit_agents.close()
         if preview_renders is not None:

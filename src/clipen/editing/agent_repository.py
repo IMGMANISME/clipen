@@ -37,9 +37,12 @@ class EditAgentRepository:
         provider: str = "codex",
         max_tool_calls: int = 80,
         max_preview_renders: int = 4,
+        creative_direction: dict | None = None,
     ) -> tuple[AgentRun, bool]:
         validate_project_id(project_id)
         request = validate_request_id(request_id)
+        from .program_direction import validate_direction
+        creative_direction = validate_direction(creative_direction)
         if isinstance(max_tool_calls, bool) or not 1 <= max_tool_calls <= 500:
             raise ValueError("max_tool_calls is invalid")
         if isinstance(max_preview_renders, bool) or not 0 <= max_preview_renders <= 20:
@@ -49,6 +52,7 @@ class EditAgentRepository:
                 "provider": provider,
                 "max_tool_calls": max_tool_calls,
                 "max_preview_renders": max_preview_renders,
+                **({"creative_direction":creative_direction} if creative_direction is not None else {}),
             }
         )
         if provider not in {"codex", "claude", "gemini"}:
@@ -122,7 +126,11 @@ class EditAgentRepository:
                     "payload_json,summary,created_at) VALUES(?,?,0,NULL,?,?,?,?)",
                     (revision_id, run_id, digest, encoded(payload), "原始剪輯版本", now),
                 )
-                self._append_event(database, run_id, "run_created", {"revision_id": revision_id}, now)
+                from .program_reference import latest_reference
+                reference=latest_reference(database) if creative_direction else None
+                self._append_event(database, run_id, "run_created", {"revision_id": revision_id,
+                    **({"creative_direction":creative_direction} if creative_direction is not None else {}),
+                    **({'program_reference':reference} if reference else {})}, now)
                 database.execute(
                     "INSERT INTO edit_agent_command_receipts VALUES(?,?,?,?,?)",
                     (request, "start", request_hash, encoded({"run_id": run_id}), now),
@@ -140,6 +148,12 @@ class EditAgentRepository:
                     "Clipen 無法建立 AI 剪輯工作。",
                     status_code=500,
                 ) from error
+
+    def creative_direction(self, project_id: str, run_id: str) -> dict:
+        self._validate_run_id(run_id)
+        with self.projects.connect(project_id) as db:
+            row=db.execute("SELECT payload_json FROM edit_agent_events WHERE run_id=? AND event_type='run_created' ORDER BY sequence LIMIT 1",(run_id,)).fetchone()
+        return {} if row is None else json.loads(row['payload_json']).get('creative_direction',{})
 
     def activate(self, project_id: str, run_id: object) -> AgentRun:
         normalized = self._validate_run_id(run_id)
@@ -471,14 +485,13 @@ class EditAgentRepository:
 
     @staticmethod
     def _append_event(database, run_id: str, event_type: str, payload: object, now: str) -> None:
-        sequence = database.execute(
-            "SELECT COALESCE(MAX(sequence),0)+1 value FROM edit_agent_events WHERE run_id=?",
-            (run_id,),
-        ).fetchone()["value"]
+        # Background preview completion can race a foreground tool call. Keep
+        # sequence allocation and insertion in one write statement, including
+        # callers that intentionally use SQLite autocommit.
         database.execute(
             "INSERT INTO edit_agent_events(run_id,sequence,event_type,payload_json,created_at) "
-            "VALUES(?,?,?,?,?)",
-            (run_id, sequence, event_type, encoded(payload), now),
+            "SELECT ?,COALESCE(MAX(sequence),0)+1,?,?,? FROM edit_agent_events WHERE run_id=?",
+            (run_id, event_type, encoded(payload), now, run_id),
         )
 
     @staticmethod

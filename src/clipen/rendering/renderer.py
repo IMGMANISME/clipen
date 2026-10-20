@@ -10,7 +10,7 @@ import tempfile
 import threading
 from typing import Callable
 
-from clipen.domain import EditTimeline, MediaClip, Track, TrackKind
+from clipen.domain import EditTimeline, EffectRequest, MediaClip, Track, TrackKind
 from clipen.media import MediaPreviewRepository
 from clipen.projects import ProjectError
 
@@ -39,7 +39,19 @@ class FfmpegPreviewRenderer:
         self.executable = executable
         self._popen = popen
 
-    def render(
+    def render(self,project_id,timeline,output,cancel,progress):
+        layers=any(e.effect_id=='audio.layers' for t in timeline.tracks for i in t.items if isinstance(i,MediaClip) for e in i.effects)
+        if not layers:
+            return self._render_base(project_id,timeline,output,cancel,progress)
+        from clipen.editing.production_media import mix_audio_layers
+        output.parent.mkdir(mode=0o700,parents=True,exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix='.agent-mix-',dir=output.parent) as temp:
+            base=Path(temp)/'camera.mp4'
+            self._render_base(project_id,timeline,base,cancel,lambda p:progress(p*.85))
+            mix_audio_layers(self.media,project_id,timeline,base,output,cancel)
+            progress(1.)
+
+    def _render_base(
         self,
         project_id: str,
         timeline: EditTimeline,
@@ -50,7 +62,7 @@ class FfmpegPreviewRenderer:
         title_track = next(
             (track for track in timeline.tracks if track.kind is TrackKind.TITLE), None
         )
-        if title_track is None or not title_track.items:
+        if not any(t.items for t in timeline.tracks if t.kind is TrackKind.TITLE):
             self._render_media(project_id, timeline, output, cancel, progress)
             return
         output.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -67,7 +79,14 @@ class FfmpegPreviewRenderer:
                     cancel,
                     lambda value: progress(value * 0.82),
                 )
-                titles = TitleCardRenderer().render(timeline, directory)
+                from clipen.editing.production_media import load_text_styles
+                styles=load_text_styles(getattr(self.media,'projects',None),project_id)
+                if sum(len(t.items) for t in timeline.tracks if t.kind is TrackKind.TITLE)>32 or any(styles.get(i.style_id,{}).get('kind')=='program_subtitle' for t in timeline.tracks if t.kind is TrackKind.TITLE for i in t.items):
+                    from .titles import compose_dense_titles
+                    compose_dense_titles(self.executable,media_output,timeline,directory,output,cancel,styles)
+                    progress(1.)
+                    return
+                titles = TitleCardRenderer(styles).render(timeline, directory)
                 FfmpegTitleCompositor(self.executable, popen=self._popen).compose(
                     media_output,
                     titles,
@@ -93,7 +112,7 @@ class FfmpegPreviewRenderer:
             (track for track in timeline.tracks if track.kind is TrackKind.VIDEO), None
         )
         audio = next(
-            (track for track in timeline.tracks if track.kind is TrackKind.AUDIO), None
+            (track for track in timeline.tracks if track.kind is TrackKind.AUDIO and track.items), None
         )
         if video is None or not video.items:
             raise PreviewRenderError("preview_video_required")
@@ -120,7 +139,7 @@ class FfmpegPreviewRenderer:
             audio_labels: list[str] = []
             video_inputs = []
 
-            for item in video.items:
+            for clip_index,item in enumerate(video.items):
                 assert isinstance(item, MediaClip)
                 input_index, duration, source = self._add_input(
                     command, opened, project_id, item
@@ -148,10 +167,16 @@ class FfmpegPreviewRenderer:
                 chain = f"[{current_label}]"
                 if effect_filters:
                     chain += effect_filters.removeprefix(",") + ","
-                # A light, consistent finishing pass keeps mixed camera sources
-                # visually coherent without replacing a deliberate grade.
-                chain += "eq=contrast=1.025:saturation=1.045,format=yuv420p"
-                filters.append(f"{chain}[{label}]")
+                from .production_effects import grade_filters, mosaic_filters, transition_filters
+                chain += 'null'+grade_filters(item)+",format=yuv420p"
+                styled_label=f'vstyled{clip_index}'
+                filters.append(f"{chain}[{styled_label}]")
+                masked=mosaic_filters(filters,styled_label,item,timeline,clip_index)
+                following=video.items[clip_index+1] if clip_index+1<len(video.items) else None
+                # Source PTS and fps rounding can otherwise add a frame at a
+                # cut and show the previous shot behind the next caption.
+                frame_pad=Decimal(2)*timeline.frame_rate.denominator/timeline.frame_rate.numerator
+                filters.append(f"[{masked}]null{transition_filters(item,following,timeline)},tpad=stop_mode=clone:stop_duration={frame_pad},trim=end_frame={item.duration_frames},setpts=N*{timeline.frame_rate.denominator}/({timeline.frame_rate.numerator}*TB)[{label}]")
                 video_labels.append(f"[{label}]")
 
             if audio is not None:
@@ -169,7 +194,7 @@ class FfmpegPreviewRenderer:
                     filters.append(
                         f"[{input_index}:{stream}]atrim=duration={duration},"
                         "asetpts=PTS-STARTPTS,aresample=48000,"
-                        f"aformat=sample_rates=48000:channel_layouts=stereo[{label}]"
+                        f"aformat=sample_rates=48000:channel_layouts=stereo,apad,atrim=duration={Decimal(item.duration_frames)*timeline.frame_rate.denominator/timeline.frame_rate.numerator}[{label}]"
                     )
                     audio_labels.append(f"[{label}]")
             else:
@@ -189,11 +214,12 @@ class FfmpegPreviewRenderer:
                         current_label = self._retime_audio(
                             filters, base_label, item, float(duration), len(audio_labels)
                         )
-                        filters.append(f"[{current_label}]anull[{label}]")
+                        from .production_effects import camera_audio_filters
+                        filters.append(f"[{current_label}]anull{camera_audio_filters(item)},apad,atrim=duration={Decimal(item.duration_frames)*timeline.frame_rate.denominator/timeline.frame_rate.numerator},asetpts=PTS-STARTPTS[{label}]")
                     else:
                         filters.append(
                             "anullsrc=r=48000:cl=stereo,"
-                            f"atrim=duration={duration}[{label}]"
+                            f"atrim=duration={Decimal(item.duration_frames)*timeline.frame_rate.denominator/timeline.frame_rate.numerator:.6f}[{label}]"
                         )
                     audio_labels.append(f"[{label}]")
 
@@ -299,6 +325,7 @@ class FfmpegPreviewRenderer:
         )
         command.extend(
             [
+                "-seek_timestamp", "1",
                 "-ss",
                 start,
                 "-t",
@@ -327,6 +354,7 @@ class FfmpegPreviewRenderer:
         ) as temporary:
             directory = Path(temporary)
             segments = []
+            segment_durations = []
             for batch_index, offset in enumerate(
                 range(0, len(video.items), self._BATCH_SIZE)
             ):
@@ -335,15 +363,21 @@ class FfmpegPreviewRenderer:
                 source_items = video.items[offset : offset + self._BATCH_SIZE]
                 cursor = 0
                 normalized_items = []
-                for item in source_items:
+                for local_index,item in enumerate(source_items):
                     assert isinstance(item, MediaClip)
+                    effects=item.effects
+                    position=offset+local_index
+                    if local_index==len(source_items)-1 and position+1<len(video.items):
+                        incoming=next((e for e in video.items[position+1].effects if e.effect_id=='video.transition'),None)
+                        if incoming:
+                            effects+=(EffectRequest('video.transition_out',incoming.parameters),)
                     normalized_items.append(
                         MediaClip(
                             item.item_id,
                             cursor,
                             item.duration_frames,
                             item.source,
-                            item.effects,
+                            effects,
                         )
                     )
                     cursor += item.duration_frames
@@ -373,16 +407,21 @@ class FfmpegPreviewRenderer:
                     batch_progress,
                 )
                 segments.append(segment)
+                segment_durations.append(self._timeline_seconds(batch))
                 completed_frames += cursor
-            self._concat_segments(segments, output, cancel)
+            self._concat_segments(segments, output, cancel, segment_durations)
         progress(1.0)
 
     def _concat_segments(
-        self, segments: list[Path], output: Path, cancel: threading.Event
+        self, segments: list[Path], output: Path, cancel: threading.Event,
+        durations=None,
     ) -> None:
         manifest = segments[0].parent / "segments.txt"
         manifest.write_text(
-            "".join(f"file '{segment.name}'\n" for segment in segments),
+            # AAC encoder padding may make a segment's container longer than
+            # its video. Letting concat infer that duration inserts a timestamp
+            # gap at each batch, changing avg_frame_rate despite correct frames.
+            "".join(f"file '{segment.name}'\n"+(f'duration {durations[n]}\n' if durations is not None else '') for n,segment in enumerate(segments)),
             encoding="utf-8",
         )
         command = [

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { EditAgentSection } from './EditAgentSection'
+import { FinishingSection } from './FinishingSection'
 import {
   acceptTimelineWarnings,
   buildEditTimeline,
@@ -286,7 +287,7 @@ export function TimelineValidationSection({ projectId, csrf }: Props) {
               <div>
                 <span className="preview-step optional">選用</span>
                 <strong>{aiStyleProof ? '觀看 AI 剪輯方向樣片' : incompleteAiProof ? '剪輯方向樣片尚未完成' : legacyAiDraft ? '舊版完整初剪（停止使用）' : '觀看 AI 執行前的結構預覽'}</strong>
-                <p>{aiStyleProof ? 'Clipen 會在本機輸出這支精剪短樣片，不再使用 AI Token。請只判斷選材、順序與鏡頭節奏；這還不是成片效果。' : incompleteAiProof ? '鏡頭長度已符合短樣片範圍，但代表性的字卡或效果沒有完成，因此只供檢查結構。' : legacyAiDraft ? `這版長 ${Math.round(preview?.target_stats?.duration_seconds ?? 0)} 秒，未符合新的短樣片規格，不再重新輸出。請先在上方製作新的剪輯方向樣片。` : '這只會把上方的基礎時間軸在本機產生 MP4，不使用 AI Token。需要先檢查原始選材與順序時再使用。'}</p>
+                <p>{aiStyleProof ? '這是 AI 工具工作流程產生的樣片；本機重新輸出不使用 AI Token。請看片檢查敘事、字幕、畫面與聲音，技術檢查不代表剪輯品質已通過。' : incompleteAiProof ? '目前版本尚未通過樣片範圍檢查，請查看工作紀錄。' : legacyAiDraft ? `這版長 ${Math.round(preview?.target_stats?.duration_seconds ?? 0)} 秒，未符合新的短樣片規格，不再重新輸出。請先在上方製作新的剪輯方向樣片。` : '這只會把上方的基礎時間軸在本機產生 MP4，不使用 AI Token。需要先檢查原始選材與順序時再使用。'}</p>
               </div>
               {!renderActive && currentRender?.state !== 'succeeded' && (
                 <button className="button primary" disabled={busy || !preview?.can_start} onClick={() => void startPreview()}>
@@ -327,6 +328,7 @@ export function TimelineValidationSection({ projectId, csrf }: Props) {
             )}
           </div>
         )}
+        <details><summary>舊版製作實驗紀錄</summary><FinishingSection archive projectId={projectId} csrf={csrf} directionId={preview?.target_timeline_id} directionUrl={preview?.source === 'ai' && !preview.stale ? currentRender?.playback_url : null} /></details>
       </>}
     </section>
   )

@@ -419,7 +419,7 @@ class PreviewRenderingTests(unittest.TestCase):
         )
 
         diagnostic = service.status(self.project.project_id)
-        self.assertFalse(diagnostic["target_is_style_proof"])
+        self.assertTrue(diagnostic["target_is_style_proof"])
         self.assertTrue(diagnostic["can_start"])
         started = service.start(
             self.project.project_id,
@@ -469,7 +469,7 @@ class PreviewRenderingTests(unittest.TestCase):
 
         restarted = ProjectRepository(self.projects.root)
         with restarted.connect(self.project.project_id) as connection:
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 15)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 17)
             row = connection.execute(
                 "SELECT render_id,timeline_id FROM preview_renders WHERE request_id=?",
                 ("request-preview-v14-migration",),
@@ -495,7 +495,7 @@ class PreviewRenderingTests(unittest.TestCase):
         current = TimelineRepository(self.projects).current(self.project.project_id)
         self.assertEqual(current.timeline, self.timeline)
         with self.projects.connect(self.project.project_id) as connection:
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 15)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 17)
             tables = {
                 row[0]
                 for row in connection.execute(
@@ -623,7 +623,7 @@ class FfmpegPreviewRendererTests(unittest.TestCase):
         self.assertIn("scale=iw*1.1200:ih*1.1200", filters)
         self.assertIn("split=3[vr0a][vr0b][vr0c]", filters)
         self.assertIn("setpts=(PTS-STARTPTS)/1.250000", filters)
-        self.assertIn("eq=contrast=1.025:saturation=1.045", filters)
+        self.assertNotIn("eq=contrast=1.025:saturation=1.045", filters)
         self.assertIn("loudnorm=I=-16:LRA=11:TP=-1.5", filters)
 
     def test_title_track_gets_a_separate_bounded_compositing_pass(self) -> None:

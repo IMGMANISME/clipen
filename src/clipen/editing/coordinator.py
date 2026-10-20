@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 import queue
 import threading
 
@@ -76,9 +77,22 @@ class EditAgentCoordinator:
         if published is not None:
             revision = self.repository.final_revision(project_id, published.run_id)
             stats = style_proof_stats(revision.timeline)
+            with self.repository.projects.connect(project_id) as db:
+                rows=db.execute("SELECT payload_json FROM edit_agent_events WHERE run_id=? AND event_type='editorial_review' ORDER BY sequence DESC",(published.run_id,)).fetchall()
+            assessment=next((v for v in (json.loads(r['payload_json']) for r in rows) if v['revision_id']==revision.revision_id),None)
+            from .program_story import read_episode
+            from .program_subtitles import subtitle_status
+            from .production_requirements import production_contents
             result = {
                 **revision.to_public(include_timeline=True),
+                "run_id": published.run_id,
                 "is_style_proof": is_style_proof(revision.timeline),
+                "editorial_review": assessment,
+                "creative_direction": self.repository.creative_direction(project_id,published.run_id),
+                "episode": read_episode(self.repository.projects,project_id,published.run_id,revision.timeline),
+                "subtitle_review": subtitle_status(self.repository.projects,project_id,revision.timeline),
+                "production_contents": production_contents(self.repository.projects,project_id,revision.timeline),
+                "export_url": self._export_url(project_id,published.run_id,revision.revision_id),
                 "proof_stats": {
                     "duration_seconds": stats.duration_seconds,
                     "clip_count": stats.clip_count,
@@ -87,10 +101,37 @@ class EditAgentCoordinator:
                     "effect_count": stats.effect_count,
                 },
             }
+        from .program_reference import latest_reference
+        with self.repository.projects.connect(project_id) as db:
+            reference=latest_reference(db)
         return {
             "latest_run": None if latest is None else latest.to_public(),
             "result": result,
+            "program_reference": reference,
         }
+
+    def accept_program_reference(self,project_id,run_id,revision_id):
+        from .program_reference import accept_reference
+        return accept_reference(self.repository,project_id,run_id,revision_id)
+
+    def _export_url(self,project_id,run_id,revision_id):
+        try:self.export_path(project_id,run_id,revision_id)
+        except ProjectError:return None
+        return f'/api/projects/{project_id}/edit-agent/{run_id}/exports/{revision_id}'
+
+    def export_path(self,project_id,run_id,revision_id):
+        from .agent_models import REVISION_ID_PATTERN
+        self.repository.get(project_id,run_id)
+        if not isinstance(revision_id,str) or REVISION_ID_PATTERN.fullmatch(revision_id) is None:
+            raise ProjectError('agent_export_not_found','找不到匯出的剪輯版本。',status_code=404)
+        with self.repository.projects.connect(project_id) as db:
+            if db.execute('SELECT 1 FROM edit_agent_revisions WHERE revision_id=? AND run_id=?',(revision_id,run_id)).fetchone() is None:
+                raise ProjectError('agent_export_not_found','匯出不屬於這次剪輯。',status_code=404)
+        root=self.repository.projects.root/project_id/'agent-production'
+        path=root/run_id/'exports'/(revision_id+'.json')
+        if any(p.is_symlink() for p in (root,root/run_id,root/run_id/'exports',path)) or not path.is_file() or path.stat().st_size>8*1024*1024:
+            raise ProjectError('agent_export_not_found','匯出檔案遺失或不安全。',status_code=404)
+        return path
 
     def start(
         self,
@@ -98,8 +139,9 @@ class EditAgentCoordinator:
         request_id: object,
         consent: object,
         *,
-        max_tool_calls: int = 48,
+        max_tool_calls: int = 96,
         max_preview_renders: int = 4,
+        creative_direction: dict | None = None,
     ) -> AgentRun:
         if consent is not True:
             raise ProjectError(
@@ -118,6 +160,7 @@ class EditAgentCoordinator:
                 provider="codex",
                 max_tool_calls=max_tool_calls,
                 max_preview_renders=max_preview_renders,
+                creative_direction=creative_direction,
             )
             if not created:
                 return run

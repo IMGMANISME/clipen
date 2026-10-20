@@ -1,6 +1,7 @@
 import asyncio
 import json
 from pathlib import Path
+from unittest.mock import patch
 import tempfile
 import time
 import unittest
@@ -208,7 +209,7 @@ class EditAgentTests(unittest.TestCase):
         self.assertEqual(revision.ordinal, 0)
         self.assertEqual(revision.timeline, self.timeline)
         with self.projects.connect(self.project.project_id) as database:
-            self.assertEqual(database.execute("PRAGMA user_version").fetchone()[0], 15)
+            self.assertEqual(database.execute("PRAGMA user_version").fetchone()[0], 17)
 
     def test_tools_create_revisions_undo_and_finish_without_paths(self):
         run, tools = self.create_tools()
@@ -287,7 +288,8 @@ class EditAgentTests(unittest.TestCase):
             restored_timeline.tracks[0].items[0].effects[0].parameters,
             {"scale_from": 1.0, "scale_to": 1.08},
         )
-        final = tools.call("finish_edit", {"summary": "完成第一版旅行初剪"})
+        with patch('clipen.editing.production_preview.finish_review_status',return_value={'reviewed_revision':True}):
+            final = tools.call("finish_edit", {"summary": "完成第一版旅行初剪"})
         self.assertEqual(final.payload["state"], "succeeded")
         self.assertEqual(
             final.payload["final_revision_id"],
@@ -346,16 +348,16 @@ class EditAgentTests(unittest.TestCase):
             tools.call("finish_edit", {"summary": "base timeline is not a proof"})
         self.assertEqual(unfinished.exception.code, "style_proof_invalid")
 
-    def test_candidate_inspection_has_a_separate_token_safety_budget(self):
+    def test_candidate_inspection_uses_the_explicit_run_budget(self):
         _, tools = self.create_tools(calls=20)
-        for _ in range(10):
+        for _ in range(20):
             inspected = tools.call(
                 "inspect_clip", {"candidate_id": "candidate-street"}
             )
             self.assertEqual(inspected.payload["image_count"], 0)
         with self.assertRaises(ProjectError) as exhausted:
             tools.call("inspect_clip", {"candidate_id": "candidate-street"})
-        self.assertEqual(exhausted.exception.code, "inspection_budget_exhausted")
+        self.assertEqual(exhausted.exception.code, "tool_budget_exhausted")
 
     def test_tool_budget_interrupts_run(self):
         run, tools = self.create_tools(calls=1)
@@ -487,7 +489,7 @@ class EditAgentTests(unittest.TestCase):
             coordinator.close()
 
         self.assertEqual(latest["usage"]["output_tokens"], 30)
-        self.assertEqual(latest["budget"]["max_tool_calls"], 48)
+        self.assertEqual(latest["budget"]["max_tool_calls"], 96)
         self.assertEqual(status["result"]["revision_id"], latest["final_revision_id"])
         self.assertEqual(status["result"]["timeline"]["timeline_id"], self.timeline.timeline_id)
 
