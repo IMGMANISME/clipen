@@ -25,21 +25,27 @@ class EditAgentCoordinator:
         adapter_factory=None,
         queue_capacity: int = 4,
         local_runtime: tuple[Path, Path] | None = None,
+        provider_id: str = "codex",
     ) -> None:
         root = Path(attempt_root).resolve(strict=True)
         if not root.is_dir() or attempt_root.is_symlink():
             raise ValueError("editing attempt root must be a safe directory")
         if not 1 <= queue_capacity <= 16:
             raise ValueError("editing queue capacity is invalid")
+        from clipen.provider_registry import get_provider
+
+        self.provider = get_provider(provider_id)
+        if not self.provider.implemented:
+            raise ValueError(f"provider {provider_id} cannot edit yet")
         self.repository = repository
         self.local_runtime = local_runtime
         self.attempt_root = root
         if adapter_factory is None:
             # Import lazily so the provider can import the agent repository
             # without cycling back through clipen.editing.__init__.
-            from clipen.providers.codex_editing import CodexEditingAgent
+            from clipen.provider_registry import editing_agent_factory
 
-            adapter_factory = CodexEditingAgent
+            adapter_factory = editing_agent_factory(provider_id)
         self.adapter_factory = adapter_factory
         self._queue: queue.Queue[tuple[str, str] | None] = queue.Queue(queue_capacity)
         self._cancel: dict[tuple[str, str], threading.Event] = {}
@@ -189,7 +195,7 @@ class EditAgentCoordinator:
         if consent is not True:
             raise ProjectError(
                 "edit_agent_consent_required",
-                "請先同意使用 Codex 額度執行這次 AI 剪輯。",
+                f"請先同意使用 {self.provider.display_name} 額度執行這次 AI 剪輯。",
                 status_code=422,
             )
         with self._lock:
@@ -200,7 +206,7 @@ class EditAgentCoordinator:
             run, created = self.repository.create_run(
                 project_id,
                 request_id,
-                provider="codex",
+                provider=self.provider.provider_id,
                 max_tool_calls=max_tool_calls,
                 max_preview_renders=max_preview_renders,
                 creative_direction=creative_direction,
@@ -313,6 +319,13 @@ class EditAgentCoordinator:
                 with self._lock:
                     cancel = self._cancel[key]
                 if cancel.is_set():
+                    continue
+                if self.repository.get(*key).provider != self.provider.provider_id:
+                    # Never spend another provider's quota on a run the user
+                    # authorised for the provider it was created with.
+                    self.repository.record_provider_outcome(
+                        *key, "agent-mismatch-" + key[1].removeprefix("editrun_"),
+                        usage=None, error_code="provider_mismatch")
                     continue
                 adapter = self.adapter_factory(
                     self.repository.projects.root,

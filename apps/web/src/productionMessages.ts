@@ -2,23 +2,26 @@
 export type ProductionProblem = { title: string; reason: string; next: string }
 const problems: Record<string, ProductionProblem> = {
   provider_protocol_error: { title: 'AI 未正常完成製作流程', reason: 'AI 的回傳結果未能完成 Clipen 的交付流程。', next: '先確認保留的製作結果，再決定是否重新製作。' },
-  provider_usage_limit: { title: 'Codex 額度暫時不足', reason: '這次 AI 工作因用量限制而停止。', next: '確認 Codex 可用額度，待額度恢復後再建立新的製作工作。' },
-  provider_authentication_required: { title: 'Codex 需要重新登入', reason: 'AI 連線的登入狀態已失效。', next: '完成 Codex 登入並重啟 Clipen，再重新製作。' },
-  provider_network_error: { title: '與 AI 的連線中斷', reason: '這次工作未能維持與 Codex 的網路連線。', next: '確認網路恢復，再重新製作。' },
+  provider_usage_limit: { title: '{provider} 額度暫時不足', reason: '這次 AI 工作因用量限制而停止。', next: '確認 {provider} 可用額度，待額度恢復後再建立新的製作工作。' },
+  provider_authentication_required: { title: '{provider} 需要重新登入', reason: 'AI 連線的登入狀態已失效。', next: '完成 {provider} 登入並重啟 Clipen，再重新製作。' },
+  provider_network_error: { title: '與 AI 的連線中斷', reason: '這次工作未能維持與 {provider} 的網路連線。', next: '確認網路恢復，再重新製作。' },
   provider_timed_out: { title: 'AI 工作逾時', reason: '這次工作超過執行時間限制，尚未完成交付。', next: '草稿已保留，按「繼續這份草稿」接續製作。' },
   tool_budget_exhausted: { title: '這次製作尚未完成', reason: 'AI 已達這次工作允許的操作上限，並非影片已經完成。', next: '先查看保留的結果，試著縮小製作範圍後重新製作。' },
   preview_budget_exhausted: { title: '這次影片尚未完成', reason: 'AI 已達這次工作允許的預覽輸出上限。', next: '先查看目前預覽，再以明確的修改需求建立新工作。' },
-  provider_permission_error: { title: 'AI 無法執行需要的操作', reason: 'Codex 回報權限問題。', next: '查看詳細資訊與 Codex 的權限設定，處理後再重新製作。' },
-  provider_unavailable: { title: '目前無法使用 Codex', reason: 'Clipen 無法使用 AI 執行環境。', next: '確認 Codex 可以啟動，重啟 Clipen 後再試。' },
-  provider_launch_failed: { title: 'AI 工作未能啟動', reason: 'Clipen 啟動 AI 執行程序時失敗。', next: '確認 Codex 可以啟動，重啟 Clipen 後再試。' },
+  provider_permission_error: { title: 'AI 無法執行需要的操作', reason: '{provider} 回報權限問題。', next: '查看詳細資訊與 {provider} 的權限設定，處理後再重新製作。' },
+  provider_unavailable: { title: '目前無法使用 {provider}', reason: 'Clipen 無法使用 AI 執行環境。', next: '確認 {provider} 可以啟動，重啟 Clipen 後再試。' },
+  provider_launch_failed: { title: 'AI 工作未能啟動', reason: 'Clipen 啟動 AI 執行程序時失敗。', next: '確認 {provider} 可以啟動，重啟 Clipen 後再試。' },
+  provider_mismatch: { title: '這份工作屬於另一個 AI', reason: '這個工作是用其他 AI 建立的，Clipen 不會改用目前的 AI 接續。', next: '用建立它的 AI 重新啟動 Clipen 再繼續，或建立新的製作工作。' },
   controller_stopped: { title: 'Clipen 關閉時中斷了製作', reason: '上次關閉 Clipen 時，這個工作尚未完成。', next: '先檢查已保留的草稿；重新製作會建立另一個工作。' },
   controller_restarted: { title: '上次製作尚未完成', reason: 'Clipen 重新啟動時發現未結束的工作。', next: '先檢查已保留的草稿；重新製作會建立另一個工作。' },
   root_unavailable: { title: '讀不到素材磁碟', reason: '製作需要的來源資料夾目前無法存取。', next: '重新連接磁碟，回到素材頁確認位置並完成檢查。' },
   root_changed: { title: '素材位置已改變', reason: '原先授權的資料夾已改變。', next: '回到素材頁重新選擇資料夾並完成檢查。' },
   ffmpeg_unavailable: { title: '找不到影片處理工具', reason: '本機無法啟動 FFmpeg。', next: '確認 FFmpeg 已安裝並可使用，再重新製作。' },
 }
-export function productionProblem(code?: string | null): ProductionProblem {
-  return problems[code ?? ''] ?? { title: '這次製作尚未完成', reason: '目前資料不足以確認中斷原因。', next: '可以先查看保留的結果，或稍後重新製作。' }
+export function productionProblem(code?: string | null, provider = 'Codex'): ProductionProblem {
+  const problem = problems[code ?? ''] ?? { title: '這次製作尚未完成', reason: '目前資料不足以確認中斷原因。', next: '可以先查看保留的結果，或稍後重新製作。' }
+  const named = (text: string) => text.replaceAll('{provider}', provider)
+  return { title: named(problem.title), reason: named(problem.reason), next: named(problem.next) }
 }
 
 const issues: Record<string, string> = {

@@ -47,6 +47,7 @@ from clipen.rendering import (
     PreviewRenderService,
 )
 from clipen.providers import CodexExecAdapter, ProviderUnavailable
+from clipen.providers.claude import ClaudeCliAdapter
 from clipen.analysis.evidence_service import EvidenceService
 from clipen.finishing import FinishingService
 from clipen.annotations import AnnotationRepository
@@ -197,6 +198,21 @@ def probe_codex(attempt_root: Path) -> ProviderStatus:
             "Codex", ProviderState.CONFINEMENT_FAILED, "Codex 安全檢查未通過"
         )
     return ProviderStatus("Codex", ProviderState.READY, "AI 已連接，可以開始使用")
+
+
+def probe_claude(attempt_root: Path) -> ProviderStatus:
+    del attempt_root  # Claude attempts are confined by tool allowlists, not a sandbox canary.
+    try:
+        result = ClaudeCliAdapter().probe()
+    except ProviderUnavailable:
+        return ProviderStatus("Claude", ProviderState.UNAVAILABLE, "找不到可用的 Claude Code CLI", "claude")
+    except Exception:
+        return ProviderStatus("Claude", ProviderState.UNAVAILABLE, "Claude Code 檢查無法完成", "claude")
+    if not result.authenticated:
+        return ProviderStatus("Claude", ProviderState.LOGIN_REQUIRED, "需要先完成 Claude Code 登入", "claude")
+    if not result.supports_bounded_attempts:
+        return ProviderStatus("Claude", ProviderState.UNSUPPORTED, "Claude Code 版本需要更新", "claude")
+    return ProviderStatus("Claude", ProviderState.READY, "AI 已連接，可以開始使用", "claude")
 
 
 def _bind_socket(
@@ -380,6 +396,7 @@ async def _serve(
                 edit_agents = EditAgentCoordinator(
                     edit_agent_repository,
                     paths.attempt_root,
+                    provider_id=provider.provider_id,
                     local_runtime=(paths.attempt_root.parent, paths.asr_requirements) if paths.asr_requirements else None,
                 )
                 edit_agents.recover()

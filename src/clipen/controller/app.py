@@ -64,8 +64,16 @@ class ProviderStatus:
     name: str
     state: ProviderState
     message: str
+    provider_id: str = "codex"
+
+    @property
+    def legacy_workflows(self) -> bool:
+        from clipen.provider_registry import get_provider
+        return get_provider(self.provider_id).legacy_workflows
 
     def __post_init__(self) -> None:
+        from clipen.provider_registry import get_provider
+        get_provider(self.provider_id)
         if not self.name.strip() or len(self.name) > 80:
             raise ValueError("provider name must be non-empty and bounded")
         if not self.message.strip() or len(self.message) > 240:
@@ -334,9 +342,11 @@ def create_app(
             {
                 "product": {"name": "Clipen", "workspace": "local"},
                 "provider": {
+                    "id": provider.provider_id,
                     "name": provider.name,
                     "state": provider.state.value,
                     "message": provider.message,
+                    "legacy_workflows": provider.legacy_workflows,
                 },
                 "session": {"csrf_token": credentials.csrf_token},
             }
@@ -448,6 +458,16 @@ def create_app(
                 status_code=503,
             )
         return timeline_validations
+
+    def require_legacy_ai() -> None:
+        # Plan generation, thumbnail observation and two-pass finishing still
+        # call `codex exec` directly; other providers use the production agent.
+        if not provider.legacy_workflows:
+            raise ProjectError(
+                "provider_workflow_unsupported",
+                f"這個舊流程目前只支援 Codex；使用 {provider.name} 時請改用「AI 製作」。",
+                status_code=409,
+            )
 
     def require_planning() -> PlanningService:
         if planning_service is None:
@@ -825,6 +845,7 @@ def create_app(
     async def resume_finishing(request: Request) -> Response:
         try:
             require_fields(await read_json(request), set())
+            require_legacy_ai()
             return JSONResponse(await run_in_threadpool(require_finishing().resume, request.path_params["project_id"], request.path_params["run_id"]), status_code=202)
         except ProjectError as error:
             return await project_error_response(error)
@@ -1141,6 +1162,7 @@ def create_app(
                     "expected_context_hash",
                 },
             )
+            require_legacy_ai()
             run = await run_in_threadpool(
                 require_planning().start,
                 request.path_params["project_id"],
@@ -1302,6 +1324,7 @@ def create_app(
                 require_fields(payload, {"run_id"})
                 result = await run_in_threadpool(getattr(service, action), project_id, payload["run_id"])
             elif action == "observe":
+                require_legacy_ai()
                 require_fields(payload, {"run_id", "request_id", "item_key", "consent"})
                 result = await run_in_threadpool(service.observe, project_id, payload["run_id"], payload["request_id"], payload["item_key"], payload["consent"])
             else:
