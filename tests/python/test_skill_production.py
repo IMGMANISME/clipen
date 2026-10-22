@@ -530,6 +530,17 @@ class SkillProductionTests(unittest.TestCase):
             self.tools.call('remove_program_component',{'element_id':'dish-label','summary':'缺少版本與操作識別'})
         self.assertEqual(error.exception.code,'mutation_guard_required')
 
+    def test_every_mcp_tool_schema_is_valid_json_schema_2020_12(self):
+        # Claude's API rejects the whole request for one invalid tool schema.
+        from jsonschema import Draft202012Validator
+        from clipen.mcp_editing import EditingMcpServer
+        listed=EditingMcpServer(self.tools).handle({'jsonrpc':'2.0','id':1,'method':'tools/list'})['result']['tools']
+        for tool in listed:
+            with self.subTest(tool=tool['name']):
+                Draft202012Validator.check_schema(tool['inputSchema'])
+                required=tool['inputSchema'].get('required',[])
+                self.assertEqual(len(required),len(set(required)))
+
     def test_mcp_publishes_required_mutation_guards_and_frozen_skill_resources(self):
         from clipen.mcp_editing import EditingMcpServer
         server=EditingMcpServer(self.tools)

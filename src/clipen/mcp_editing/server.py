@@ -205,7 +205,10 @@ class EditingMcpServer:
             if hasattr(self.tools,'_session_value') and self.tools._session_value():
                 for entry in entries:
                     if entry['name'] in TIMELINE_MUTATIONS:
-                        entry['inputSchema'].setdefault('required',[]).extend(['expected_revision_id','mutation_id'])
+                        # Rebind instead of extending: tools may share one required
+                        # list, and duplicates make the schema invalid for strict providers.
+                        required=entry['inputSchema'].get('required',[])
+                        entry['inputSchema']['required']=required+[k for k in ('expected_revision_id','mutation_id') if k not in required]
             return self._result(identifier, {"tools": entries})
         if method == "tools/call":
             return self._call_tool(identifier, params)
