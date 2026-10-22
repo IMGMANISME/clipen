@@ -8,7 +8,7 @@ from clipen.projects import ProjectError
 def schema(name, description, properties=None, required=None):
     properties = properties or {}
     return {'name': name, 'description': description, 'inputSchema': {
-        'type':'object', 'properties':properties, 'required':list(properties) if required is None else required,
+        'type':'object', 'properties':properties, 'required':list(properties if required is None else required),
         'additionalProperties':False}}
 
 
