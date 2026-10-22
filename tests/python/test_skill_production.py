@@ -65,8 +65,12 @@ class SkillProductionTests(unittest.TestCase):
 
     def component(self, **overrides):
         args={'element_id':'dish-label','item_id':'agent-video-0001','component_id':'fact','start_offset_frames':6,
-              'duration_frames':45,'text':'招牌餐點','evidence':'本測試來源資訊標註','summary':'介紹餐點'}
+              'duration_frames':45,'text':'招牌餐點','detail':'菜單標示 980 円','evidence':'本測試來源資訊標註','summary':'介紹餐點'}
         args.update(overrides)
+        if args['component_id']!='fact' and 'detail' not in overrides:args.pop('detail')
+        # Production now requires an explicit placement; tests pick each component's designed spot.
+        spot=next((c['default_position'] for c in get_skill()['components'] if c['component_id']==args['component_id']),{'x':.06,'y':.12})
+        for axis in ('x','y'):args.setdefault(axis,spot[axis])
         return self.call('add_program_component',**args)
 
     def real_media(self):
@@ -624,6 +628,72 @@ class SkillProductionTests(unittest.TestCase):
         self.assertEqual(label.start_frame,96)
         self.call('restore_revision',revision_id=revision.revision_id,summary='還原')
         self.assertEqual(self.tools._timeline(),revision.timeline)
+
+    def add_subtitle(self,text,start_frame,duration_frames):
+        from dataclasses import replace
+        from clipen.domain import Track
+        timeline=self.tools._timeline()
+        caption=TextClip(f'subtitle-{start_frame}',start_frame,duration_frames,text,'title.caption')
+        existing=tuple(i for t in timeline.tracks if t.track_id=='agent-subtitles' for i in t.items)
+        tracks=tuple(t for t in timeline.tracks if t.track_id!='agent-subtitles')+(Track('agent-subtitles',TrackKind.TITLE,existing+(caption,)),)
+        self.tools._expected_revision_id=None
+        self.tools._save(replace(timeline,tracks=tracks),'測試字幕')
+
+    def test_components_need_a_chosen_place_real_information_and_a_short_beat(self):
+        self.cut()
+        def rejected(code,**args):
+            with self.assertRaises(ProjectError) as error:self.call('add_program_component',**{
+                'element_id':'probe','item_id':'agent-video-0001','start_offset_frames':6,'duration_frames':45,
+                'evidence':'測試來源','summary':'測試','x':.3,'y':.3,**args})
+            self.assertEqual(error.exception.code,code)
+        with self.assertRaises(ProjectError) as error:
+            self.call('add_program_component',element_id='probe',item_id='agent-video-0001',component_id='headline',
+                      start_offset_frames=6,duration_frames=45,text='意外的第三碗',evidence='測試來源',summary='未指定位置')
+        self.assertEqual(error.exception.code,'component_position_required')
+        rejected('component_fact_without_information',component_id='fact',text='熱熱上桌')
+        rejected('component_reaction_too_long',component_id='impact',text='有點難度',duration_frames=90)
+        self.component(element_id='price',text='拉麵 1200 円',x=.5,y=.12)
+        self.component(element_id='beat',component_id='impact',text='有點難度',duration_frames=45,start_offset_frames=60,x=.4,y=.3)
+        self.assertTrue(any(i.item_id=='beat' for t in self.tools._timeline().tracks for i in t.items))
+        # The user's own workbench edit is not second-guessed by the model's editorial rules.
+        self.repository.cancel(self.project.project_id,self.run.run_id)
+        self.tools._user_edit=True
+        try:self.call('add_program_component',element_id='mine',item_id='agent-video-0002',component_id='fact',start_offset_frames=6,
+                      duration_frames=45,text='熱熱上桌',evidence='使用者自己加入',summary='使用者標註')
+        finally:self.tools._user_edit=False
+        self.assertTrue(any(i.item_id=='mine' for t in self.tools._timeline().tracks for i in t.items))
+
+    def test_components_must_not_restate_concurrent_subtitles(self):
+        from clipen.editing.component_review import restated_ratio
+        self.assertEqual(restated_ratio('還有三顆蛋',['而且我還有三顆蛋哦。']),1)
+        self.assertLess(restated_ratio('兩個人，三碗麵？',['我們手滑點到了三碗拉麵']),.5)
+        self.cut()
+        self.add_subtitle('這是我們看的第一個不用錢的夜景。',0,60)
+        with self.assertRaises(ProjectError) as error:
+            self.component(element_id='copy',component_id='headline',text='不用錢的夜景',x=.08,y=.25)
+        self.assertEqual(error.exception.code,'component_restates_subtitle')
+        self.component(element_id='later',component_id='headline',text='第一次的夜景',start_offset_frames=70,duration_frames=40,x=.08,y=.25)
+        self.add_subtitle('第一次的夜景真的很漂亮',60,60)
+        validation=self.call('validate_sequence').payload
+        self.assertIn('component_restates_subtitle',[i['code'] for i in validation['delivery_issues']])
+
+    def test_design_notes_flag_template_rhythm_without_blocking(self):
+        from clipen.domain import Rational, Track
+        from clipen.editing.component_review import design_notes
+        timeline=EditTimeline('t','fresh-project',None,None,None,Rational(30,1),640,360,0,(Track('video-main',TrackKind.VIDEO,()),),production_session_id='s')
+        items=[TextClip(f'c{n}',n*300,120,text,f's{n}') for n,text in enumerate(['熱熱上桌','選擇，從細節開始','親手試一試','接下來，交給店員'])]
+        styles={f's{n}':{'component_id':'fact','x':.07,'y':.1+n*.005} for n in range(4)}
+        codes=[n['code'] for n in design_notes(timeline,items,styles)]
+        self.assertIn('component_position_repeated',codes)
+        self.assertIn('component_duration_uniform',codes)
+        self.assertEqual(codes.count('component_parallel_phrasing'),2)
+        varied=[TextClip(f'c{n}',n*300,d,'拉麵 1200 円',f's{n}') for n,d in enumerate((30,45,90,150))]
+        spread={f's{n}':{'component_id':'fact','x':x,'y':y} for n,(x,y) in enumerate(((.07,.1),(.5,.4),(.2,.6),(.6,.1)))}
+        self.assertEqual(design_notes(timeline,varied,spread),[])
+        self.cut();self.component()
+        validation=self.call('validate_sequence').payload
+        self.assertIn('design_notes',validation)
+        self.assertFalse(any(i['code'].startswith('component_') and i['code']!='component_restates_subtitle' for i in validation['issues']))
 
     def test_component_safety_and_actual_layout_overflow(self):
         self.cut()

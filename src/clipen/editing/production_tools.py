@@ -459,10 +459,11 @@ class ProductionTools:
         issues=validate_production_timeline(self._timeline(),max_texts=limits_for(self).titles)
         if self._session_value() and self._video().items and not valid_production(self,self._timeline()):issues.append({'code':'production_limits_exceeded'})
         component_issues=self._component_issues()
-        issues+=[i for i in component_issues if i['code']!='program_component_collision']
+        content_codes={'program_component_collision','component_restates_subtitle'}
+        issues+=[i for i in component_issues if i['code'] not in content_codes]
         from .program_direction import direction_issues
         delivery_issues=direction_issues(self)
-        delivery_issues+=[i for i in component_issues if i['code']=='program_component_collision']
+        delivery_issues+=[i for i in component_issues if i['code'] in content_codes]
         from .production_requirements import requirement_issues
         delivery_issues+=requirement_issues(self)
         if self._session_value() and not any(t.items for t in self._timeline().tracks if (t.track_id=='program-components' or t.track_id.startswith('program-components-'))):
@@ -536,7 +537,7 @@ class ProductionTools:
                         except ProjectError as error:issues.append({'code':error.code,'layer_id':layer['layer_id']})
         from .production_requirements import production_contents
         validation={'valid':not issues,'issues':issues,'render_issues':[i for i in issues if i not in delivery_issues],
-                    'delivery_issues':delivery_issues,'production_contents':production_contents(self.repository.projects,self.project_id,self._timeline()),'revision_id':self.repository.current_revision(self.project_id,self.run_id).revision_id,'render_review':finish_review_status(self),'aesthetic_review':'not performed'}
+                    'delivery_issues':delivery_issues,'design_notes':self._component_design_notes(),'production_contents':production_contents(self.repository.projects,self.project_id,self._timeline()),'revision_id':self.repository.current_revision(self.project_id,self.run_id).revision_id,'render_review':finish_review_status(self),'aesthetic_review':'not performed'}
         from .production_preview import _event
         _event(self,'sequence_validation',{k:validation[k] for k in ('revision_id','valid','issues','render_issues','delivery_issues')})
         return ToolResult(validation)

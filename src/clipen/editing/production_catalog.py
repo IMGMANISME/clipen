@@ -118,8 +118,11 @@ COMPONENT_FIELDS = {
     "component_id": {"enum": ["location", "person", "fact", "pointer", "circle", "reaction", "program_title", "headline", "impact", "chapter", "burst"]},
     "start_offset_frames": FRAME, "duration_frames": LENGTH,
     "text": {"type": "string", "minLength": 1, "maxLength": 48},
-    "detail": {"type":"string","minLength":1,"maxLength":48,"description":"Optional grounded secondary line, e.g. the observed price or person's role."},
-    "evidence": TEXT, "x": UNIT, "y": UNIT, "target": TARGET, **SUMMARY,
+    "detail": {"type":"string","minLength":1,"maxLength":48,"description":"Grounded secondary line, e.g. the observed price or person's role. Required for fact unless the text itself has a number or price."},
+    "evidence": TEXT,
+    "x": {**UNIT, "description": "Required when adding. Chosen after looking at this shot: keep faces, hands, food and action clear; do not reuse one corner for every graphic."},
+    "y": {**UNIT, "description": "Required when adding. See x."},
+    "target": TARGET, **SUMMARY,
 }
 COMPONENT_REQUIRED = [key for key in COMPONENT_FIELDS if key not in {"x", "y", "target", "detail", "visual_style_id", "font_style_id"}]
 SKILL_TOOLS = (
@@ -127,7 +130,7 @@ SKILL_TOOLS = (
     schema("read_production_skill", "Read one resource from the skill version frozen for this session. Start with SKILL.md, then load relevant references.",
            {"resource": {"type": "string", "maxLength": 120}}, []),
     schema("list_program_components", "Read executable components, visual presets, exact tool parameters and limitations for the selected skill."),
-    schema("add_program_component", "Add a purposeful in-picture programme graphic, anchored to a shot and bound to this skill. Not an independent title card. Positions are normalized canvas coordinates. Provide real source evidence; inspect faces/targets yourself.", COMPONENT_FIELDS, COMPONENT_REQUIRED),
+    schema("add_program_component", "Add a purposeful in-picture programme graphic, anchored to a shot and bound to this skill. Not an independent title card. Positions are normalized canvas coordinates. Provide real source evidence; inspect faces/targets yourself. Add only where a moment needs it: never restate the concurrent subtitle or describe what is already visible; reaction/impact/burst land on the reaction beat for at most 2 seconds.", COMPONENT_FIELDS, COMPONENT_REQUIRED),
     schema("update_program_component", "Replace the settings of an existing programme graphic; preserves its identity and supports exact revision undo.", COMPONENT_FIELDS, COMPONENT_REQUIRED),
     schema("restyle_program_components", "Restyle all existing programme graphics or selected element IDs using one visual style frozen in the session. Optional font_style_id changes the type pairing independently. Keeps text, timing, anchors, cuts, captions and music. Does not change the default for future additions; pass visual_style_id when adding new graphics.",
            {"font_style_id":{"enum":["default","japanese","street","travel","handwriting","calligraphy"]},"visual_style_id":ID,"element_ids":{"type":"array","minItems":1,"maxItems":128,"uniqueItems":True,"items":ID},**SUMMARY}, ["visual_style_id","summary"]),
