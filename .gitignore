@@ -12,9 +12,13 @@ node_modules/
 AGENTS.md
 CLAUDE.md
 /docs/
-/src/clipen/editing/*.md
 /skills/dev/
 /skills/development/
+
+# Documentation stays local; only video-editing Skill Markdown is published
+*.md
+!/src/clipen/skills/**/*.md
+!/resources/system-skills/**/*.md
 
 # Build and tool caches
 __pycache__/
