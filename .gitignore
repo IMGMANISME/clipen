@@ -42,6 +42,7 @@ coverage/
 
 # Source media, generated media, and local project output
 *.mp4
+!src/clipen/skills/travel-program/assets/sample-*.mp4
 *.mov
 *.m4v
 *.mkv

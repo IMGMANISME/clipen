@@ -1,0 +1,20 @@
+{
+  "chenyu": {
+    "file": "chenyu.ttf",
+    "license_file": "chenyu-OFL.txt",
+    "source_url": "https://github.com/Chenyu-otf/chenyuluoyan_thin",
+    "download_url": "https://raw.githubusercontent.com/Chenyu-otf/chenyuluoyan_thin/6e36815b0bec9f4f948298698d00b27a5f0b65c1/ChenYuluoyan-Thin-Monospaced.ttf",
+    "revision": "6e36815b0bec9f4f948298698d00b27a5f0b65c1",
+    "sha256": "d8ecd0598634c92f0b29f90aabef8f7916f17aef19b0350883ca7b46979a5373",
+    "license": "OFL-1.1"
+  },
+  "iansui": {
+    "file": "iansui.ttf",
+    "license_file": "iansui-OFL.txt",
+    "source_url": "https://github.com/ButTaiwan/iansui",
+    "download_url": "https://raw.githubusercontent.com/ButTaiwan/iansui/9d9a8e68bf1e138dd91e562eeff28d95bca33196/fonts/ttf/Iansui-Regular.ttf",
+    "revision": "9d9a8e68bf1e138dd91e562eeff28d95bca33196",
+    "sha256": "7f1aa62e9dcbf40d0ce41a5d3f1e5ea602e66c295778ac6fefb6b84d8ed08bd5",
+    "license": "OFL-1.1"
+  }
+}

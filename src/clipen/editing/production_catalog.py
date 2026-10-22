@@ -52,9 +52,10 @@ EXTRA_TOOLS=(
         {'candidate_ids':{'type':'array','items':ID,'minItems':1,'maxItems':3,'uniqueItems':True}}),
  schema('inspect_cut','Inspect start/middle/end of up to three current shots in one call, with exact source ranges, speech repair spans and overlapping text. Omit render_id to inspect sources before decorating; provide render_id for rendered review. All shots and text must be covered before finish.',
         {'item_ids':{'type':'array','items':ID,'minItems':1,'maxItems':3,'uniqueItems':True},'render_id':ID},['item_ids']),
+ schema('inspect_pacing','Inspect actual source continuity across the current timeline. Adjacent pieces of the same take are grouped even when split; use this to find prolonged stretches to review. This does not decide whether a scene is interesting.'),
  schema('review_cut','Save an editorial assessment of the exact current revision after inspecting every rendered shot. Keep specific unresolved problems as revise/matches=false; these block finish. This is a model assessment, not human approval.',
-        {'shots':{'type':'array','maxItems':30,'items':{'type':'object','properties':{'item_id':ID,'observation':TEXT,'decision':{'enum':['keep','revise']}},'required':['item_id','observation','decision'],'additionalProperties':False}},
-         'text_checks':{'type':'array','maxItems':96,'items':{'type':'object','properties':{'item_id':ID,'evidence':TEXT,'matches':{'type':'boolean'}},'required':['item_id','evidence','matches'],'additionalProperties':False}},
+        {'shots':{'type':'array','maxItems':180,'items':{'type':'object','properties':{'item_id':ID,'observation':TEXT,'decision':{'enum':['keep','revise']}},'required':['item_id','observation','decision'],'additionalProperties':False}},
+         'text_checks':{'type':'array','maxItems':960,'items':{'type':'object','properties':{'item_id':ID,'evidence':TEXT,'matches':{'type':'boolean'}},'required':['item_id','evidence','matches'],'additionalProperties':False}},
          'story_assessment':TEXT,'audio_limitations':TEXT}),
  schema('replace_clip_source','Replace one shot with an exact inventoried source span, including expansion to a complete utterance returned by list_transcripts. Reflows the timeline and invalidates overlays. Does not restrict selection to earlier candidate windows.',
         {'item_id':ID,'source':{'type':'object','properties':{'version_id':ID,'stream_index':{'type':'integer','minimum':0},'start_pts':{'type':'string','pattern':'^-?[0-9]+$'},'end_pts':{'type':'string','pattern':'^-?[0-9]+$'},'time_base':{'type':'object','properties':{'num':{'type':'integer','minimum':1},'den':{'type':'integer','minimum':1}},'required':['num','den'],'additionalProperties':False}},'required':['version_id','stream_index','start_pts','end_pts','time_base'],'additionalProperties':False},**SUMMARY}),
@@ -62,7 +63,7 @@ EXTRA_TOOLS=(
         {'item_id':ID,'start_offset_frames':FRAME,'duration_frames':LENGTH,'text':TEXT,'evidence':TEXT,'style_id':{'enum':['title.default','title.chapter','title.caption']},**SUMMARY}),
  schema('list_transcripts','Read complete source utterances remapped to the current cut, or a candidate before cutting. include_drafts explicitly exposes low-confidence ASR as unverified draft cues, not human-approved speech.',{'candidate_id':ID,'include_drafts':{'type':'boolean'}},[]),
  schema('replace_subtitles','Replace the editable subtitle track using returned cue IDs and faithful text; [] removes subtitles. source_excerpt selects an exact character range [start,end) in the source cue, with estimated timing, to omit uncertain ASR without inventing replacement speech. Omit unreliable cues entirely when needed; original audio is preserved.',
-        {'captions':{'type':'array','items':{'type':'object','properties':{'cue_id':ID,'text':TEXT,'source_excerpt':{'type':'object','properties':{'start':{'type':'integer','minimum':0,'maximum':500},'end':{'type':'integer','minimum':1,'maximum':500}},'required':['start','end'],'additionalProperties':False},'delivery':{'enum':['dialogue','punchline','quiet']},'emphasis':{'type':'array','items':{'type':'string','minLength':1,'maxLength':16},'maxItems':4,'uniqueItems':True}},'required':['cue_id','text'],'additionalProperties':False},'maxItems':96},'allow_asr_draft':{'type':'boolean'},**SUMMARY},['captions','summary']),
+        {'captions':{'type':'array','items':{'type':'object','properties':{'cue_id':ID,'text':TEXT,'source_excerpt':{'type':'object','properties':{'start':{'type':'integer','minimum':0,'maximum':500},'end':{'type':'integer','minimum':1,'maximum':500}},'required':['start','end'],'additionalProperties':False},'delivery':{'enum':['dialogue','punchline','quiet']},'emphasis':{'type':'array','items':{'type':'string','minLength':1,'maxLength':16},'maxItems':4,'uniqueItems':True}},'required':['cue_id','text'],'additionalProperties':False},'maxItems':960},'allow_asr_draft':{'type':'boolean'},**SUMMARY},['captions','summary']),
  schema('edit_text','Revise one existing title/caption, its style and timing.',{'item_id':ID,**SPAN,'text':TEXT,'style_id':{'enum':['title.default','title.chapter','title.caption']},**SUMMARY}),
  schema('configure_text_style','Set editable text size, position, wrapping width, alignment and colors on one title/subtitle. Coordinates refer to the full output canvas.',
         {'item_id':ID,'font_size_ratio':{'type':'number','minimum':0.015,'maximum':0.15},'x':UNIT,'y':UNIT,
@@ -73,7 +74,7 @@ EXTRA_TOOLS=(
  schema('trim_clip','Trim within the current source span, close the gap, and invalidate overlays/audio placements whose timing changed.',
         {'item_id':ID,'start_offset_frames':FRAME,'duration_frames':LENGTH,**SUMMARY}),
  schema('reorder_clips','Reorder all video item IDs exactly once. Clears overlays and audio placements; inspect and reapply them against the new cut.',
-        {'item_ids':{'type':'array','items':ID,'minItems':1,'maxItems':30},**SUMMARY}),
+        {'item_ids':{'type':'array','items':ID,'minItems':1,'maxItems':180},**SUMMARY}),
  schema('split_clip','Split a video clip at a relative frame. Existing effects/placements on that clip are cleared for explicit reapplication.',
         {'item_id':ID,'offset_frames':LENGTH,**SUMMARY}),
  schema('insert_clip','Insert a precisely trimmed candidate before a video item, or at end when before_item_id is null. Invalidates overlays.',
@@ -112,13 +113,15 @@ TARGET = {"type": "object", "properties": {"x": UNIT, "y": UNIT,
           "required": ["x", "y", "radius"], "additionalProperties": False}
 COMPONENT_FIELDS = {
     "element_id": ID, "item_id": ID,
-    "component_id": {"enum": ["location", "person", "fact", "pointer", "circle", "reaction"]},
+    "font_style_id": {"enum":["default","japanese","street","travel","handwriting","calligraphy"]},
+    "visual_style_id": ID,
+    "component_id": {"enum": ["location", "person", "fact", "pointer", "circle", "reaction", "program_title", "headline", "impact", "chapter", "burst"]},
     "start_offset_frames": FRAME, "duration_frames": LENGTH,
     "text": {"type": "string", "minLength": 1, "maxLength": 48},
     "detail": {"type":"string","minLength":1,"maxLength":48,"description":"Optional grounded secondary line, e.g. the observed price or person's role."},
     "evidence": TEXT, "x": UNIT, "y": UNIT, "target": TARGET, **SUMMARY,
 }
-COMPONENT_REQUIRED = [key for key in COMPONENT_FIELDS if key not in {"x", "y", "target", "detail"}]
+COMPONENT_REQUIRED = [key for key in COMPONENT_FIELDS if key not in {"x", "y", "target", "detail", "visual_style_id", "font_style_id"}]
 SKILL_TOOLS = (
     schema("list_production_skills", "List bundled production skills; selecting one never analyzes or uploads footage."),
     schema("read_production_skill", "Read one resource from the skill version frozen for this session. Start with SKILL.md, then load relevant references.",
@@ -126,6 +129,8 @@ SKILL_TOOLS = (
     schema("list_program_components", "Read executable components, visual presets, exact tool parameters and limitations for the selected skill."),
     schema("add_program_component", "Add a purposeful in-picture programme graphic, anchored to a shot and bound to this skill. Not an independent title card. Positions are normalized canvas coordinates. Provide real source evidence; inspect faces/targets yourself.", COMPONENT_FIELDS, COMPONENT_REQUIRED),
     schema("update_program_component", "Replace the settings of an existing programme graphic; preserves its identity and supports exact revision undo.", COMPONENT_FIELDS, COMPONENT_REQUIRED),
+    schema("restyle_program_components", "Restyle all existing programme graphics or selected element IDs using one visual style frozen in the session. Optional font_style_id changes the type pairing independently. Keeps text, timing, anchors, cuts, captions and music. Does not change the default for future additions; pass visual_style_id when adding new graphics.",
+           {"font_style_id":{"enum":["default","japanese","street","travel","handwriting","calligraphy"]},"visual_style_id":ID,"element_ids":{"type":"array","minItems":1,"maxItems":128,"uniqueItems":True,"items":ID},**SUMMARY}, ["visual_style_id","summary"]),
     schema("remove_program_component", "Remove one programme graphic without changing the cut, captions or music.", {"element_id": ID, **SUMMARY}),
 )
 

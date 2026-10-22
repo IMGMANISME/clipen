@@ -64,7 +64,8 @@ def make_subtitle_items(tools,cue,row):
                             'skill_hash':skill['content_hash']})
         identifier='agent.text.'+digest(profile)[:24];styles[identifier]=profile
         items.append(TextClip('subtitle-'+cue['cue_id']+'-'+str(n),start,end-start,text[left:right],identifier))
-    if len(styles)>256:raise ProjectError('agent_input_invalid','自訂字幕樣式索引超過上限。',status_code=422)
+    from .production_limits import limits_for
+    if len(styles)>max(256,limits_for(tools).titles*2):raise ProjectError('agent_input_invalid','自訂字幕樣式索引超過上限。',status_code=422)
     atomic_json(text_style_path(tools.repository.projects,tools.project_id),styles)
     return items
 
@@ -103,7 +104,20 @@ def aligned_pages(cue, text, excerpt, pages, fps=30):
         if last<=first:
             raise ProjectError('subtitle_too_short','對齊字詞不足一格，請調整分句。',status_code=422)
         result.append((previous,end,first,last));previous=end;previous_count=count
-    return result
+    # Word evidence can put pauses inside a short phrase (我 / 們, 伴手 / 禮).
+    # Join tiny pages using the existing first/last word boundaries; no word
+    # timestamps are stretched or estimated, and long pauses remain separate.
+    merged=[]
+    for current in result:
+        if merged:
+            before=merged[-1]
+            short=min(len(significant(text[before[0]:before[1]])),len(significant(text[current[0]:current[1]])))<=5
+            sentence_end=text[before[0]:before[1]].rstrip().endswith(('。','！','？','!','?','.'))
+            tiny_reply=len(significant(text[current[0]:current[1]]))<=1
+            if short and (not sentence_end or tiny_reply) and current[2]-before[3]<1.5*fps and len(significant(text[before[0]:current[1]]))<=18:
+                merged[-1]=(before[0],current[1],before[2],current[3]);continue
+        merged.append(current)
+    return merged
 
 
 def subtitle_status(projects,project_id,timeline):
@@ -111,7 +125,11 @@ def subtitle_status(projects,project_id,timeline):
     styles=load_text_styles(projects,project_id)
     items=[i for t in timeline.tracks if t.kind is TrackKind.TITLE and t.track_id=='agent-subtitles' for i in t.items]
     drafts=[i.item_id for i in items if styles.get(i.style_id,{}).get('verification')=='asr_draft']
-    unaligned=[i.item_id for i in items if styles.get(i.style_id,{}).get('timing_basis')!='forced_alignment']
+    aligned=[i.item_id for i in items if styles.get(i.style_id,{}).get('timing_basis')=='forced_alignment']
+    manual=[i.item_id for i in items if styles.get(i.style_id,{}).get('timing_basis')=='user_adjusted']
+    timed=set(aligned+manual)
+    unaligned=[i.item_id for i in items if i.item_id not in timed]
     return {'count':len(items),'draft_count':len(drafts),'draft_item_ids':drafts,
-        'unaligned_item_ids':unaligned,'aligned_count':len(items)-len(unaligned),
+        'unaligned_item_ids':unaligned,'aligned_count':len(aligned),
+        'manual_timing_item_ids':manual,'manual_timing_count':len(manual),
         'audio_listened':False,'review_scope':'Source-linked draft captions are not human-verified transcription.'}

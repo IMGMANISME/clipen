@@ -46,7 +46,8 @@ class EditAgentCoordinator:
         self._projects: set[str] = set()
         self._worker: threading.Thread | None = None
         self._closed = False
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
+        self._user_previews = {}
 
     def recover(self) -> int:
         recovered = 0
@@ -119,25 +120,31 @@ class EditAgentCoordinator:
                 from clipen.rendering import PreviewRenderRepository
                 with self.repository.projects.connect(project_id) as db:
                     previews = db.execute("SELECT payload_json FROM edit_agent_events WHERE run_id=? AND event_type='production_preview' ORDER BY sequence DESC LIMIT 1", (latest.run_id,)).fetchone()
+                    successful_preview = db.execute("SELECT e.payload_json FROM edit_agent_events e JOIN preview_renders p ON p.render_id=json_extract(e.payload_json,'$.render_id') AND p.project_id=? WHERE e.run_id=? AND e.event_type='production_preview' AND p.state='succeeded' ORDER BY e.sequence DESC LIMIT 1",(project_id,latest.run_id)).fetchone()
                     checks = db.execute("SELECT payload_json FROM edit_agent_events WHERE run_id=? AND event_type='sequence_validation' ORDER BY sequence DESC LIMIT 30",(latest.run_id,)).fetchall()
                     jobs = db.execute("SELECT job_id,kind,state,error_code,result_json FROM production_evidence_jobs WHERE run_id=? ORDER BY rowid DESC LIMIT 10",(latest.run_id,)).fetchall()
+                    from .production_progress import production_activity
+                    progress = production_activity(db, latest.run_id)
                 validation=next((value for row in checks if (value:=json.loads(row['payload_json']))['revision_id']==draft.revision_id),None)
                 local_jobs=[]
                 for row in jobs:
                     value=json.loads(row['result_json']) if row['result_json'] else {}
                     local_jobs.append({k:row[k] for k in ('job_id','kind','state','error_code')} |
                                       {k:value[k] for k in ('phase','completed_bytes','total_bytes') if k in value})
-                preview = None
-                if previews:
-                    entry = json.loads(previews['payload_json'])
-                    from .production_preview import render_recipe_id
-                    preview = {**PreviewRenderRepository(self.repository.projects).get(project_id, entry['render_id']),
-                               'revision_id': entry['revision_id'], 'stale': entry['revision_id'] != draft.revision_id or entry.get('recipe_id')!=render_recipe_id(),
+                from .production_preview import render_recipe_id
+                recipe_id=render_recipe_id()
+                def preview_value(row):
+                    if row is None:return None
+                    entry=json.loads(row['payload_json'])
+                    return {**PreviewRenderRepository(self.repository.projects).get(project_id, entry['render_id']),
+                               'revision_id': entry['revision_id'], 'stale': entry['revision_id'] != draft.revision_id or entry.get('recipe_id')!=recipe_id,
                                'media_url': f"/api/projects/{project_id}/preview/{entry['render_id']}/media"}
-                production = {'intent': session['intent'], 'skill': {k: session['skill'][k] for k in ('skill_id','name','version','content_hash','limitations')},
-                              'draft': draft.to_public(include_timeline=True), 'preview': preview,'validation':validation,'local_jobs':local_jobs,
+                preview=preview_value(previews)
+                last_successful_preview=preview_value(successful_preview)
+                production = {'intent': session['intent'], 'skill': {k: session['skill'][k] for k in ('skill_id','name','version','content_hash','limitations','selected_visual_style_id','selected_font_style_id') if k in session['skill']},
+                              'draft': draft.to_public(include_timeline=True), 'preview': preview,'last_successful_preview':last_successful_preview,'validation':validation,'local_jobs':local_jobs,
                               'production_contents':production_contents(self.repository.projects,project_id,draft.timeline),
-                              'export_url':self._export_url(project_id,latest.run_id,draft.revision_id)}
+                              'export_url':self._export_url(project_id,latest.run_id,draft.revision_id), 'progress':progress}
         return {
             "latest_run": None if latest is None else latest.to_public(),
             "result": result,
@@ -214,6 +221,52 @@ class EditAgentCoordinator:
                 self._worker.start()
         return run
 
+    def refine(self, project_id, run_id, request_id, expected_revision_id, instruction, consent, music_asset_id=None, expected_references_version=None):
+        if consent is not True:raise ProjectError('edit_agent_consent_required','請同意使用 Codex 額度修改影片。',status_code=422)
+        with self._lock:
+            key=(project_id,run_id)
+            if self._closed or self._queue.full() or key in self._cancel:
+                raise ProjectError('edit_agent_busy','AI 製作仍在執行，請稍後再試。',status_code=409)
+            run,created=self.repository.request_refinement(project_id,run_id,request_id,expected_revision_id,instruction,music_asset_id,expected_references_version)
+            if not created:return run
+            self._projects.add(project_id);self._cancel[key]=threading.Event();self._queue.put_nowait(key)
+            if self._worker is None:
+                self._worker=threading.Thread(target=self._loop,name='clipen-edit-agent',daemon=True);self._worker.start()
+            return run
+
+    def workbench_edit(self, project_id, run_id, tool, arguments, expected_revision_id, mutation_id):
+        from .workbench import edit
+        with self._lock:
+            return edit(self.repository,project_id,run_id,tool,arguments,expected_revision_id,mutation_id)
+
+    def workbench_render(self, project_id, run_id, expected_revision_id):
+        from .workbench import idle, tools_for
+        with self._lock:
+            run=idle(self.repository,project_id,run_id)
+            if run.current_revision_id!=expected_revision_id:raise ProjectError('revision_conflict','影片已更新，請重新讀取。',status_code=409)
+            key=(project_id,run_id)
+            tools=self._user_previews.get(key)
+            if tools is None:
+                tools=tools_for(self.repository,project_id,run_id);self._user_previews[key]=tools
+            if hasattr(tools,'_session_cache'):del tools._session_cache
+            return tools.production_call('render_preview',{}).payload
+
+    def resume(self, project_id: str, run_id: str, consent: object) -> AgentRun:
+        if consent is not True:
+            raise ProjectError('edit_agent_consent_required', '請同意接續使用 Codex 額度。', status_code=422)
+        with self._lock:
+            key = (project_id, run_id)
+            if self._closed or self._queue.full() or key in self._cancel:
+                raise ProjectError('edit_agent_busy', '製作工作仍在結束或佇列已滿，請稍後再試。', status_code=409)
+            run = self.repository.resume_timed_out(project_id, run_id)
+            self._projects.add(project_id)
+            self._cancel[key] = threading.Event()
+            self._queue.put_nowait(key)
+            if self._worker is None:
+                self._worker = threading.Thread(target=self._loop, name='clipen-edit-agent', daemon=True)
+                self._worker.start()
+            return run
+
     def cancel(self, project_id: str, run_id: str) -> AgentRun:
         with self._lock:
             run = self.repository.cancel(project_id, run_id)
@@ -223,6 +276,7 @@ class EditAgentCoordinator:
             return run
 
     def close(self, timeout: float = 15) -> None:
+        for tools in self._user_previews.values():tools.close_production()
         with self._lock:
             if self._closed:
                 return

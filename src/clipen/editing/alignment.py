@@ -21,6 +21,26 @@ def significant(text):
 def validate_alignment(words, text, duration):
     if not isinstance(words, list) or not 1 <= len(words) <= 1000:
         raise ProjectError('alignment_invalid', '對齊結果沒有有效字詞。', status_code=422)
+    # Quantized aligners can emit a zero-width token exactly at an adjacent
+    # word boundary. Keep the observed interval as a grouped word; never assign
+    # an invented duration to the individual character or bridge an unknown gap.
+    grouped=[];pending=[]
+    for raw in words:
+        word=dict(raw);start,end=word.get('start'),word.get('end')
+        if not significant(word.get('text','')):continue
+        finite=all(not isinstance(v,bool) and isinstance(v,(int,float)) and math.isfinite(v) for v in (start,end))
+        zero=finite and 0<=start==end<=duration
+        if zero and grouped and grouped[-1].get('end')==start and grouped[-1].get('start',start)<start and not pending:
+            grouped[-1]['text']+=word['text']
+        elif zero:
+            pending.append(word)
+        else:
+            if pending and finite and start<end and all(w['end']==start for w in pending):
+                word['text']=''.join(w['text'] for w in pending)+word['text']
+            else:
+                grouped.extend(pending)
+            pending=[];grouped.append(word)
+    words=grouped+pending
     positions = [(index, significant(character)) for index, character in enumerate(text) if significant(character)]
     normalized = ''.join(char for _, char in positions)
     # Require a stable one-to-one character normalization. Do not silently assign

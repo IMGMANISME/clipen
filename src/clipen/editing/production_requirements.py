@@ -33,7 +33,10 @@ def requirement_issues(tools):
     required=direction.get('production_requirements',{})
     if not any(required.values()):return []
     contents=production_contents(tools.repository.projects,tools.project_id,tools._timeline());issues=[]
-    if required.get('music') and not any(m['role']=='music' and m['licensed'] and m['duration_seconds']>0 and m['gain_db']>-60 for m in contents['music']):
+    choice=(tools._session_value() or {}).get('intent',{}).get('music_choice')
+    if choice and choice.get('mode')=='user' and any(m['role']=='music' and m.get('asset_id')!=choice['asset_id'] for m in contents['music']):
+        issues.append({'code':'user_music_mismatch','message':'請使用使用者指定的配樂，不可替換成其他曲目。'})
+    if required.get('music') and not any(m['role']=='music' and (m['licensed'] or (choice and m.get('asset_id')==choice['asset_id'])) and m['duration_seconds']>0 and m['gain_db']>-60 for m in contents['music']):
         issues.append({'code':'production_music_required','message':'使用者要求配樂。請搜尋或選擇有作者、來源與授權的公開音樂，實際用 place_audio 放入並調整音量／人聲壓低；只有原音或讀取曲目清單不算完成。'})
     if required.get('transitions') and not contents['transitions']:
         issues.append({'code':'production_transition_required','message':'使用者要求轉場。請在有敘事用途的剪點使用 set_transition；只有片尾淡出不算剪點轉場。'})

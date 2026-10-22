@@ -1,0 +1,150 @@
+[
+  {
+    "font_style_id": "default",
+    "name": "跟隨畫面風格",
+    "description": "使用模板原有字體搭配。",
+    "roles": {}
+  },
+  {
+    "font_style_id": "japanese",
+    "name": "日系綜藝",
+    "description": "厚黑主標、強烈重點字，資訊維持清晰黑體。",
+    "roles": {
+      "title": {
+        "family": "gothic",
+        "weight": "bold",
+        "outline_em": 0.11
+      },
+      "impact": {
+        "family": "gothic",
+        "weight": "bold",
+        "outline_em": 0.11
+      },
+      "information": {
+        "family": "sans",
+        "weight": "medium"
+      },
+      "detail": {
+        "family": "sans",
+        "weight": "regular"
+      }
+    },
+    "preview_resource": "assets/font-japanese.png"
+  },
+  {
+    "font_style_id": "street",
+    "name": "潮流雜誌",
+    "description": "粗明體主標搭配俐落黑體，營造字體對比。",
+    "roles": {
+      "title": {
+        "family": "serif",
+        "weight": "bold",
+        "outline_em": 0.025
+      },
+      "impact": {
+        "family": "sans",
+        "weight": "bold",
+        "outline_em": 0.025
+      },
+      "information": {
+        "family": "sans",
+        "weight": "medium"
+      },
+      "detail": {
+        "family": "sans",
+        "weight": "regular"
+      }
+    },
+    "preview_resource": "assets/font-street.png"
+  },
+  {
+    "font_style_id": "travel",
+    "name": "質感旅遊",
+    "description": "細明體主標、常規明體重點字，搭配易讀資訊黑體。",
+    "roles": {
+      "title": {
+        "family": "serif",
+        "weight": "light",
+        "outline_em": 0.018
+      },
+      "impact": {
+        "family": "serif",
+        "weight": "regular",
+        "outline_em": 0.018
+      },
+      "information": {
+        "family": "sans",
+        "weight": "regular"
+      },
+      "detail": {
+        "family": "sans",
+        "weight": "regular"
+      }
+    },
+    "preview_resource": "assets/font-travel.png"
+  },
+  {
+    "font_style_id": "handwriting",
+    "name": "落雁手寫",
+    "description": "辰宇落雁體：自然、纖細的手寫筆跡，資訊保留清楚黑體。",
+    "roles": {
+      "title": {
+        "family": "handwriting",
+        "weight": "regular",
+        "bundled_font": "chenyu",
+        "sha256": "d8ecd0598634c92f0b29f90aabef8f7916f17aef19b0350883ca7b46979a5373",
+        "outline_em": 0.018
+      },
+      "impact": {
+        "family": "handwriting",
+        "weight": "regular",
+        "bundled_font": "chenyu",
+        "sha256": "d8ecd0598634c92f0b29f90aabef8f7916f17aef19b0350883ca7b46979a5373",
+        "outline_em": 0.018
+      },
+      "information": {
+        "family": "sans",
+        "weight": "regular"
+      },
+      "detail": {
+        "family": "sans",
+        "weight": "regular"
+      }
+    },
+    "preview_resource": "assets/font-handwriting.png",
+    "source_url": "https://github.com/Chenyu-otf/chenyuluoyan_thin",
+    "license": "OFL-1.1"
+  },
+  {
+    "font_style_id": "calligraphy",
+    "name": "筆意楷書",
+    "description": "芫荽：有起收筆與楷書筆意，適合旅誌主標與章節。",
+    "roles": {
+      "title": {
+        "family": "handwriting",
+        "weight": "regular",
+        "bundled_font": "iansui",
+        "sha256": "7f1aa62e9dcbf40d0ce41a5d3f1e5ea602e66c295778ac6fefb6b84d8ed08bd5",
+        "outline_em": 0.018
+      },
+      "impact": {
+        "family": "handwriting",
+        "weight": "regular",
+        "bundled_font": "iansui",
+        "sha256": "7f1aa62e9dcbf40d0ce41a5d3f1e5ea602e66c295778ac6fefb6b84d8ed08bd5",
+        "outline_em": 0.018
+      },
+      "information": {
+        "family": "sans",
+        "weight": "regular"
+      },
+      "detail": {
+        "family": "sans",
+        "weight": "regular"
+      }
+    },
+    "preview_resource": "assets/font-calligraphy.png",
+    "source_url": "https://github.com/ButTaiwan/iansui",
+    "license": "OFL-1.1"
+  }
+]

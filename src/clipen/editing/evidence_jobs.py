@@ -178,6 +178,7 @@ class EvidenceTools:
             alignment_error=None
             if job['kind']=='align' or request.get('align_words'):
                 for index,segment in enumerate(segments):
+                    if job['kind']=='align' and request.get('correction') and index!=request['correction']['segment_ordinal']:continue
                     if not segment['text'].strip():continue
                     chunk=directory/f'align-{index}.wav'
                     length=segment['end_seconds']-segment['start_seconds']
@@ -238,7 +239,24 @@ def local_cues(tools, timeline, *, include_drafts):
                 continue
             span=item.source.span;unit=Fraction(span.time_base.numerator,span.time_base.denominator)
             cut_left=float(int(span.start_pts)*unit);cut_right=float(int(span.end_pts)*unit)
+            # A fresh, fully covering transcription supersedes older overlapping
+            # windows. Combining both produces duplicate/conflicting captions.
+            covering=[]
             for row in rows:
+                value=json.loads(row['result_json'])
+                if value['source']['version_id']!=span.version_id:continue
+                origin=value['source_start_seconds']
+                if origin<=cut_left+.5/float(fps) and int(value['source']['end_pts'])*value['source']['time_base']['num']/value['source']['time_base']['den']>=cut_right-.5/float(fps):covering.append(row)
+            if covering:
+                first=json.loads(covering[0]['result_json'])
+                corrected=any('wording_authority' in s for s in first['segments'])
+                def aligned_for_cut(row):
+                    value=json.loads(row['result_json']);origin=value['source_start_seconds']
+                    return all(s.get('words') for s in value['segments'] if origin+s['start_seconds']<cut_right and cut_left<origin+s['end_seconds'])
+                chosen=covering[0] if corrected else next((r for r in covering if aligned_for_cut(r)),covering[0])
+                selected_rows=[chosen]
+            else:selected_rows=rows
+            for row in selected_rows:
                 result=json.loads(row['result_json'])
                 if result['source']['version_id']!=span.version_id:continue
                 origin=result['source_start_seconds']

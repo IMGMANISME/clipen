@@ -26,7 +26,7 @@ class ProductionTools:
 
     def _save(self,timeline,summary,**details):
         revision,created=self.repository.save_revision(self.project_id,self.run_id,timeline,summary,
-            expected_revision_id=getattr(self,'_expected_revision_id',None))
+            expected_revision_id=getattr(self,'_expected_revision_id',None),allow_user_edit=getattr(self,'_user_edit',False))
         return ToolResult({'revision':revision.to_public(),'created':created,**details})
 
     def _video(self):
@@ -61,11 +61,13 @@ class ProductionTools:
                           next_step='Unchanged post-production was remapped. Review changed boundaries and repair listed dependencies.')
 
     def _production_list_editing_tools(self,args):
+        from dataclasses import asdict
+        from .production_limits import limits_for
         from clipen.mcp_editing.server import _TOOLS
         return ToolResult({'tools':[{'name':t['name'],'description':t['description']} for t in _TOOLS],'decision_owner':'LLM','execution_owner':'Clipen',
-            'limits':{'max_tool_calls':self.repository.get(self.project_id,self.run_id).max_tool_calls,
+            'limits':{'production':asdict(limits_for(self)), 'target_duration_seconds':(self._session_value() or {}).get('intent',{}).get('target_duration_seconds',60), 'max_tool_calls':self.repository.get(self.project_id,self.run_id).max_tool_calls,
                       'max_preview_renders':self.repository.get(self.project_id,self.run_id).max_preview_renders,
-                      'preview_scope':'SDR short draft; technical validation is not aesthetic approval'},
+                      'preview_scope':'SDR production within session limits; technical validation is not aesthetic approval'},
             'unsupported':{'automatic_object_tracking':'Use explicit time intervals and rectangles; inspect every affected interval.',
                 'audio_listening':'This provider receives measured audio evidence, not audio perception.',
                 'generated_media_or_voice':'No generation provider configured.',
@@ -166,6 +168,10 @@ class ProductionTools:
             images.extend(result.images)
         return ToolResult({'candidates':candidates,'image_order':'candidate order, then sample order','coverage':'three source stills per range, not continuous motion or audio listening'},tuple(images))
 
+    def _production_inspect_pacing(self,args):
+        from .programme_review import pacing
+        return ToolResult(pacing(self._timeline()))
+
     def _production_review_cut(self,args):
         from .editorial_review import review_cut
         return review_cut(self,args)
@@ -227,7 +233,8 @@ class ProductionTools:
             if any(word not in row['text'] for word in row.get('emphasis',[])):raise problem('重點字必須實際存在於字幕句內。')
             if program or cue.get('verification')=='asr_draft' or any(k in row for k in ('source_excerpt','delivery','emphasis')):captions.extend(make_subtitle_items(self,cue,row))
             else:captions.append(TextClip('subtitle-'+row['cue_id'],cue['start_frame'],cue['duration_frames'],row['text'],'title.caption'))
-        if len(captions)>96:raise problem('分句後超過 96 段字幕，請縮小樣片或精簡口語。')
+        from .production_limits import limits_for
+        if len(captions)>limits_for(self).titles:raise problem('分句後超過本次製作的字幕上限。')
         timeline=self._timeline()
         retained=tuple(t for t in timeline.tracks if t.track_id!='agent-subtitles')
         if captions:retained+=(Track('agent-subtitles',TrackKind.TITLE,tuple(captions)),)
@@ -237,7 +244,25 @@ class ProductionTools:
         item=self._item(args['item_id'])
         if not isinstance(item,TextClip):raise problem('指定項目不是文字。')
         self._require_generic_text(item)
+        if getattr(self,'_user_edit',False):args={**args,'style_id':item.style_id}
         if args['start_frame']+args['duration_frames']>self._timeline().duration_frames:raise problem('文字超過時間軸結尾。')
+        if getattr(self,'_user_edit',False):
+            from .production_media import atomic_json,load_text_styles,text_style_path
+            from clipen.finishing.models import digest
+            styles=load_text_styles(self.repository.projects,self.project_id)
+            profile=styles.get(item.style_id,{})
+            text_changed=args['text']!=item.text
+            time_changed=(args['start_frame'],args['duration_frames'])!=(item.start_frame,item.duration_frames)
+            if profile.get('kind')=='program_subtitle' and (text_changed or time_changed):
+                invalidated=profile.get('text_alignment_invalidated',False) or text_changed
+                profile={**profile,**({'verification':'user_edited','wording_authority':'user'} if text_changed else {}),
+                    'timing_basis':'alignment_invalidated_by_user_text' if invalidated else 'user_adjusted',
+                    'text_alignment_invalidated':invalidated,'caption_text_edited':profile.get('caption_text_edited',False) or text_changed,
+                    'previous_timing_basis':profile.get('previous_timing_basis',profile.get('timing_basis')),
+                    'user_edit_base_revision_id':self.repository.current_revision(self.project_id,self.run_id).revision_id}
+                style_id='agent.text.'+digest(profile)[:24]
+                styles[style_id]=profile;atomic_json(text_style_path(self.repository.projects,self.project_id),styles)
+                args={**args,'style_id':style_id}
         return self._change_item(replace(item,**{k:args[k] for k in ('start_frame','duration_frames','text','style_id')}),args['summary'])
 
     def _production_remove_item(self,args):
@@ -256,13 +281,14 @@ class ProductionTools:
         if profile['x']+profile['width_ratio']>1:raise problem('文字區塊超出畫布右邊界。')
         style_id='agent.text.'+digest(profile)[:24]
         styles=load_text_styles(self.repository.projects,self.project_id)
-        if len(styles)>=256 and style_id not in styles:raise problem('自訂文字樣式已達上限。')
+        if len(styles)>=4096 and style_id not in styles:raise problem('自訂文字樣式已達上限。')
         styles[style_id]=profile
         atomic_json(text_style_path(self.repository.projects,self.project_id),styles)
         return self._change_item(replace(item,style_id=style_id),args['summary'])
 
     def _require_generic_text(self,item):
         from .production_media import load_text_styles
+        if getattr(self,'_user_edit',False):return
         if load_text_styles(self.repository.projects,self.project_id).get(item.style_id,{}).get('kind') in {'program_subtitle','program_component'}:
             raise problem('節目字幕需保留來源與斷句資訊。請用 replace_subtitles 調整 text、source_excerpt、delivery、emphasis；通用字卡工具不能覆寫來源字幕。')
 
@@ -342,6 +368,8 @@ class ProductionTools:
         return AgentAudioStore(self.repository.projects,self.project_id)
 
     def _production_search_music(self,args):
+        choice=(self._session_value() or {}).get('intent',{}).get('music_choice')
+        if choice and choice.get('mode')=='user':raise problem('使用者已指定配樂，請使用 list_audio_assets 取得該曲，不要另行搜尋替換。')
         from clipen.finishing.catalog import PublicMusicCatalog
         store=self._asset_store()
         assets,reference=PublicMusicCatalog().search_and_prepare({'music_tags':args['tags']},store.directory/('search-'+secrets.token_hex(12)),self._cancel_event(),lambda _:None)
@@ -427,7 +455,9 @@ class ProductionTools:
         from .production_media import validate_production_timeline,load_text_styles
         from .production_preview import finish_review_status
         from clipen.finishing.audio import open_asset
-        issues=validate_production_timeline(self._timeline())
+        from .production_limits import limits_for,valid_production
+        issues=validate_production_timeline(self._timeline(),max_texts=limits_for(self).titles)
+        if self._session_value() and self._video().items and not valid_production(self,self._timeline()):issues.append({'code':'production_limits_exceeded'})
         component_issues=self._component_issues()
         issues+=[i for i in component_issues if i['code']!='program_component_collision']
         from .program_direction import direction_issues
@@ -435,7 +465,7 @@ class ProductionTools:
         delivery_issues+=[i for i in component_issues if i['code']=='program_component_collision']
         from .production_requirements import requirement_issues
         delivery_issues+=requirement_issues(self)
-        if self._session_value() and not any(t.items for t in self._timeline().tracks if t.track_id=='program-components'):
+        if self._session_value() and not any(t.items for t in self._timeline().tracks if (t.track_id=='program-components' or t.track_id.startswith('program-components-'))):
             delivery_issues.append({'code':'program_graphics_missing','message':'節目 Skill 需要有用途的後製畫面，請檢視素材後選擇合適元件。'})
         if self._session_value():
             from .speech_coverage import speech_coverage
@@ -446,9 +476,17 @@ class ProductionTools:
             subtitle_review=subtitle_status(self.repository.projects,self.project_id,self._timeline())
             pending=subtitle_review['unaligned_item_ids']
             if pending:delivery_issues.append({'code':'subtitle_alignment_required','item_ids':pending,
-                'message':'字幕仍使用 ASR 視窗／比例估時。請對來源做字詞對齊，再重新建立字幕；可以先看草稿。'})
+                'message':'字幕時間尚未核對，或修改文字後原對齊已失效。請核對來源並修復相關字幕；可以先看草稿。'})
             if not subtitle_review['count'] and self._production_list_transcripts({'include_drafts':True}).payload['cues']:
                 delivery_issues.append({'code':'program_subtitles_missing','message':'目前保留口語但沒有節目字幕，請依來源建立並對齊字幕。'})
+            from .programme_review import caption_coverage
+            captions=caption_coverage(self,self._production_list_transcripts({'include_drafts':True}).payload)
+            if captions['missing_cues']:
+                delivery_issues.append({'code':'subtitle_coverage_incomplete','ranges':captions['missing_cues'],
+                    'message':'保留口語仍有缺漏字幕；少數已對齊字幕不能代表整片完成。請修復來源辨識／對齊並重建字幕，或明確調整原音剪輯。'})
+            if captions['unresolved_item_ids']:
+                delivery_issues.append({'code':'subtitle_source_range_unresolved','item_ids':captions['unresolved_item_ids'],
+                    'message':'部分原音切在尚未對齊的句段內，尚無完整可用字幕；請按需重新轉寫該區間，不能以刪除字幕消除待辦。'})
             from .production_media import load_text_styles
             profiles=load_text_styles(self.repository.projects,self.project_id)
             shots={i.item_id:i for i in self._video().items}

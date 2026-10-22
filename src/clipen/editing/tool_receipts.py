@@ -12,7 +12,7 @@ TIMELINE_MUTATIONS = frozenset({
     'configure_text_style','remove_item','trim_clip','reorder_clips','split_clip','insert_clip',
     'set_source_audio','set_color_grade','set_mosaic','set_transition','set_fade',
     'remove_clip_effect','place_audio','remove_audio','restore_revision',
-    'add_program_component','update_program_component','remove_program_component',
+    'add_program_component','update_program_component','remove_program_component','restyle_program_components',
 })
 
 
@@ -35,7 +35,7 @@ def begin_receipt(tools, name, arguments, expected_revision_id, mutation_id):
         current=tools.repository._read_run(db,tools.run_id)
         if expected_revision_id is not None and expected_revision_id!=current.current_revision_id:
             raise ProjectError('revision_conflict','作品版本已更新，請重新讀取後修改。',status_code=409)
-        if current.state!='running':
+        if current.state!='running' and not (getattr(tools,'_user_edit',False) and current.state not in {'queued','running'}):
             raise ProjectError('edit_agent_not_running','AI 製作目前未在執行。',status_code=409)
         db.execute('INSERT INTO production_tool_receipts VALUES(?,?,?,?,?,?,?)',
                    (tools.run_id,mutation_id,name,argument_hash,'started',None,utc_now()))

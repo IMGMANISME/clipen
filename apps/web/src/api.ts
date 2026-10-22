@@ -486,26 +486,31 @@ export type EditAgentStatus = {
   result: EditAgentResult | null
   program_reference?: ProgramReference | null
   production?: {
-    intent: { authority: string; brief: string }
+    intent: { authority: string; brief: string; target_duration_seconds?: number; music_choice?: { mode: string; asset_id: string; name: string } | null }
     skill: ProductionSkill & { limitations: string[] }
     draft: { revision_id: string; ordinal: number; summary: string; timeline: EditAgentTimeline }
     preview: (PreviewRender & { stale: boolean; revision_id: string; media_url: string }) | null
+    last_successful_preview?: (PreviewRender & { stale: boolean; revision_id: string; media_url: string }) | null
     validation: { revision_id: string; valid: boolean; issues: Array<{ code: string; message?: string }> } | null
+    progress?: { updated_at: string | null; activity: Array<{ sequence: number; kind: string; label: string; tool: string | null; created_at: string }> }
     local_jobs: Array<{ job_id: string; kind: string; state: string; error_code: string | null; phase?: string; completed_bytes?: number; total_bytes?: number }>
     production_contents: EditAgentResult['production_contents']
     export_url: string | null
   } | null
 }
 
-export type ProductionSkill = { skill_id: string; name: string; description?: string; version: string; content_hash: string }
+export type VisualStyle = { visual_style_id: string; name: string; description: string; preview_resource?: string }
+export type FontStyle = { font_style_id: string; name: string; description: string; preview_resource?: string }
+export type VideoTemplate = { template_id: string; name: string; category: string; description: string; visual_style_id: string; font_style_id: string; editorial_direction: string; skill_resource?: string; skill?: { skill_id: string; version: string; resource: string; content_hash: string }; design_direction?: string; references?: { creator: string; title: string; url: string; takeaway: string }[]; sample_duration_seconds?: number; sample_title: string; sample_detail: string; music_direction: string; preview_resource: string; sample_resource: string; tags: string[] }
+export type ProductionSkill = { templates?: VideoTemplate[]; skill_id: string; name: string; description?: string; version: string; content_hash: string; visual_styles?: VisualStyle[]; selected_visual_style_id?: string; font_styles?: FontStyle[]; selected_font_style_id?: string }
 
 export async function getProductionSkills(): Promise<ProductionSkill[]> {
   return (await request<{ skills: ProductionSkill[] }>('/api/production/skills')).skills
 }
 
-export async function startProduction(csrf: string, projectId: string, skillId: string, intent: string): Promise<EditAgentRun> {
+export async function startProduction(csrf: string, projectId: string, skillId: string, intent: string, visualStyleId?: string, fontStyleId?: string, targetDurationSeconds?: number, musicAssetId?: string, templateId?: string): Promise<EditAgentRun> {
   return (await command<{ run: EditAgentRun }>(`/api/projects/${projectId}/production/commands/start`, csrf,
-    { request_id: crypto.randomUUID(), consent: true, skill_id: skillId, intent })).run
+    { request_id: crypto.randomUUID(), consent: true, skill_id: skillId, intent, ...(visualStyleId ? { visual_style_id: visualStyleId } : {}), ...(fontStyleId ? { font_style_id: fontStyleId } : {}), ...(targetDurationSeconds ? { target_duration_seconds: targetDurationSeconds } : {}), ...(musicAssetId ? { music_asset_id: musicAssetId } : {}), ...(templateId ? { template_id: templateId } : {}) })).run
 }
 
 export type ProgramReference = { run_id: string; revision_id: string; authority: 'user_selected_style_reference' }
@@ -1291,4 +1296,67 @@ export function cancelFinishing(csrf: string, projectId: string, runId: string):
 }
 export function resumeFinishing(csrf: string, projectId: string, runId: string): Promise<FinishingRun> {
   return command(`/api/projects/${projectId}/finishing/${runId}/commands/resume`, csrf, {})
+}
+
+export async function resumeProduction(csrf: string, projectId: string, runId: string): Promise<EditAgentRun> {
+  return (await command<{ run: EditAgentRun }>(
+    `/api/projects/${encodeURIComponent(projectId)}/production/commands/resume/${encodeURIComponent(runId)}`, csrf,
+    { consent: true })).run
+}
+
+export type MusicAsset = { asset_id: string; name: string; role: string; duration_seconds: number; provenance?: { source?: string } }
+export type ProductionWorkbenchState = {
+  revision: { revision_id: string; ordinal: number; summary: string; timeline: EditAgentTimeline }
+  styles: Record<string, Record<string, unknown>>
+  references?: ReferenceState
+  visual_styles?: VisualStyle[]
+  history: Array<{ revision_id: string; ordinal: number; summary: string; created_at: string }>
+  audio_assets: MusicAsset[]
+  tools: Array<{ name: string; description: string; inputSchema: { properties: Record<string, unknown>; required: string[] } }>
+}
+export function getProductionWorkbench(projectId: string, runId: string): Promise<ProductionWorkbenchState> {
+  return request(`/api/projects/${projectId}/production/${runId}/workbench`)
+}
+export function editProduction(csrf: string, projectId: string, runId: string, expectedRevision: string, tool: string, args: Record<string, unknown>): Promise<unknown> {
+  return command(`/api/projects/${projectId}/production/${runId}/workbench/edit`, csrf, { tool, arguments: args, expected_revision_id: expectedRevision, mutation_id: crypto.randomUUID() })
+}
+export function renderProduction(csrf: string, projectId: string, runId: string, expectedRevision: string): Promise<unknown> {
+  return command(`/api/projects/${projectId}/production/${runId}/workbench/render`, csrf, { expected_revision_id: expectedRevision })
+}
+export function refineProduction(csrf: string, projectId: string, runId: string, expectedRevision: string, instruction: string, musicAssetId?: string, referencesVersion?: number): Promise<unknown> {
+  return command(`/api/projects/${projectId}/production/${runId}/workbench/refine`, csrf, { request_id: crypto.randomUUID(), expected_revision_id: expectedRevision, instruction, consent: true, ...(musicAssetId ? { music_asset_id: musicAssetId } : {}), ...(referencesVersion !== undefined ? { expected_references_version: referencesVersion } : {}) })
+}
+export async function exportProduction(csrf: string, projectId: string, runId: string): Promise<{ download_url: string }> {
+  return command(`/api/projects/${projectId}/production/${runId}/workbench/export`, csrf, {})
+}
+export async function getProductionMusic(projectId: string): Promise<MusicAsset[]> {
+  return (await request<{ assets: MusicAsset[] }>(`/api/projects/${projectId}/production/music`)).assets
+}
+export async function uploadProductionMusic(csrf: string, projectId: string, file: File): Promise<MusicAsset> {
+  return (await request<{ asset: MusicAsset }>(`/api/projects/${projectId}/production/music?filename=${encodeURIComponent(file.name)}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream', 'X-Clipen-CSRF': csrf }, body: file })).asset
+}
+
+export type SavedPrompt = { prompt_id: string; project_id: string; project_name: string; kind: 'production' | 'refinement'; text: string; created_at: string; source: 'saved' | 'submitted'; run_id?: string; references?: ReferenceState }
+export function getProductionPrompts(projectId?: string, offset = 0): Promise<{ prompts: SavedPrompt[]; total: number }> {
+  const query = new URLSearchParams({ offset: String(offset), limit: '30', ...(projectId ? { project_id: projectId } : {}) })
+  return request(`/api/production/prompts?${query}`)
+}
+export function saveProductionPrompt(csrf: string, projectId: string, kind: 'production' | 'refinement', text: string): Promise<SavedPrompt> {
+  return command(`/api/projects/${projectId}/production/prompts`, csrf, { request_id: crypto.randomUUID(), kind, text })
+}
+
+export type EditingFrame = { revision_id: string; frame: number; source_item_id: string; image_data_url: string; scope: string; unsaved_override: boolean }
+export function getEditingFrame(csrf: string, projectId: string, runId: string, revisionId: string, frame: number, override?: Record<string, unknown>, signal?: AbortSignal): Promise<EditingFrame> {
+  return request(`/api/projects/${projectId}/production/${runId}/workbench/frame`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Clipen-CSRF': csrf }, body: JSON.stringify({ expected_revision_id: revisionId, frame, ...(override ? { override } : {}) }), signal })
+}
+
+export type RefinementReference = {
+  reference_id: string; kind: 'location' | 'highlight' | 'audio' | 'note'; item_id: string
+  start_offset_frames: number; duration_frames: number; note: string
+  source_gain_db?: number; fill_music?: boolean; audio_layer_id?: string
+  current_range?: { item_id: string; start_frame: number; duration_frames: number } | null
+}
+export type ReferenceState = { version: number; items: RefinementReference[] }
+export function updateProductionReference(csrf: string, projectId: string, runId: string, revisionId: string, version: number, change: { reference: RefinementReference } | { delete_id: string }): Promise<ReferenceState> {
+  return command(`/api/projects/${projectId}/production/${runId}/workbench/reference`, csrf, { expected_revision_id: revisionId, expected_version: version, mutation_id: crypto.randomUUID(), ...change })
 }

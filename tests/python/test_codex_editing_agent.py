@@ -29,6 +29,27 @@ class CodexEditingAgentTests(unittest.TestCase):
             self.assertEqual(result.run.state,'succeeded');self.assertEqual(outcomes[0]['usage']['input_tokens'],2443115)
             self.assertNotIn('error_code',outcomes[0])
 
+    def test_duration_budget_covers_long_form_render_and_explicit_timeout_wins(self):
+        from clipen.providers.codex_editing import _PRODUCTION_PROMPT
+        self.assertIn('intent.target_duration_seconds', _PRODUCTION_PROMPT)
+        self.assertNotIn('Make a 30-75 second', _PRODUCTION_PROMPT)
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);projects=root/'projects';projects.mkdir();attempts=root/'attempts';attempts.mkdir()
+            finished=SimpleNamespace(provider='codex',state='succeeded',final_revision_id='editrev_'+'c'*32)
+            session={'intent':{'target_duration_seconds':300}}
+            repository=SimpleNamespace(production_session=lambda *args:session,get=lambda *args:finished,record_provider_outcome=lambda *args,**kwargs:finished)
+            agent=CodexEditingAgent(projects,attempts,repository,binary='/bin/echo',python='/usr/bin/python3',environment={'PATH':'/usr/bin','HOME':str(root)})
+            timeouts=[]
+            def success(command,workspace,events,diagnostics,timeout,cancel):
+                timeouts.append(timeout);events.write_text('{"type":"turn.completed"}\n');diagnostics.write_text('');return 0
+            with patch.object(agent,'_run',side_effect=success):
+                for target in (60,300,600,1200):
+                    session['intent']['target_duration_seconds']=target
+                    agent.execute('prj_'+'a'*32,'editrun_'+'b'*32)
+                agent.execute('prj_'+'a'*32,'editrun_'+'b'*32,timeout_seconds=42)
+            self.assertEqual(timeouts,[1200,4800,8400,14400,42])
+            with self.assertRaises(ValueError):agent.execute('p','r',timeout_seconds=14401)
+
     def test_jsonl_usage_limit_is_saved_as_quota_failure_without_tool_replay(self):
         from clipen.providers import ProviderUsageLimitError
         with tempfile.TemporaryDirectory() as temporary:

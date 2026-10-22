@@ -34,10 +34,12 @@ class FfmpegPreviewRenderer:
         executable: str = "ffmpeg",
         *,
         popen: Callable[..., subprocess.Popen[str]] = subprocess.Popen,
+        hardware_acceleration: bool = False,
     ) -> None:
         self.media = media
         self.executable = executable
         self._popen = popen
+        self.hardware_acceleration = hardware_acceleration
 
     def render(self,project_id,timeline,output,cancel,progress):
         layers=any(e.effect_id=='audio.layers' for t in timeline.tracks for i in t.items if isinstance(i,MediaClip) for e in i.effects)
@@ -98,13 +100,25 @@ class FfmpegPreviewRenderer:
         except TitleRenderError as error:
             raise PreviewRenderError(error.code) from error
 
-    def _render_media(
+    def _render_media(self, project_id, timeline, output, cancel, progress, *, preserve_audio_gain=False):
+        try:
+            return self._render_media_once(project_id, timeline, output, cancel, progress, preserve_audio_gain=preserve_audio_gain)
+        except PreviewRenderError as error:
+            if not self.hardware_acceleration or error.code != 'ffmpeg_render_failed' or cancel.is_set():
+                raise
+            # Unsupported input/encoder on this machine: retry with the original
+            # software path, retaining all filters, source ranges and timing.
+            self.hardware_acceleration = False
+            return self._render_media_once(project_id, timeline, output, cancel, progress, preserve_audio_gain=preserve_audio_gain)
+
+    def _render_media_once(
         self,
         project_id: str,
         timeline: EditTimeline,
         output: Path,
         cancel: threading.Event,
         progress: Callable[[float], None],
+        *, preserve_audio_gain: bool = False,
     ) -> None:
         if os.name == "nt":
             raise PreviewRenderError("preview_platform_unsupported")
@@ -119,8 +133,13 @@ class FfmpegPreviewRenderer:
         if cancel.is_set():
             raise PreviewRenderError("cancelled")
         output.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        controlled_audio = preserve_audio_gain or timeline.production_session_id is not None or any(
+            effect.effect_id in {'audio.source', 'audio.layers'}
+            for track in timeline.tracks for item in track.items
+            if isinstance(item, MediaClip) for effect in item.effects
+        )
         if audio is None and len(video.items) > self._BATCH_SIZE:
-            self._render_batched(project_id, timeline, video, output, cancel, progress)
+            self._render_batched(project_id, timeline, video, output, cancel, progress, preserve_audio_gain=controlled_audio)
             return
 
         opened = []
@@ -231,9 +250,11 @@ class FfmpegPreviewRenderer:
                 filters.append(
                     f"{''.join(audio_labels)}concat=n={len(audio_labels)}:v=0:a=1[asequence]"
                 )
+                # Programme camera sound is a stem: automatic loudness makeup
+                # here would undo explicit attenuation before the music mix.
+                finishing = 'alimiter=limit=0.841395:level=0' if controlled_audio else 'loudnorm=I=-16:LRA=11:TP=-1.5'
                 filters.append(
-                    f"[asequence]apad,atrim=duration={timeline_duration},"
-                    "loudnorm=I=-16:LRA=11:TP=-1.5[aout]"
+                    f"[asequence]apad,atrim=duration={timeline_duration},{finishing}[aout]"
                 )
             else:
                 filters.append(
@@ -258,6 +279,8 @@ class FfmpegPreviewRenderer:
                     "24",
                     "-c:a",
                     "aac",
+                    "-ar",
+                    "48000",
                     "-b:a",
                     "160k",
                     "-movflags",
@@ -268,6 +291,13 @@ class FfmpegPreviewRenderer:
                     str(output),
                 ]
             )
+            if self.hardware_acceleration:
+                position = command.index('libx264')
+                command[position] = 'h264_videotoolbox'
+                for option in ('-preset', '-crf'):
+                    index = command.index(option)
+                    del command[index:index + 2]
+                command[-1:-1] = ['-b:v', '8000k']
             with tempfile.TemporaryFile() as errors:
                 try:
                     process = self._popen(
@@ -323,6 +353,8 @@ class FfmpegPreviewRenderer:
         duration = self._seconds(
             str(item.source.span.duration_pts), item.source.span.time_base
         )
+        if self.hardware_acceleration:
+            command.extend(['-hwaccel', 'videotoolbox'])
         command.extend(
             [
                 "-seek_timestamp", "1",
@@ -346,6 +378,7 @@ class FfmpegPreviewRenderer:
         output: Path,
         cancel: threading.Event,
         progress: Callable[[float], None],
+        *, preserve_audio_gain: bool = False,
     ) -> None:
         total_frames = sum(item.duration_frames for item in video.items)
         completed_frames = 0
@@ -406,6 +439,7 @@ class FfmpegPreviewRenderer:
                     segment,
                     cancel,
                     batch_progress,
+                    preserve_audio_gain=preserve_audio_gain,
                 )
                 segments.append(segment)
                 segment_durations.append(self._timeline_seconds(batch))

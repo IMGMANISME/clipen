@@ -66,7 +66,7 @@ def mix_program_audio(media, project_id, timeline, base, output, cancel):
             for e in i.effects if e.effect_id=='audio.layers' for l in e.parameters['layers']]
     if len(layers)>24:raise ProjectError('agent_audio_limit','單次最多 24 個混音片段。',status_code=422)
     regions=dialogue_regions(media.projects,project_id,timeline)
-    if len(regions)>256:raise ProjectError('audio_envelope_limit','語音包絡過多，請縮小預覽區間。',status_code=422)
+    if len(regions)>(1024 if seconds>75 else 256):raise ProjectError('audio_envelope_limit','語音包絡過多，請縮小預覽區間。',status_code=422)
     store=AgentAudioStore(media.projects,project_id)
     music=output.with_suffix('.music.wav');camera=output.with_suffix('.camera.wav');final=output.with_suffix('.mix.wav')
     command=['ffmpeg','-v','error','-nostdin','-y','-filter_complex_threads','2','-f','lavfi','-i',f'anullsrc=r=48000:cl=stereo:d={seconds}']
@@ -98,7 +98,7 @@ def mix_program_audio(media, project_id, timeline, base, output, cancel):
     finally:
         for fd in opened:os.close(fd)
     run_process(['ffmpeg','-v','error','-nostdin','-y','-i',str(base),'-i',str(music),
-                 '-filter_complex','[0:a][1:a]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.891:level=0[a]',
+                 '-filter_complex','[0:a][1:a]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.750:level=0[a]',
                  '-map','0:v','-map','[a]','-c:v','copy','-c:a','aac','-t',str(seconds),'-movflags','+faststart',str(output)],cancel,timeout=300)
     for source,destination in ((base,camera),(output,final)):
         run_process(['ffmpeg','-v','error','-nostdin','-y','-i',str(source),'-vn','-ac','2','-ar','48000','-c:a','pcm_s16le',str(destination)],cancel,timeout=120)

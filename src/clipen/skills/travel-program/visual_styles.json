@@ -1,0 +1,839 @@
+[
+  {
+    "visual_style_id": "variety",
+    "name": "活潑綜藝",
+    "description": "粗體大字、斜切色帶與撞擊動態。",
+    "preview_resource": "assets/style-variety.png",
+    "overrides": {
+      "appearance": {
+        "skin": "variety",
+        "font_family": "sans",
+        "hero_scale": 1.0
+      }
+    }
+  },
+  {
+    "visual_style_id": "editorial",
+    "name": "旅誌編輯部",
+    "description": "錯位雙層主標、印刷花章、票券標註與剪紙貼紙，搭配分段進場動畫。",
+    "preview_resource": "assets/style-editorial.png",
+    "overrides": {
+      "palette": {
+        "ink": [
+          22,
+          43,
+          48,
+          255
+        ],
+        "paper": [
+          255,
+          248,
+          229,
+          255
+        ],
+        "accent": [
+          255,
+          106,
+          79,
+          255
+        ],
+        "secondary": [
+          162,
+          201,
+          176,
+          255
+        ]
+      },
+      "appearance": {
+        "skin": "studio",
+        "font_family": "sans",
+        "hero_scale": 1.0,
+        "hero_entry_frames": 26,
+        "hero_exit_frames": 10
+      },
+      "motion": {
+        "entry_frames": 10,
+        "exit_frames": 6,
+        "entry_distance_ratio": 0.009
+      }
+    }
+  },
+  {
+    "visual_style_id": "cinema",
+    "name": "簡約影誌",
+    "description": "留白字標、細線構圖與緩緩進場，讓現場成為主角。",
+    "preview_resource": "assets/style-cinema.png",
+    "overrides": {
+      "palette": {
+        "ink": [
+          18,
+          25,
+          29,
+          210
+        ],
+        "paper": [
+          255,
+          250,
+          238,
+          255
+        ],
+        "accent": [
+          216,
+          188,
+          129,
+          255
+        ],
+        "secondary": [
+          191,
+          210,
+          211,
+          255
+        ]
+      },
+      "appearance": {
+        "skin": "cinema",
+        "font_family": "serif",
+        "hero_scale": 0.84,
+        "hero_entry_frames": 30,
+        "hero_exit_frames": 12
+      },
+      "motion": {
+        "entry_frames": 16,
+        "exit_frames": 10,
+        "entry_distance_ratio": 0.006
+      }
+    }
+  },
+  {
+    "visual_style_id": "tpl-journal",
+    "name": "落雁手作日記",
+    "description": "筆記頁邊、線圈孔、手寫劃線，像剪進影片的一頁旅行手帳。",
+    "preview_resource": "assets/style-tpl-journal.png",
+    "overrides": {
+      "palette": {
+        "ink": [
+          35,
+          39,
+          41,
+          255
+        ],
+        "paper": [
+          255,
+          250,
+          235,
+          255
+        ],
+        "accent": [
+          255,
+          169,
+          91,
+          255
+        ],
+        "secondary": [
+          184,
+          205,
+          178,
+          255
+        ]
+      },
+      "appearance": {
+        "skin": "studio",
+        "font_family": "sans",
+        "hero_scale": 0.95,
+        "hero_entry_frames": 26,
+        "hero_exit_frames": 10,
+        "identity": "journal"
+      },
+      "motion": {
+        "entry_frames": 13,
+        "exit_frames": 6,
+        "entry_distance_ratio": 0.018
+      },
+      "subtitle": {
+        "emphasis_color": [
+          255,
+          169,
+          91,
+          255
+        ]
+      },
+      "component_positions": {
+        "program_title": {
+          "x": 0.065,
+          "y": 0.18
+        }
+      }
+    }
+  },
+  {
+    "visual_style_id": "tpl-city",
+    "name": "城市解剖室",
+    "description": "醒目雙行黑字、編輯欄線與問題標籤，拆解一座城市。",
+    "preview_resource": "assets/style-tpl-city.png",
+    "overrides": {
+      "palette": {
+        "ink": [
+          20,
+          23,
+          25,
+          255
+        ],
+        "paper": [
+          252,
+          242,
+          102,
+          255
+        ],
+        "accent": [
+          239,
+          72,
+          57,
+          255
+        ],
+        "secondary": [
+          241,
+          238,
+          219,
+          255
+        ]
+      },
+      "appearance": {
+        "skin": "studio",
+        "font_family": "serif",
+        "hero_scale": 1.0,
+        "hero_entry_frames": 18,
+        "hero_exit_frames": 10,
+        "identity": "city"
+      },
+      "motion": {
+        "entry_frames": 9,
+        "exit_frames": 6,
+        "entry_distance_ratio": 0.018
+      },
+      "subtitle": {
+        "emphasis_color": [
+          239,
+          72,
+          57,
+          255
+        ]
+      },
+      "component_positions": {
+        "program_title": {
+          "x": 0.065,
+          "y": 0.12
+        }
+      }
+    }
+  },
+  {
+    "visual_style_id": "tpl-slow",
+    "name": "慢走電影誌",
+    "description": "低位細明體、開放式留白與細線揭示，把主角留給現場。",
+    "preview_resource": "assets/style-tpl-slow.png",
+    "overrides": {
+      "palette": {
+        "ink": [
+          30,
+          47,
+          45,
+          255
+        ],
+        "paper": [
+          255,
+          252,
+          237,
+          255
+        ],
+        "accent": [
+          203,
+          186,
+          142,
+          255
+        ],
+        "secondary": [
+          172,
+          190,
+          166,
+          255
+        ]
+      },
+      "appearance": {
+        "skin": "cinema",
+        "font_family": "serif",
+        "hero_scale": 0.82,
+        "hero_entry_frames": 34,
+        "hero_exit_frames": 10,
+        "identity": "slow"
+      },
+      "motion": {
+        "entry_frames": 17,
+        "exit_frames": 6,
+        "entry_distance_ratio": 0.006
+      },
+      "subtitle": {
+        "emphasis_color": [
+          203,
+          186,
+          142,
+          255
+        ]
+      },
+      "component_positions": {
+        "program_title": {
+          "x": 0.28,
+          "y": 0.43
+        }
+      }
+    }
+  },
+  {
+    "visual_style_id": "tpl-night",
+    "name": "霓虹末班車",
+    "description": "冷暖錯位霓虹字、開口框線與城市索引，夜景也有節目識別。",
+    "preview_resource": "assets/style-tpl-night.png",
+    "overrides": {
+      "palette": {
+        "ink": [
+          13,
+          17,
+          37,
+          255
+        ],
+        "paper": [
+          247,
+          246,
+          255,
+          255
+        ],
+        "accent": [
+          90,
+          243,
+          226,
+          255
+        ],
+        "secondary": [
+          245,
+          105,
+          183,
+          255
+        ]
+      },
+      "appearance": {
+        "skin": "cinema",
+        "font_family": "serif",
+        "hero_scale": 0.88,
+        "hero_entry_frames": 30,
+        "hero_exit_frames": 10,
+        "identity": "night"
+      },
+      "motion": {
+        "entry_frames": 15,
+        "exit_frames": 6,
+        "entry_distance_ratio": 0.006
+      },
+      "subtitle": {
+        "emphasis_color": [
+          90,
+          243,
+          226,
+          255
+        ]
+      },
+      "component_positions": {
+        "program_title": {
+          "x": 0.065,
+          "y": 0.39
+        }
+      }
+    }
+  },
+  {
+    "visual_style_id": "tpl-food",
+    "name": "今天吃哪邊",
+    "description": "紅黃菜單花章、雙方料理識別與粗字反應，像一場餐桌節目。",
+    "preview_resource": "assets/style-tpl-food.png",
+    "overrides": {
+      "palette": {
+        "ink": [
+          56,
+          20,
+          27,
+          255
+        ],
+        "paper": [
+          255,
+          251,
+          234,
+          255
+        ],
+        "accent": [
+          229,
+          51,
+          62,
+          255
+        ],
+        "secondary": [
+          255,
+          214,
+          81,
+          255
+        ]
+      },
+      "appearance": {
+        "skin": "variety",
+        "font_family": "sans",
+        "hero_scale": 1.08,
+        "hero_entry_frames": 12,
+        "hero_exit_frames": 10,
+        "identity": "food"
+      },
+      "motion": {
+        "entry_frames": 6,
+        "exit_frames": 6,
+        "entry_distance_ratio": 0.018
+      },
+      "subtitle": {
+        "emphasis_color": [
+          229,
+          51,
+          62,
+          255
+        ]
+      },
+      "component_positions": {
+        "program_title": {
+          "x": 0.24,
+          "y": 0.09
+        }
+      }
+    }
+  },
+  {
+    "visual_style_id": "tpl-mission",
+    "name": "任務不可能嗎",
+    "description": "切角黑黃告示、規則標線與有力進場，把目標變成觀看動力。",
+    "preview_resource": "assets/style-tpl-mission.png",
+    "overrides": {
+      "palette": {
+        "ink": [
+          26,
+          27,
+          28,
+          255
+        ],
+        "paper": [
+          248,
+          247,
+          235,
+          255
+        ],
+        "accent": [
+          234,
+          255,
+          69,
+          255
+        ],
+        "secondary": [
+          187,
+          186,
+          174,
+          255
+        ]
+      },
+      "appearance": {
+        "skin": "variety",
+        "font_family": "sans",
+        "hero_scale": 1.04,
+        "hero_entry_frames": 10,
+        "hero_exit_frames": 10,
+        "identity": "mission"
+      },
+      "motion": {
+        "entry_frames": 6,
+        "exit_frames": 6,
+        "entry_distance_ratio": 0.018
+      },
+      "subtitle": {
+        "emphasis_color": [
+          234,
+          255,
+          69,
+          255
+        ]
+      },
+      "component_positions": {
+        "program_title": {
+          "x": 0.065,
+          "y": 0.17
+        }
+      }
+    }
+  },
+  {
+    "visual_style_id": "tpl-coffee",
+    "name": "日常研究所",
+    "description": "奶油菜單、細明體、鋸齒收據與咖啡印章，讓資訊有手感。",
+    "preview_resource": "assets/style-tpl-coffee.png",
+    "overrides": {
+      "palette": {
+        "ink": [
+          57,
+          41,
+          29,
+          255
+        ],
+        "paper": [
+          250,
+          240,
+          216,
+          255
+        ],
+        "accent": [
+          145,
+          74,
+          49,
+          255
+        ],
+        "secondary": [
+          178,
+          158,
+          115,
+          255
+        ]
+      },
+      "appearance": {
+        "skin": "studio",
+        "font_family": "sans",
+        "hero_scale": 0.9,
+        "hero_entry_frames": 28,
+        "hero_exit_frames": 10,
+        "identity": "coffee"
+      },
+      "motion": {
+        "entry_frames": 14,
+        "exit_frames": 6,
+        "entry_distance_ratio": 0.018
+      },
+      "subtitle": {
+        "emphasis_color": [
+          145,
+          74,
+          49,
+          255
+        ]
+      },
+      "component_positions": {
+        "program_title": {
+          "x": 0.065,
+          "y": 0.3
+        }
+      }
+    }
+  },
+  {
+    "visual_style_id": "tpl-family",
+    "name": "家裡有小劇場",
+    "description": "圓角對話泡泡、手畫小太陽與生活剪貼，用互動串起一集。",
+    "preview_resource": "assets/style-tpl-family.png",
+    "overrides": {
+      "palette": {
+        "ink": [
+          75,
+          44,
+          57,
+          255
+        ],
+        "paper": [
+          255,
+          248,
+          228,
+          255
+        ],
+        "accent": [
+          224,
+          117,
+          128,
+          255
+        ],
+        "secondary": [
+          152,
+          181,
+          148,
+          255
+        ]
+      },
+      "appearance": {
+        "skin": "studio",
+        "font_family": "sans",
+        "hero_scale": 0.9,
+        "hero_entry_frames": 30,
+        "hero_exit_frames": 10,
+        "identity": "family"
+      },
+      "motion": {
+        "entry_frames": 15,
+        "exit_frames": 6,
+        "entry_distance_ratio": 0.018
+      },
+      "subtitle": {
+        "emphasis_color": [
+          224,
+          117,
+          128,
+          255
+        ]
+      },
+      "component_positions": {
+        "program_title": {
+          "x": 0.075,
+          "y": 0.14
+        }
+      }
+    }
+  },
+  {
+    "visual_style_id": "tpl-outdoor",
+    "name": "出走座標",
+    "description": "等高線、測繪側軸與深綠探險銘牌，路程本身就是故事。",
+    "preview_resource": "assets/style-tpl-outdoor.png",
+    "overrides": {
+      "palette": {
+        "ink": [
+          21,
+          51,
+          40,
+          255
+        ],
+        "paper": [
+          249,
+          242,
+          214,
+          255
+        ],
+        "accent": [
+          232,
+          181,
+          83,
+          255
+        ],
+        "secondary": [
+          109,
+          151,
+          120,
+          255
+        ]
+      },
+      "appearance": {
+        "skin": "cinema",
+        "font_family": "sans",
+        "hero_scale": 0.94,
+        "hero_entry_frames": 24,
+        "hero_exit_frames": 10,
+        "identity": "outdoor"
+      },
+      "motion": {
+        "entry_frames": 12,
+        "exit_frames": 6,
+        "entry_distance_ratio": 0.006
+      },
+      "subtitle": {
+        "emphasis_color": [
+          232,
+          181,
+          83,
+          255
+        ]
+      },
+      "component_positions": {
+        "program_title": {
+          "x": 0.065,
+          "y": 0.44
+        }
+      }
+    }
+  },
+  {
+    "visual_style_id": "tpl-portrait",
+    "name": "人物側寫",
+    "description": "大引號、偏置細框與訪談署名，以一句真話走近一個人。",
+    "preview_resource": "assets/style-tpl-portrait.png",
+    "overrides": {
+      "palette": {
+        "ink": [
+          38,
+          35,
+          35,
+          255
+        ],
+        "paper": [
+          246,
+          240,
+          227,
+          255
+        ],
+        "accent": [
+          208,
+          100,
+          73,
+          255
+        ],
+        "secondary": [
+          182,
+          169,
+          154,
+          255
+        ]
+      },
+      "appearance": {
+        "skin": "cinema",
+        "font_family": "serif",
+        "hero_scale": 0.8,
+        "hero_entry_frames": 32,
+        "hero_exit_frames": 10,
+        "identity": "portrait"
+      },
+      "motion": {
+        "entry_frames": 16,
+        "exit_frames": 6,
+        "entry_distance_ratio": 0.006
+      },
+      "subtitle": {
+        "emphasis_color": [
+          208,
+          100,
+          73,
+          255
+        ]
+      },
+      "component_positions": {
+        "program_title": {
+          "x": 0.065,
+          "y": 0.43
+        }
+      }
+    }
+  },
+  {
+    "visual_style_id": "tpl-retro",
+    "name": "下一站放映室",
+    "description": "雙框車票、打孔票根與復古編號，像一張會動的旅行票。",
+    "preview_resource": "assets/style-tpl-retro.png",
+    "overrides": {
+      "palette": {
+        "ink": [
+          25,
+          64,
+          64,
+          255
+        ],
+        "paper": [
+          245,
+          221,
+          168,
+          255
+        ],
+        "accent": [
+          192,
+          65,
+          42,
+          255
+        ],
+        "secondary": [
+          116,
+          151,
+          138,
+          255
+        ]
+      },
+      "appearance": {
+        "skin": "studio",
+        "font_family": "sans",
+        "hero_scale": 1.0,
+        "hero_entry_frames": 22,
+        "hero_exit_frames": 10,
+        "identity": "retro"
+      },
+      "motion": {
+        "entry_frames": 11,
+        "exit_frames": 6,
+        "entry_distance_ratio": 0.018
+      },
+      "subtitle": {
+        "emphasis_color": [
+          192,
+          65,
+          42,
+          255
+        ]
+      },
+      "component_positions": {
+        "program_title": {
+          "x": 0.065,
+          "y": 0.17
+        }
+      }
+    }
+  },
+  {
+    "visual_style_id": "tpl-tech",
+    "name": "拆開來實測",
+    "description": "深色規格面板、精準網格與青色節點，讓結論有清楚的依據。",
+    "preview_resource": "assets/style-tpl-tech.png",
+    "overrides": {
+      "palette": {
+        "ink": [
+          19,
+          23,
+          30,
+          255
+        ],
+        "paper": [
+          245,
+          248,
+          250,
+          255
+        ],
+        "accent": [
+          105,
+          232,
+          242,
+          255
+        ],
+        "secondary": [
+          84,
+          100,
+          119,
+          255
+        ]
+      },
+      "appearance": {
+        "skin": "variety",
+        "font_family": "serif",
+        "hero_scale": 0.96,
+        "hero_entry_frames": 14,
+        "hero_exit_frames": 10,
+        "identity": "tech"
+      },
+      "motion": {
+        "entry_frames": 7,
+        "exit_frames": 6,
+        "entry_distance_ratio": 0.018
+      },
+      "subtitle": {
+        "emphasis_color": [
+          105,
+          232,
+          242,
+          255
+        ]
+      },
+      "component_positions": {
+        "program_title": {
+          "x": 0.065,
+          "y": 0.2
+        }
+      }
+    }
+  }
+]
