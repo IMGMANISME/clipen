@@ -3,23 +3,35 @@ import math
 
 from PIL import ImageFont
 from .titles import TitleRenderError
+from .program_motion import FAMILIES, layout, motion_frames, draw_motion_graphic
+from .program_styles import skin, style_font, load_style_font, styled_text_length, draw_styled_graphic, type_outline
+from . import program_identities
 
 
 def animation_boundaries(item, profile):
     motion = profile["presets"]["motion"]
-    entry = min(motion["entry_frames"], item.duration_frames)
-    exit_frames = min(motion["exit_frames"], item.duration_frames)
+    entry_length, exit_length = motion_frames(profile["component_id"],profile) if profile["component_id"] in FAMILIES else (motion["entry_frames"], motion["exit_frames"])
+    entry = min(entry_length, item.duration_frames)
+    exit_frames = min(exit_length, item.duration_frames)
     return {item.start_frame+n for n in
             (*range(entry+1), *range(item.duration_frames-exit_frames, item.duration_frames+1))}
 
 
 def component_bounds(draw, font_path, timeline, item, profile):
+    if program_identities.identity(profile):
+        return program_identities.layout(draw, font_path, timeline, item, profile)
+    if profile['component_id'] in FAMILIES:
+        return layout(draw, font_path, timeline, item, profile)
+    if skin(profile) == 'studio':
+        from .program_studio import layout as studio_layout
+        return studio_layout(draw, font_path, timeline, item, profile)
+    font_path=style_font(font_path,profile)
     typography=profile['presets'].get('typography',{})
     scale = typography.get('reaction',.064) if profile["component_id"] == "reaction" else typography.get('component_primary',.038)
-    font = ImageFont.truetype(str(font_path), max(14, round(timeline.height*scale)))
+    font = load_style_font(font_path,max(14,round(timeline.height*scale)),profile)
     primary,_,detail=item.text.partition('\n')
-    detail_font=ImageFont.truetype(str(font_path),max(12,round(timeline.height*typography.get('component_detail',.024))))
-    width = max(draw.textlength(primary, font=font), draw.textlength(detail,font=detail_font) if detail else 0)
+    detail_font=load_style_font(font_path,max(12,round(timeline.height*typography.get('component_detail',.024))),profile,role='detail')
+    width = max(styled_text_length(primary,font), styled_text_length(detail,detail_font) if detail else 0)
     pad = max(8, round(timeline.height*.016))
     x, y = round(timeline.width*profile["x"]), round(timeline.height*profile["y"])
     box_width=max(math.ceil(width)+pad*2,round(timeline.width*.15))
@@ -32,6 +44,9 @@ def component_bounds(draw, font_path, timeline, item, profile):
 
 
 def draw_program_component(draw, font_path, timeline, item, profile, relative_frame=None):
+    identity = program_identities.identity(profile)
+    if profile["component_id"] in FAMILIES and not identity:
+        return draw_motion_graphic(draw, font_path, timeline, item, profile, relative_frame)
     bounds, font, pad = component_bounds(draw, font_path, timeline, item, profile)
     motion = profile["presets"]["motion"]
     relative = motion["entry_frames"] if relative_frame is None else relative_frame
@@ -52,11 +67,15 @@ def draw_program_component(draw, font_path, timeline, item, profile, relative_fr
     kind = profile["component_id"]
     primary,_,detail=item.text.partition('\n')
     stroke = max(2, round(timeline.height*.004))
-    if kind == "reaction":
+    if identity:
+        program_identities.draw_graphic(draw,font_path,timeline,item,profile,bounds,font,pad,relative_frame)
+    elif skin(profile)!="variety":
+        draw_styled_graphic(draw,font_path,timeline,item,profile,bounds,font,pad,relative_frame)
+    elif kind == "reaction":
         draw.text((x+pad, y+pad//2), primary, font=font, fill=color("accent"),
-                  stroke_width=stroke*2, stroke_fill=color("ink"))
+                  stroke_width=type_outline(profile,font,stroke*2), stroke_fill=color("ink"))
         if detail:
-            detail_font=ImageFont.truetype(str(font_path),max(12,round(timeline.height*.024)))
+            detail_font=load_style_font(font_path,max(12,round(timeline.height*.024)),profile,role='detail')
             draw.text((x+pad,y+pad+round(timeline.height*.075)),detail,font=detail_font,fill=color('paper'),
                       stroke_width=stroke,stroke_fill=color('ink'))
         # A short pair of ticks gives an actual reaction a shared programme
@@ -70,13 +89,13 @@ def draw_program_component(draw, font_path, timeline, item, profile, relative_fr
         draw.rectangle((x, y, right, bottom), fill=color("ink"))
         draw.rectangle((x, y, x+stroke*2, bottom), fill=color("secondary" if kind == "person" else "accent"))
         typography=profile['presets'].get('typography',{})
-        kicker_font=ImageFont.truetype(str(font_path),max(10,round(timeline.height*typography.get('component_kicker',.017))))
+        kicker_font=load_style_font(font_path,max(10,round(timeline.height*typography.get('component_kicker',.017))),profile,role='detail')
         kicker=profile.get('eyebrow') or {'location':'現場','person':'人物','fact':'資訊','pointer':'看這裡','circle':'細節'}[kind]
         draw.text((x+pad,y+pad//2),kicker,font=kicker_font,fill=color('secondary' if kind=='person' else 'accent'))
         primary_y=y+pad//2+round(timeline.height*.027)
         draw.text((x+pad,primary_y),primary,font=font,fill=color("paper"))
         if detail:
-            detail_font=ImageFont.truetype(str(font_path),max(12,round(timeline.height*typography.get('component_detail',.024))))
+            detail_font=load_style_font(font_path,max(12,round(timeline.height*typography.get('component_detail',.024))),profile,role='detail')
             draw.text((x+pad,primary_y+round(timeline.height*.052)),detail,font=detail_font,fill=color('paper'))
         draw.line((x+pad,bottom-pad//2,right-pad,bottom-pad//2),fill=color("accent"),width=max(1,stroke//2))
     if kind not in {"pointer", "circle"}:

@@ -1,0 +1,8 @@
+{
+  "skill_id": "clipen-outdoor",
+  "version": "1.0.0",
+  "name": "出走座標",
+  "template_id": "outdoor",
+  "visual_style_id": "tpl-outdoor",
+  "font_style_id": "japanese"
+}

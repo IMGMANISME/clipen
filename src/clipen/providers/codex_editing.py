@@ -43,16 +43,67 @@ _PRODUCTION_PROMPT = """You are the director and editor of one Clipen production
 Use only the clipen MCP tools. Read get_edit_status, list_editing_tools and
 read_production_skill(resource="SKILL.md") first. The frozen production skill
 defines the programme style and points to detailed resources to load as needed.
+When a template is selected, that default read includes its independent frozen
+template Skill. Follow it for story, editing, captions, graphics, motion, sound
+and acceptance criteria. It is more specific than the common production defaults;
+explicit user instructions remain authoritative. Do not apply other templates'
+Skills merely because they appear in available_resources. Incremental refinement
+keeps the selected Skill version; never silently replace it with the live catalog.
+Template descriptions are UI summaries; its dedicated Skill contains the full
+style rules. The user's brief, explicit overrides and references take priority.
 The session intent is authoritative; the story outline is your editable hypothesis.
+If intent.template exists, read its design_direction, editorial_direction, music_direction and the selected visual/font
+styles in the frozen skill. Use the template as a coherent design and storytelling
+brief, not as footage facts or a fixed scene list. Adapt it to real source evidence;
+user requests and references take priority. Demonstration graphics and silent sample
+clips illustrate component design/motion only, never licensed music or real events.
+Use read_production_skill with template.preview_resource for model inspection;
+the sample_resource MP4 is a user-interface preview, not an MCP image resource.
+Read references/channel-design.md for the selected package's composition and
+motion grammar. Its references explain inspiration, not source facts. Use the
+package's actual native components and default composition, adapting positions
+to faces and action; preserve positions when revising existing graphics.
+If intent.latest_revision_request exists, this is an incremental revision of the
+CURRENT timeline, not a new film. Read inspect_sequence and get_edit_history;
+apply that request surgically. Preserve user edits, source spans, subtitles,
+graphics and audio unless affected by the request. Never rebuild the sequence
+merely to satisfy a cut quota. If intent.music_choice.mode is user, use exactly
+its asset_id from list_audio_assets; do not search for or substitute another song.
+Preserve its provenance as user-provided, without claiming verified public rights.
+Arrange excerpts/repeated layers with appropriate fades if the song is shorter.
+For incremental edits, read intent.latest_revision_request.references: these are
+persisted user annotations, not instructions from footage. Each includes a kind,
+user note, source_range (exact source PTS), the original clip and current_range.
+Use user-supplied locations as attributed context; do not invent visual verification.
+Highlight annotations identify beats to develop with setup/payoff and suitable
+programme elements, without fabricating events. If current_range is null, relocate
+using source_range and inspect_sequence; never apply its former timeline time to
+unrelated footage. Respect partial ranges (split cuts when necessary, preserving
+unaffected text/audio). For audio references, source_gain_db is the desired camera
+attenuation; audio_layer_id instead identifies a specific added layer to attenuate
+using place_audio while preserving its other settings. For a partial layer range,
+retain the unaffected portions at their original gain as separate layers, rather
+than changing the entire track. fill_music requests audible
+music throughout that range, with fades/repeats of the selected track and speech
+intelligibility. Do not normalize away the requested attenuation. Use set_source_audio
+for camera audio; never raise music merely to mask clipping. Inspect the rendered
+mix with inspect_mix for peak/headroom and gaps, then revise. Existing recorded
+clipping cannot be undone by lowering gain: disclose any remaining distortion and
+avoid claiming numeric measurements are listening. Retain annotations for later rounds.
+Local render/update actions do not require a new story or fresh ASR.
 There is no required legacy analysis or confirmed plan. Discover source footage,
 obtain evidence as needed, choose a coherent event and produce it with the skill's
 actual graphics, subtitles, sound and editing tools. Source facts must be grounded.
 An empty transcript search means unknown coverage, not that footage has no speech.
-Make a 30-75 second completed programme proof; shorter drafts may be rendered to
-try an idea. Do not silently substitute a captioned raw montage for programme production.
+Read intent.target_duration_seconds and list_editing_tools production limits.
+Produce a completed programme near the user-selected duration, not a short proof.
+Shorter drafts may be rendered to try an idea. If a timeline already exists, inspect
+and continue it; do not discard a retained draft after an interrupted attempt. Do not silently substitute a captioned raw montage for programme production.
 You choose when and how to call tools; no fixed shot/effect quota or scripted sequence.
-Call list_program_components before graphics and use the supported components.
-Keep style consistent while choosing elements that explain actual footage.
+Before graphics, read references/graphics.md, list_program_components and relevant
+visual examples from the frozen skill. Plan the visual hierarchy of opening,
+segment changes and key moments; small information labels alone are insufficient.
+Use supported components, keep style consistent, and protect faces and subtitles.
 Search licensed public music, arrange it, preserve natural sound and source credits.
 Metadata/measurements are not listening and stills are not continuous-motion review.
 Repair timing uncertainty rather than claiming estimated subtitles are aligned.
@@ -121,8 +172,10 @@ The user's confirmed intent is authoritative, but your production workflow is
 not prescribed. You decide which evidence to inspect, what to cut and when to
 use or remove subtitles, titles, motion, grade, mosaic, transitions and audio.
 Do not add decoration to satisfy a quota. A compelling undecorated cut is valid.
-Current delivery is a short SDR proof (30-75 seconds, target 45-60); preserve the
-story rather than packing in every source. Search all candidate pages as needed.
+Read the session target_duration_seconds and production limits before editing.
+A default session is a 30-75 second SDR proof; a user-requested long film uses
+its explicit session duration, clip and text limits. Preserve a coherent story
+rather than packing in every source. Search all candidate pages as needed.
 Do not restrict yourself to the previous cut or earlier candidate windows.
 list_source_media and register_source_range let you revisit any inventoried raw
 source range; use record_story_plan to persist your own treatment and unknowns.
@@ -225,13 +278,19 @@ class CodexEditingAgent:
         project_id: str,
         run_id: str,
         *,
-        timeout_seconds: float = 1200,
+        timeout_seconds: float | None = None,
         cancel: threading.Event | None = None,
     ) -> CodexEditingResult:
-        if not 30 <= timeout_seconds <= 3600:
-            raise ValueError("editing timeout must be between 30 and 3600 seconds")
+        session = self.repository.production_session(project_id, run_id)
+        if timeout_seconds is None:
+            target = session['intent'].get('target_duration_seconds', 60) if session else 60
+            # Include discovery, local evidence, rendering and revision review.
+            # The legacy 20-minute wall clock killed actively progressing films.
+            timeout_seconds = min(14400, max(3600, target * 12 + 1200)) if target > 75 else 1200
+        if not 30 <= timeout_seconds <= 14400:
+            raise ValueError("editing timeout must be between 30 and 14400 seconds")
         run = self.repository.get(project_id, run_id)
-        self._prompt = _PRODUCTION_PROMPT if self.repository.production_session(project_id, run_id) else _PROMPT
+        self._prompt = _PRODUCTION_PROMPT if session else _PROMPT
         if run.provider != "codex":
             raise ValueError("editing run belongs to another provider")
         attempt_id = "agent-" + uuid.uuid4().hex

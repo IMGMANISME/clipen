@@ -99,7 +99,7 @@ class EditAgentTools(SkillTools, EvidenceTools, ProductionTools):
         elif self._expected_revision_id is not None and self._expected_revision_id != self.repository.current_revision(self.project_id,self.run_id).revision_id:
             raise ProjectError('revision_conflict','作品版本已更新，請先讀取目前版本。',status_code=409)
         try:
-            self.repository.consume_tool_call(self.project_id, self.run_id, name)
+            if not getattr(self, "_user_edit", False):self.repository.consume_tool_call(self.project_id, self.run_id, name)
             result = handler(arguments)
         except Exception as error:
             if mutation_id is not None:finish_receipt(self,mutation_id,error=error)
@@ -108,7 +108,7 @@ class EditAgentTools(SkillTools, EvidenceTools, ProductionTools):
             raise
         if mutation_id is not None:finish_receipt(self,mutation_id,result=result)
         with self.repository.projects.connect(self.project_id) as db:
-            self.repository._append_event(db,self.run_id,'tool_completed',{'tool':name,'arguments':dict(arguments)},utc_now())
+            self.repository._append_event(db,self.run_id,'tool_completed',{'tool':name,'arguments':dict(arguments),'authority':'user' if getattr(self,'_user_edit',False) else 'model'},utc_now())
         return ToolResult(
             {**result.payload, "budget": self.repository.get(self.project_id,self.run_id).to_public()["budget"]},
             result.images,
@@ -254,11 +254,15 @@ class EditAgentTools(SkillTools, EvidenceTools, ProductionTools):
 
     def _replace_sequence(self, arguments: Mapping[str, object]) -> ToolResult:
         self._require_keys(arguments, {"clips", "summary"},optional={'reprise_reason'})
+        if (self._session_value() or {}).get('intent',{}).get('latest_revision_request') and self._timeline().duration_frames > 0:
+            raise ProjectError('incremental_revision_required','這是既有影片的修訂，請使用裁切、替換單一片段、重排或元件工具保留其他內容，不可清空重建整條時間軸。',status_code=409)
         selections = arguments["clips"]
-        if not isinstance(selections, list) or not 1 <= len(selections) <= 30:
+        from .production_limits import limits_for
+        limits=limits_for(self)
+        if not isinstance(selections, list) or not 1 <= len(selections) <= limits.clips:
             raise ProjectError(
                 "agent_input_invalid",
-                "剪輯方向樣片必須包含 1 到 30 個鏡頭。",
+                f"本次製作必須包含 1 到 {limits.clips} 個鏡頭。",
                 status_code=422,
             )
         parsed = [self._trimmed_candidate(value) for value in selections]
@@ -299,10 +303,10 @@ class EditAgentTools(SkillTools, EvidenceTools, ProductionTools):
             cursor * timeline.frame_rate.denominator,
             timeline.frame_rate.numerator,
         )
-        if not (Fraction(3, 4) if self._session_value() else Fraction(30, 1)) <= seconds <= Fraction(75, 1):
+        if not (Fraction(3, 4) if self._session_value() else Fraction(30, 1)) <= seconds <= Fraction(limits.duration_seconds, 1):
             raise ProjectError(
                 "agent_input_invalid",
-                "剪輯方向樣片總長度必須介於 30 到 75 秒。",
+                f"本次製作片長超出範圍，上限為 {limits.duration_seconds} 秒。",
                 status_code=422,
             )
         updated = replace(
@@ -394,7 +398,8 @@ class EditAgentTools(SkillTools, EvidenceTools, ProductionTools):
         issues=self._production_validate_sequence({}).payload['issues']
         if issues:
             raise ProjectError('agent_sequence_invalid','時間軸仍有技術問題，請先呼叫 validate_sequence 修正。',status_code=422)
-        if not is_style_proof(timeline):
+        from .production_limits import valid_production
+        if not (valid_production(self,timeline,complete=True) if self._session_value() else is_style_proof(timeline)):
             raise ProjectError(
                 "style_proof_invalid",
                 "剪輯方向樣片尚未符合片長或鏡頭範圍限制。",

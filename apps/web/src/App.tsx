@@ -43,6 +43,7 @@ import type {
   ProviderState,
   StatusPayload,
 } from './api'
+import { StudioIcon } from './StudioIcon'
 import './index.css'
 
 type ApplicationState =
@@ -257,7 +258,7 @@ function ProjectHome({
         <div>
           <p className="eyebrow">本機剪輯工作台</p>
           <h1>你的作品</h1>
-          <p>從毛片、參考作品與需求開始。Clipen 會先保存你選擇的位置，不會修改素材。</p>
+          <p>靈感從這裡開始。整理素材，讓 AI 陪你把每段日常剪成故事。</p>
         </div>
         {!creating && (
           <button className="button primary create-button" onClick={() => setCreating(true)}>
@@ -278,7 +279,7 @@ function ProjectHome({
         <section className="empty-projects" aria-labelledby="empty-title">
           <div className="empty-mark" aria-hidden="true"><span /></div>
           <h2 id="empty-title">還沒有作品</h2>
-          <p>建立第一個作品後，Clipen 會帶你完成素材、分析、計畫、剪輯與匯出。</p>
+          <p>選好素材、定下風格，開始你的第一支影片。</p>
           <button className="button primary" onClick={() => setCreating(true)}>建立第一個作品</button>
         </section>
       )}
@@ -294,10 +295,10 @@ function ProjectHome({
               const source = project.directories.find((directory) => directory.role === 'source')
               return (
                 <button className="project-card" key={project.project_id} onClick={() => onOpen(project)}>
-                  <span className="project-stage">素材</span>
+                  <span className="project-cover" aria-hidden="true"><StudioIcon name="film" size={40} /><span>CLIPEN PROJECT</span></span><span className="project-stage">剪輯作品</span>
                   <strong>{project.name}</strong>
                   <span className="project-next">
-                    {source ? '繼續整理作品需求' : '下一步：選擇毛片資料夾'}
+                    {source ? '開啟作品工作室' : '下一步：選擇毛片資料夾'}
                   </span>
                   <span className="project-time">{formatUpdatedAt(project.updated_at)}</span>
                 </button>
@@ -744,6 +745,11 @@ function MaterialsWorkspace({
   const [planning, setPlanning] = useState<PlanningStatus | null>(null)
   const [selectedStage, setSelectedStage] = useState<WorkspaceStage | null>(null)
 
+  function selectStage(stage: WorkspaceStage) {
+    setSelectedStage(stage)
+    window.scrollTo(0, 0)
+  }
+
   const source = project.directories.find((directory) => directory.role === 'source')
   const reference = project.directories.find((directory) => directory.role === 'reference')
 
@@ -1093,8 +1099,8 @@ function MaterialsWorkspace({
                 key={stage.id}
                 className={activeStage === stage.id ? 'active' : completed ? 'completed' : available ? '' : 'locked'}
               >
-                <button type="button" disabled={!available} aria-current={activeStage === stage.id ? 'step' : undefined} onClick={() => setSelectedStage(stage.id)}>
-                  <span>{String(index + 1).padStart(2, '0')}</span>
+                <button type="button" disabled={!available} aria-current={activeStage === stage.id ? 'step' : undefined} onClick={() => selectStage(stage.id)}>
+                  <span><StudioIcon name={index === 0 ? 'folder' : 'sparkle'} size={19} /></span>
                   <div>
                     <strong>{stage.label}</strong>
                     {stage.id === 'materials' && currentInventoryId && <small>已檢查</small>}
@@ -1112,7 +1118,7 @@ function MaterialsWorkspace({
           <details className="legacy-workflow-navigation">
             <summary>舊流程與進階工具</summary>
             <ol>{legacyStages.map((stage) => <li key={stage.id} className={activeStage === stage.id ? 'active' : ''}>
-              <button type="button" disabled={!stageAvailable(stage.id)} onClick={() => setSelectedStage(stage.id)}>
+              <button type="button" disabled={!stageAvailable(stage.id)} onClick={() => selectStage(stage.id)}>
                 <span aria-hidden="true">↗</span><div><strong>{stage.label}</strong></div>
               </button>
             </li>)}</ol>
@@ -1196,7 +1202,7 @@ function MaterialsWorkspace({
             onStart={() => void inspectMedia()}
             onCancel={(run) => void stopInventory(run)}
           />
-          {currentInventoryId && <div className="stage-next"><span>素材已經整理完成</span><button className="button primary" type="button" onClick={() => setSelectedStage('production')}>開始 AI 節目製作</button></div>}
+          {currentInventoryId && <div className="stage-next"><span>素材已經整理完成</span><button className="button primary" type="button" onClick={() => selectStage('production')}>開始 AI 節目製作</button></div>}
           <section className="danger-zone" aria-labelledby="delete-project-title">
             <div>
               <h2 id="delete-project-title">刪除作品</h2>
@@ -1238,7 +1244,7 @@ function MaterialsWorkspace({
               onRemoveRuntime={() => void removeLocalASR()}
               onAnnotationSaved={() => setPlanning(null)}
             />
-            <div className="stage-next"><span>可隨時使用目前已保存的分析結果</span><button className="button primary" type="button" onClick={() => setSelectedStage('planning')}>前往剪輯計畫</button></div>
+            <div className="stage-next"><span>可隨時使用目前已保存的分析結果</span><button className="button primary" type="button" onClick={() => selectStage('planning')}>前往剪輯計畫</button></div>
           </div>}
           {activeStage === 'planning' && currentInventoryId && (
             <div className="stage-view">
@@ -1247,9 +1253,9 @@ function MaterialsWorkspace({
               csrf={csrf}
               projectDirty={dirty}
               onStatus={setPlanning}
-              onConfirmed={() => setSelectedStage('editing')}
+              onConfirmed={() => selectStage('editing')}
             />
-            {planning?.current_plan?.status === 'confirmed' && <div className="stage-next"><span>計畫已確認</span><button className="button primary" type="button" onClick={() => setSelectedStage('editing')}>建立剪輯版本</button></div>}
+            {planning?.current_plan?.status === 'confirmed' && <div className="stage-next"><span>計畫已確認</span><button className="button primary" type="button" onClick={() => selectStage('editing')}>建立剪輯版本</button></div>}
             </div>
           )}
           {activeStage === 'editing' && planning?.current_plan?.status === 'confirmed' && (
@@ -1329,7 +1335,7 @@ function App() {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <button className="brand" onClick={() => navigate(null)} aria-label="Clipen 作品首頁">clipen</button>
+        <button className="brand" onClick={() => navigate(null)} aria-label="Clipen 作品首頁"><span className="brand-mark"><StudioIcon name="film" size={21} /></span>clipen<span className="brand-studio">STUDIO</span></button>
         <div className={`connection-badge ${providerReady ? 'is-ready' : ''}`} aria-live="polite">
           <span aria-hidden="true" />
           {application.kind === 'connecting' && '正在連接'}

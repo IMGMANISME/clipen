@@ -1,8 +1,133 @@
 [
-  {"component_id": "location", "name": "地點識別", "purpose": "第一次建立地點或明確換場", "max_characters": 32, "default_position": {"x": 0.06, "y": 0.08}, "requires_target": false},
-  {"component_id": "person", "name": "人物介紹", "purpose": "人物第一次出場或需要辨識身份", "max_characters": 24, "default_position": {"x": 0.06, "y": 0.58}, "requires_target": false},
-  {"component_id": "fact", "name": "品名與資訊", "purpose": "補充有來源的品名、價格與事實", "max_characters": 48, "default_position": {"x": 0.06, "y": 0.16}, "requires_target": false},
-  {"component_id": "pointer", "name": "細節指示", "purpose": "用短標註和箭頭引導觀眾看指定細節", "max_characters": 24, "default_position": {"x": 0.06, "y": 0.12}, "requires_target": true},
-  {"component_id": "circle", "name": "重點圈選", "purpose": "圈出短暫但重要的畫面細節", "max_characters": 16, "default_position": {"x": 0.06, "y": 0.12}, "requires_target": true},
-  {"component_id": "reaction", "name": "反應強調", "purpose": "強調實際發生的反應，不捏造人物心聲或發言", "max_characters": 18, "default_position": {"x": 0.56, "y": 0.18}, "requires_target": false}
+  {
+    "component_id": "location",
+    "name": "地點識別",
+    "purpose": "第一次建立地點或明確換場",
+    "max_characters": 32,
+    "default_position": {
+      "x": 0.06,
+      "y": 0.08
+    },
+    "requires_target": false
+  },
+  {
+    "component_id": "person",
+    "name": "人物介紹",
+    "purpose": "人物第一次出場或需要辨識身份",
+    "max_characters": 24,
+    "default_position": {
+      "x": 0.06,
+      "y": 0.58
+    },
+    "requires_target": false
+  },
+  {
+    "component_id": "fact",
+    "name": "品名與資訊",
+    "purpose": "補充有來源的品名、價格與事實",
+    "max_characters": 48,
+    "default_position": {
+      "x": 0.06,
+      "y": 0.16
+    },
+    "requires_target": false
+  },
+  {
+    "component_id": "pointer",
+    "name": "細節指示",
+    "purpose": "用短標註和箭頭引導觀眾看指定細節",
+    "max_characters": 24,
+    "default_position": {
+      "x": 0.06,
+      "y": 0.12
+    },
+    "requires_target": true
+  },
+  {
+    "component_id": "circle",
+    "name": "重點圈選",
+    "purpose": "圈出短暫但重要的畫面細節",
+    "max_characters": 16,
+    "default_position": {
+      "x": 0.06,
+      "y": 0.12
+    },
+    "requires_target": true
+  },
+  {
+    "component_id": "reaction",
+    "name": "反應強調",
+    "purpose": "強調實際發生的反應，不捏造人物心聲或發言",
+    "max_characters": 18,
+    "default_position": {
+      "x": 0.56,
+      "y": 0.18
+    },
+    "requires_target": false
+  },
+  {
+    "component_id": "program_title",
+    "name": "節目主標",
+    "purpose": "開場建立節目名稱與本集主題；直接疊在有內容的鏡頭上",
+    "max_characters": 14,
+    "default_position": {
+      "x": 0.075,
+      "y": 0.15
+    },
+    "requires_target": false,
+    "motion": "雙色框線展開、標題上升",
+    "visual_weight": "hero"
+  },
+  {
+    "component_id": "headline",
+    "name": "動態大字",
+    "purpose": "揭示當下的問題、目標或關鍵發現，不代替一般字幕",
+    "max_characters": 14,
+    "default_position": {
+      "x": 0.08,
+      "y": 0.25
+    },
+    "requires_target": false,
+    "motion": "斜切色帶展開、逐字彈入",
+    "visual_weight": "hero"
+  },
+  {
+    "component_id": "impact",
+    "name": "撞擊強調字",
+    "purpose": "實際反應或劇情轉折的一次重擊，保留人物表情",
+    "max_characters": 10,
+    "default_position": {
+      "x": 0.12,
+      "y": 0.28
+    },
+    "requires_target": false,
+    "motion": "錯位重影收攏、雙側撞擊線",
+    "visual_weight": "hero"
+  },
+  {
+    "component_id": "chapter",
+    "name": "章節橫幅",
+    "purpose": "進入新的地點或體驗階段，讓觀眾知道故事往哪走",
+    "max_characters": 18,
+    "default_position": {
+      "x": 0.06,
+      "y": 0.1
+    },
+    "requires_target": false,
+    "motion": "斜切底板擦入、雙色延伸線",
+    "visual_weight": "hero"
+  },
+  {
+    "component_id": "burst",
+    "name": "放射反應框",
+    "purpose": "有來源依據的驚訝、疑問或反應，避免捏造台詞",
+    "max_characters": 8,
+    "default_position": {
+      "x": 0.2,
+      "y": 0.22
+    },
+    "requires_target": false,
+    "motion": "放射外框展開、重點字落入",
+    "visual_weight": "hero"
+  }
 ]

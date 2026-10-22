@@ -576,6 +576,23 @@ class FfmpegPreviewRendererTests(unittest.TestCase):
         self.assertEqual(progress[-1], 1)
         self.assertTrue(all(item.closed for item in media.opened))
 
+    def test_hardware_failure_retries_same_timeline_with_software(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output=Path(temporary)/'preview.mp4';commands=[];media=FakeMedia()
+            def popen(command,**options):
+                commands.append(command);process=FakeProcess()
+                if 'h264_videotoolbox' in command:
+                    process.wait=lambda:1
+                else:output.write_bytes(b'mp4')
+                return process
+            edit=timeline('prj_'+'e'*32)
+            FfmpegPreviewRenderer(media,popen=popen,hardware_acceleration=True).render(edit.project_id,edit,output,threading.Event(),lambda value:None)
+            self.assertEqual(len(commands),2)
+            self.assertIn('videotoolbox',commands[0]);self.assertIn('h264_videotoolbox',commands[0])
+            self.assertNotIn('videotoolbox',commands[1]);self.assertIn('libx264',commands[1])
+            self.assertEqual(commands[0][commands[0].index('-filter_complex')+1],commands[1][commands[1].index('-filter_complex')+1])
+            self.assertTrue(all(item.closed for item in media.opened))
+
     def test_semantic_video_effects_are_rendered_and_audio_is_normalized(self) -> None:
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)

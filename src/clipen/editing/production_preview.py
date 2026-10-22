@@ -2,6 +2,8 @@
 import json
 import hashlib
 import os
+import sys
+import secrets
 from pathlib import Path
 import threading
 import time
@@ -22,10 +24,10 @@ def _event(tools,kind,payload):
 
 def render_recipe_id():
     """Cache executable rendering code as well as the immutable edit payload."""
-    from clipen.rendering import renderer, titles, program_components, program_subtitles, production_effects
+    from clipen.rendering import renderer, titles, program_components, program_motion, program_styles, program_studio, program_identities, program_subtitles, production_effects
     from . import program_audio, production_media
     digest=hashlib.sha256()
-    for module in (renderer,titles,program_components,program_subtitles,production_effects,program_audio,production_media):
+    for module in (renderer,titles,program_components,program_motion,program_styles,program_studio,program_identities,program_subtitles,production_effects,program_audio,production_media):
         digest.update(Path(module.__file__).read_bytes())
     return digest.hexdigest()
 
@@ -52,20 +54,21 @@ def render_preview(tools):
     with tools.repository.projects.connect(tools.project_id) as db:
         db.execute('BEGIN IMMEDIATE')
         run=tools.repository._read_run(db,tools.run_id)
-        if run.preview_renders>=run.max_preview_renders:
+        if not getattr(tools,'_user_edit',False) and run.preview_renders>=run.max_preview_renders:
             raise ProjectError('preview_budget_exhausted','已達本次預覽上限，請使用已完成的版本或回報尚未完成的檢視。',status_code=409)
-        db.execute('UPDATE edit_agent_runs SET preview_renders=preview_renders+1 WHERE run_id=?',(tools.run_id,))
+        if not getattr(tools,'_user_edit',False):db.execute('UPDATE edit_agent_runs SET preview_renders=preview_renders+1 WHERE run_id=?',(tools.run_id,))
         db.commit()
-    render=store.create(tools.project_id,'agent-preview-'+tools.run_id+'-'+str(run.preview_renders+1),revision.revision_id)
+    request_id=('user-preview-'+secrets.token_hex(16)) if getattr(tools,'_user_edit',False) else 'agent-preview-'+tools.run_id+'-'+revision.revision_id+'-'+str(run.preview_renders+1)
+    render=store.create(tools.project_id,request_id,revision.revision_id)
     _event(tools,'production_preview',{'render_id':render['render_id'],'revision_id':revision.revision_id,'recipe_id':recipe_id})
     cancel=threading.Event()
     if not hasattr(tools,'_preview_jobs'):tools._preview_jobs={}
-    renderer=getattr(tools,'preview_renderer',None) or FfmpegPreviewRenderer(MediaPreviewRepository(tools.repository.projects))
+    renderer=getattr(tools,'preview_renderer',None) or FfmpegPreviewRenderer(MediaPreviewRepository(tools.repository.projects), hardware_acceleration=sys.platform == "darwin")
     def worker():
         staging=final=None
         def progress(value):
             state=tools.repository.get(tools.project_id,tools.run_id).state
-            if state not in {'queued','running'} or tools._cancel_event().is_set():cancel.set()
+            if (state not in {'queued','running'} and not getattr(tools,'_user_edit',False)) or tools._cancel_event().is_set():cancel.set()
             if store.get(tools.project_id,render['render_id'])['state']=='cancelling':cancel.set()
             store.update_progress(tools.project_id,render['render_id'],value)
         try:

@@ -407,7 +407,7 @@ class EditAgentTests(unittest.TestCase):
             deadline = time.monotonic() + 2
             while time.monotonic() < deadline:
                 latest = coordinator.status(self.project.project_id)["latest_run"]
-                if latest and latest["state"] == "succeeded":
+                if latest and latest["state"] == "succeeded" and latest["usage"] is not None:
                     break
                 time.sleep(0.01)
             else:
@@ -480,7 +480,7 @@ class EditAgentTests(unittest.TestCase):
                 response = request("GET", base, headers={"cookie": cookie})
                 status = json.loads(response[2])
                 latest = status["latest_run"]
-                if latest and latest["state"] == "succeeded":
+                if latest and latest["state"] == "succeeded" and latest["usage"] is not None:
                     break
                 time.sleep(0.01)
             else:

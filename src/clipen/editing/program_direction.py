@@ -40,7 +40,7 @@ def direction_issues(tools):
     from clipen.domain import TrackKind
     from .program_story import read_episode
     issues=[{'code':'title_cards_disabled', 'item_id':i.item_id}
-            for t in tools._timeline().tracks if t.kind is TrackKind.TITLE and t.track_id not in {'agent-subtitles','program-components'} for i in t.items]
+            for t in tools._timeline().tracks if t.kind is TrackKind.TITLE and t.track_id not in {'agent-subtitles','program-components'} and not t.track_id.startswith('program-components-') for i in t.items]
     from .production_media import load_text_styles
     styles=load_text_styles(tools.repository.projects,tools.project_id)
     issues += [{'code':'program_subtitle_style_required','item_id':i.item_id}

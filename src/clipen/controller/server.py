@@ -64,12 +64,11 @@ from .app import (
 
 HOST = "127.0.0.1"
 PRIMARY_PORT = 4200
-LAST_FALLBACK_PORT = 4299
 _INSTANCE_SCHEMA = 1
 
 
 class PortUnavailable(RuntimeError):
-    """Every port reserved for the local Clipen UI is unavailable."""
+    """No loopback listener could be allocated for the local Clipen UI."""
 
 
 @dataclass(frozen=True)
@@ -201,23 +200,22 @@ def probe_codex(attempt_root: Path) -> ProviderStatus:
 
 
 def _bind_socket(
-    first_port: int = PRIMARY_PORT,
-    last_port: int = LAST_FALLBACK_PORT,
+    preferred_port: int = PRIMARY_PORT,
 ) -> tuple[socket.socket, int]:
-    for port in range(first_port, last_port + 1):
+    # Keep the socket open through Uvicorn startup so another process cannot
+    # claim the selected port between discovery and serving requests.
+    for port in (preferred_port, 0):
         listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
             listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             listener.bind((HOST, port))
             listener.listen(2048)
-            return listener, port
+            return listener, listener.getsockname()[1]
         except OSError as error:
             listener.close()
-            if error.errno != errno.EADDRINUSE:
-                raise PortUnavailable(f"localhost:{port} 無法使用") from error
-    raise PortUnavailable(
-        f"localhost:{first_port}–{last_port} 都已被其他程式使用"
-    )
+            if port == 0 or error.errno not in (errno.EADDRINUSE, errno.EACCES):
+                raise PortUnavailable("無法取得可用的本機連線埠，請稍後再試") from error
+    raise AssertionError("port allocation must return a listener or raise")
 
 
 def _read_instance_record(path: Path) -> tuple[int, str] | None:
@@ -241,7 +239,7 @@ def _read_instance_record(path: Path) -> tuple[int, str] | None:
             value.get("schema") != _INSTANCE_SCHEMA
             or isinstance(port, bool)
             or not isinstance(port, int)
-            or not PRIMARY_PORT <= port <= LAST_FALLBACK_PORT
+            or not 1 <= port <= 65535
             or not isinstance(secret, str)
             or not 32 <= len(secret) <= 256
         ):
@@ -334,7 +332,6 @@ async def _serve(
 ) -> None:
     listener, port = _bind_socket()
     public_url = f"http://localhost:{port}"
-    lease.publish(port)
     inventories = None
     preparation_repository = None
     analysis_runtime = None
@@ -348,6 +345,7 @@ async def _serve(
     edit_agents = None
     finishing = None
     try:
+        lease.publish(port)
         workspace = (
             ProjectWorkspace(paths.projects_root)
             if paths.projects_root is not None

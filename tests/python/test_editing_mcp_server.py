@@ -56,7 +56,7 @@ class EditingMcpServerTests(unittest.TestCase):
             tool for tool in response["result"]["tools"] if tool["name"] == "replace_sequence"
         )
         clips = replace["inputSchema"]["properties"]["clips"]
-        self.assertEqual((clips["minItems"], clips["maxItems"]), (1, 30))
+        self.assertEqual((clips["minItems"], clips["maxItems"]), (1, 180))
         self.assertEqual(
             set(clips["items"]["required"]),
             {"candidate_id", "start_offset_seconds", "duration_seconds"},

@@ -134,7 +134,7 @@ def transcript_cues(projects,project_id,timeline,*,include_drafts=False):
 
 PRODUCTION_EFFECTS={'video.punch_in','video.slow_push','video.reframe','video.speed_ramp','video.grade','video.mosaic','video.transition','video.fade','audio.source','audio.layers'}
 
-def validate_production_timeline(timeline):
+def validate_production_timeline(timeline,*,max_texts=96):
     issues=[];cursor=0
     video=next((t for t in timeline.tracks if t.kind is TrackKind.VIDEO),None)
     if video is None:return [{'code':'video_required','message':'至少需要一個畫面軌。'}]
@@ -157,7 +157,7 @@ def validate_production_timeline(timeline):
         for b in texts[n+1:]:
             if a.style_id==b.style_id and a.start_frame<b.start_frame+b.duration_frames and b.start_frame<a.start_frame+a.duration_frames:
                 issues.append({'code':'text_layout_collision','items':[a.item_id,b.item_id],'message':'相同位置文字同時顯示；請調整時間或樣式。'})
-    if len(texts)>96:issues.append({'code':'text_limit_96'})
+    if len(texts)>max_texts:issues.append({'code':'text_limit_96' if max_texts==96 else 'production_text_limit'})
     return issues
 
 
@@ -187,7 +187,7 @@ def mix_audio_layers(media,project_id,timeline,base,output,cancel):
                 filters.append(f'[layer{index}][side{index}]sidechaincompress=threshold=0.025:ratio=8:attack=20:release=350[duck{index}]')
                 labels.append(f'[duck{index}]')
             else:labels.append(f'[layer{index}]')
-        filters.append(''.join(labels)+f'amix=inputs={len(labels)}:duration=first:normalize=0,loudnorm=I=-16:LRA=9:TP=-1.5,alimiter=limit=0.891:level=0[aout]')
+        filters.append(''.join(labels)+f'amix=inputs={len(labels)}:duration=first:normalize=0,alimiter=limit=0.841395:level=0[aout]')
         command+=['-filter_complex',';'.join(filters),'-map','0:v:0','-map','[aout]','-c:v','copy','-c:a','aac','-t',str(seconds),'-movflags','+faststart',str(output)]
         run_process(command,cancel,pass_fds=tuple(opened),timeout=300)
     finally:
@@ -203,7 +203,7 @@ def load_text_styles(projects,project_id):
     path=text_style_path(projects,project_id)
     if path.is_symlink():raise ProjectError('storage_unsafe','文字樣式檔案不安全。',status_code=409)
     if not path.exists():return {}
-    if path.stat().st_size>512000:raise ProjectError('storage_corrupt','文字樣式超出上限。',status_code=409)
+    if path.stat().st_size>16*1024*1024:raise ProjectError('storage_corrupt','文字樣式超出上限。',status_code=409)
     return json.loads(path.read_text())
 
 

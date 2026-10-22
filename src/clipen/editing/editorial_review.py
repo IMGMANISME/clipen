@@ -67,7 +67,8 @@ def inspect_cut(tools,args):
             'image_count':len(samples),'texts':[{'item_id':i.item_id,'text':i.text,'start_frame':i.start_frame,'duration_frames':i.duration_frames} for i in texts],
             'dialogue':[c for c in cues if c['item_id']==identifier],
             'dialogue_problems':[c for c in limitations if c['item_id']==identifier]})
-    return ToolResult({'revision_id':revision.revision_id,'shots':shots,
+    from .programme_review import pacing
+    return ToolResult({'revision_id':revision.revision_id,'shots':shots,'pacing':pacing(timeline),
         'image_order':'shots in requested order; frames in sample order',
         'coverage':'start/middle/end stills; continuous motion and audio remain unreviewed',
         'text_coverage':'At most one additional text midpoint per shot; validate_sequence lists remaining text samples for inspect_preview.',

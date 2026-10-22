@@ -1,0 +1,8 @@
+{
+  "skill_id": "clipen-retro",
+  "version": "1.0.0",
+  "name": "下一站放映室",
+  "template_id": "retro",
+  "visual_style_id": "tpl-retro",
+  "font_style_id": "calligraphy"
+}

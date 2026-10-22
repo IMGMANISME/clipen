@@ -301,7 +301,7 @@ def compose_dense_titles(executable,source,timeline,directory,output,cancel,cust
     from PIL import Image,ImageDraw,ImageFont
     from clipen.finishing.audio import run_process
     items=[i for t in timeline.tracks if t.kind is TrackKind.TITLE for i in t.items]
-    if len(items)>96:raise TitleRenderError('preview_title_limit_exceeded')
+    if len(items)>(960 if timeline.production_session_id else 96):raise TitleRenderError('preview_title_limit_exceeded')
     font=TitleCardRenderer._font_path()
     if font is None:raise TitleRenderError('preview_title_font_missing')
     renderer=TitleCardRenderer(custom_styles);fps=timeline.frame_rate.numerator/timeline.frame_rate.denominator
@@ -324,4 +324,4 @@ def compose_dense_titles(executable,source,timeline,directory,output,cancel,cust
     run_process([executable,'-v','error','-nostdin','-y','-filter_complex_threads','2','-i',str(source),'-f','concat','-safe','0','-i',str(manifest),
                  '-filter_complex','[0:v][1:v]overlay=eof_action=repeat:format=auto,format=yuv420p[v]',
                  '-map','[v]','-map','0:a?','-t',str(timeline.duration_frames/fps),'-r',f'{timeline.frame_rate.numerator}/{timeline.frame_rate.denominator}',
-                 '-c:v','libx264','-preset','veryfast','-crf','21','-c:a','copy','-movflags','+faststart',str(output)],cancel,timeout=300)
+                 '-c:v','libx264','-preset','veryfast','-crf','21','-c:a','copy','-movflags','+faststart',str(output)],cancel,timeout=max(300,round(timeline.duration_frames/fps*3)))

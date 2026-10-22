@@ -85,7 +85,7 @@ _TOOLS = (
                     "additionalProperties": False,
                 },
                 "minItems": 1,
-                "maxItems": 30,
+                "maxItems": 180,
             },
             "summary": {"type": "string", "maxLength": 500},
             "reprise_reason": {"type":"string","minLength":1,"maxLength":500,"description":"Explicit editorial reason for intentionally repeating a source range as a cold open/callback. Without this, duplicate source ranges are rejected."},

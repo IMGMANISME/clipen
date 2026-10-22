@@ -1,16 +1,32 @@
 {
   "skill_id": "travel-program",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "name": "人物與體驗旅遊節目",
   "description": "從真實人物、對話與體驗製作旅遊節目，統一字幕、資訊標註、動態與聲音。",
   "renderer": "clipen.program-components.v1",
-  "required_capabilities": ["source_frames", "source_editing", "program_components", "audio_layers", "preview"],
-  "limitations": ["畫面指示使用固定目標位置，沒有自動物件追蹤。", "音訊量測不代表 AI 已聆聽；ASR 與對齊結果各自標示驗證狀態。"],
-  "provenance": "Clipen original instructions, presets and procedural graphics. No third-party footage, music or fonts bundled.",
+  "required_capabilities": [
+    "source_frames",
+    "source_editing",
+    "program_components",
+    "audio_layers",
+    "preview"
+  ],
+  "limitations": [
+    "畫面指示使用固定目標位置，沒有自動物件追蹤。",
+    "音訊量測不代表 AI 已聆聽；ASR 與對齊結果各自標示驗證狀態。"
+  ],
+  "provenance": "Clipen original instructions, presets and procedural graphics. No third-party footage or music bundled. Original OFL-1.1 Chenyuluoyan and Iansui fonts are bundled with their licenses and pinned source hashes.",
   "design_references": [
     "https://github.com/remotion-dev/skills",
     "https://github.com/motion-canvas/motion-canvas/blob/main/packages/docs/docs/components/custom-components.mdx",
     "https://github.com/Liamrjohnston/remotion-motion-graphics-skill",
-    "https://github.com/mcp-use/remotion-mcp-app"
+    "https://github.com/mcp-use/remotion-mcp-app",
+    "https://hamivideo.hinet.net/product/146824.do?cs=2",
+    "https://www.vox.com/videos",
+    "https://www.youtube.com/watch?v=GsojLuJpe_0",
+    "https://www.maxhwy.com/mkbhd",
+    "https://www.youtube.com/watch?v=r25IWquxe9s",
+    "https://www.youtube.com/watch?v=jG7dSXcfVqE",
+    "https://www.youtube.com/watch?v=X9tg3J5OiYU"
   ]
 }

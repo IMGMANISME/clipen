@@ -1,0 +1,8 @@
+{
+  "skill_id": "clipen-slow",
+  "version": "1.0.0",
+  "name": "慢走電影誌",
+  "template_id": "slow",
+  "visual_style_id": "tpl-slow",
+  "font_style_id": "travel"
+}
