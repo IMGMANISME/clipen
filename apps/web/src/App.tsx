@@ -45,7 +45,7 @@ import type {
 } from './api'
 import { StudioIcon } from './StudioIcon'
 import './index.css'
-import { ProviderContext, useProvider } from './providerContext'
+import { ProviderContext } from './providerContext'
 
 type ApplicationState =
   | { kind: 'connecting' }
@@ -729,7 +729,6 @@ function MaterialsWorkspace({
   onBack: () => void
   onDeleted: (projectId: string) => void
 }) {
-  const provider = useProvider()
   const [name, setName] = useState(project.name)
   const [brief, setBrief] = useState(project.brief)
   const [deleting, setDeleting] = useState(false)
@@ -1121,7 +1120,6 @@ function MaterialsWorkspace({
           </ol>
           <details className="legacy-workflow-navigation">
             <summary>舊流程與進階工具</summary>
-            {!provider.legacyWorkflows && <p className="muted-state">舊流程的 AI 步驟目前只支援 Codex；使用 {provider.name} 時請改用「AI 製作」。</p>}
             <ol>{legacyStages.map((stage) => <li key={stage.id} className={activeStage === stage.id ? 'active' : ''}>
               <button type="button" disabled={!stageAvailable(stage.id)} onClick={() => selectStage(stage.id)}>
                 <span aria-hidden="true">↗</span><div><strong>{stage.label}</strong></div>
@@ -1358,7 +1356,7 @@ function App() {
       )}
 
       {ready && (
-        <ProviderContext.Provider value={{ name: application.status.provider.name, legacyWorkflows: application.status.provider.legacy_workflows ?? true }}>
+        <ProviderContext.Provider value={{ name: application.status.provider.name }}>
           <ProviderNotice status={application.status} />
           {selectedProjectId && !selectedProject ? (
             <main className="system-main"><section className="system-card warning"><span className="notice-symbol">!</span><div><p className="eyebrow">找不到作品</p><h1>這個作品不存在或無法讀取</h1><button className="button primary" onClick={() => navigate(null)}>回到作品首頁</button></div></section></main>

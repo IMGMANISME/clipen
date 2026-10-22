@@ -1,9 +1,9 @@
 import { createContext, useContext } from 'react'
 
 /** The AI provider this Clipen session was started with (`clipen codex`, `clipen claude`). */
-export type ProviderInfo = { name: string; legacyWorkflows: boolean }
+export type ProviderInfo = { name: string }
 
-export const ProviderContext = createContext<ProviderInfo>({ name: 'Codex', legacyWorkflows: true })
+export const ProviderContext = createContext<ProviderInfo>({ name: 'Codex' })
 
 export function useProvider(): ProviderInfo {
   return useContext(ProviderContext)

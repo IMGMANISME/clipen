@@ -1,3 +1,4 @@
+import { useProvider } from './providerContext'
 import { useEffect, useState } from 'react'
 import { cancelFinishing, finishingCommand, getFinishing, resumeFinishing } from './api'
 import type { FinishingStatus } from './api'
@@ -14,6 +15,7 @@ const phases: Record<string, string> = {
 export function FinishingSection({ projectId, csrf, directionId, directionUrl, archive = false }: {
   projectId: string; csrf: string; directionId?: string | null; directionUrl?: string | null; archive?: boolean
 }) {
+  const provider = useProvider()
   const [status, setStatus] = useState<FinishingStatus | null>(null)
   const [feedback, setFeedback] = useState('')
   const [consent, setConsent] = useState(false)
@@ -144,7 +146,7 @@ export function FinishingSection({ projectId, csrf, directionId, directionUrl, a
       {preflight && <div className="finishing-consent">
         <p>會沿用已確認方向，檢視最多 {preflight.maximum_images} 張縮圖與已保存的分析；AI 最多執行 {preflight.maximum_ai_calls} 次。配樂會自動搜尋及下載，搜尋只使用一般音樂風格詞。</p>
         <label><input type="checkbox" checked={confirmed} disabled={busy || active} onChange={event => setConfirmed(event.target.checked)} />確認以目前方向樣片為基礎，讓 AI 調整剪輯與聲音</label>
-        <label><input type="checkbox" checked={consent} disabled={busy || active} onChange={event => setConsent(event.target.checked)} />同意本次將縮圖、口語、分析及修改意見傳給 Codex，使用最多兩次 AI 額度，並搜尋下載公開配樂</label>
+        <label><input type="checkbox" checked={consent} disabled={busy || active} onChange={event => setConsent(event.target.checked)} />同意本次將縮圖、口語、分析及修改意見傳給 {provider.name}，使用最多兩次 AI 額度，並搜尋下載公開配樂</label>
         <button className="button primary" disabled={busy || active || !consent || !confirmed} onClick={() => void produce()}>
           {result ? '依照意見重新製作' : 'AI 自動製作樣片'}
         </button>

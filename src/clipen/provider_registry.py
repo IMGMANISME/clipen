@@ -2,7 +2,9 @@
 
 Adding a provider means implementing an editing agent with the same
 constructor and ``execute(project_id, run_id, *, cancel)`` contract as
-``CodexEditingAgent``, a model-free probe in the Controller, and an entry here.
+``CodexEditingAgent``, an exec adapter with ``CodexExecAdapter``'s
+``probe``/``execute``/``reconcile`` contract, a model-free probe in the
+Controller, and an entry here.
 
 The source launcher imports this before the runtime exists, so it must only
 use the standard library.
@@ -19,26 +21,31 @@ class ProviderDescriptor:
     provider_id: str
     display_name: str
     # "module:attribute" so selecting a provider never imports the others.
+    # The editing agent drives AI production over the Clipen MCP tools.
     editing_agent: str | None
-    # Plan generation, thumbnail observation and the two-pass finishing
-    # workflow still call `codex exec` directly with an output schema.
-    legacy_workflows: bool
+    # The exec adapter runs one schema-bound attempt (plan generation,
+    # thumbnail observation, two-pass finishing).
+    exec_adapter: str | None
 
     @property
     def implemented(self) -> bool:
-        return self.editing_agent is not None
+        return self.editing_agent is not None and self.exec_adapter is not None
 
 
 PROVIDERS: dict[str, ProviderDescriptor] = {
     "codex": ProviderDescriptor(
-        "codex", "Codex", "clipen.providers.codex_editing:CodexEditingAgent", True
+        "codex", "Codex",
+        "clipen.providers.codex_editing:CodexEditingAgent",
+        "clipen.providers.codex:CodexExecAdapter",
     ),
     "claude": ProviderDescriptor(
-        "claude", "Claude", "clipen.providers.claude_editing:ClaudeEditingAgent", False
+        "claude", "Claude",
+        "clipen.providers.claude_editing:ClaudeEditingAgent",
+        "clipen.providers.claude:ClaudeExecAdapter",
     ),
     # Reserved: a local model needs its own agent loop over the Clipen MCP
-    # tools before it can be selected.
-    "local": ProviderDescriptor("local", "本機模型", None, False),
+    # tools and a schema-bound runner before it can be selected.
+    "local": ProviderDescriptor("local", "本機模型", None, None),
 }
 
 
@@ -53,9 +60,16 @@ def implemented_providers() -> tuple[str, ...]:
     return tuple(key for key, value in PROVIDERS.items() if value.implemented)
 
 
-def editing_agent_factory(provider_id: str):
-    descriptor = get_provider(provider_id)
-    if descriptor.editing_agent is None:
-        raise ValueError(f"provider {provider_id} has no editing agent yet")
-    module, attribute = descriptor.editing_agent.split(":")
+def _load(reference: str | None, provider_id: str, role: str):
+    if reference is None:
+        raise ValueError(f"provider {provider_id} has no {role} yet")
+    module, attribute = reference.split(":")
     return getattr(import_module(module), attribute)
+
+
+def editing_agent_factory(provider_id: str):
+    return _load(get_provider(provider_id).editing_agent, provider_id, "editing agent")
+
+
+def exec_adapter_factory(provider_id: str):
+    return _load(get_provider(provider_id).exec_adapter, provider_id, "exec adapter")

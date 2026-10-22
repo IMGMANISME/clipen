@@ -1,3 +1,4 @@
+import { useProvider } from './providerContext'
 import { useEffect, useRef, useState } from 'react'
 import {
   cancelEditAgent,
@@ -27,15 +28,15 @@ const phaseCopy: Record<string, string> = {
 }
 
 const failureCopy: Record<string, string> = {
-  provider_usage_limit: 'Codex 回報這次工作遇到帳號額度上限。請確認執行 Clipen 的 Codex CLI 所登入帳號與額度，再手動重試；Clipen 沒有自動重送。',
-  provider_authentication_required: 'Codex CLI 需要重新登入，這次工作沒有繼續執行。',
-  provider_network_error: 'Codex 連線失敗，這次工作沒有完成；已保留先前結果。',
-  provider_permission_error: 'Codex 的執行權限受阻，請檢查本次診斷紀錄。',
-  provider_unavailable: '目前無法啟動 Codex，請確認登入狀態後重新啟動 Clipen。',
+  provider_usage_limit: '{provider} 回報這次工作遇到帳號額度上限。請確認執行 Clipen 的 {provider} CLI 所登入帳號與額度，再手動重試；Clipen 沒有自動重送。',
+  provider_authentication_required: '{provider} CLI 需要重新登入，這次工作沒有繼續執行。',
+  provider_network_error: '{provider} 連線失敗，這次工作沒有完成；已保留先前結果。',
+  provider_permission_error: '{provider} 的執行權限受阻，請檢查本次診斷紀錄。',
+  provider_unavailable: '目前無法啟動 {provider}，請確認登入狀態後重新啟動 Clipen。',
   provider_timed_out: '這次 AI 剪輯方向樣片超過時間上限，已安全停止。',
-  provider_protocol_error: 'Codex 沒有依照 Clipen 的安全流程完成剪輯。',
+  provider_protocol_error: '{provider} 沒有依照 Clipen 的安全流程完成剪輯。',
   provider_cancelled: '這次 AI 剪輯方向樣片已取消。',
-  provider_launch_failed: 'Clipen 無法啟動這次 Codex 樣片工作。',
+  provider_launch_failed: 'Clipen 無法啟動這次 {provider} 樣片工作。',
   controller_stopped: 'Clipen 關閉時已安全停止這次剪輯，可以重新開始。',
   user_cancelled: '這次 AI 剪輯已由你取消。',
 }
@@ -142,6 +143,7 @@ function TimelineResultView({ result }: { result: EditAgentResult }) {
 }
 
 export function EditAgentSection({ projectId, csrf, canStart, onResultAvailable }: Props) {
+  const provider = useProvider()
   const [run, setRun] = useState<EditAgentRun | null>(null)
   const [result, setResult] = useState<EditAgentResult | null>(null)
   const [reference, setReference] = useState<ProgramReference | null>(null)
@@ -165,7 +167,7 @@ export function EditAgentSection({ projectId, csrf, canStart, onResultAvailable 
   }, [projectId])
 
   const active = run ? activeStates.has(run.state) : false
-  // finish_edit commits the final revision before the Codex process exits and
+  // finish_edit commits the final revision before the provider process exits and
   // reports usage. Keep polling through that short durable handoff so a fast
   // UI refresh does not permanently display "未回報" for a known attempt.
   const finalizing = run?.state === 'succeeded' && run.provider_attempt_id === null
@@ -272,7 +274,7 @@ export function EditAgentSection({ projectId, csrf, canStart, onResultAvailable 
 
       {!loading && polling && run && (
         <div className="edit-agent-running" role="status" aria-live="polite">
-          <div className="edit-agent-progress-copy"><div><strong>{finalizing ? '正在保存 Token 用量…' : runLabel(run)}</strong><span>{calls} / {maxCalls} 次工具操作</span></div><p>{finalizing ? 'AI 剪輯版本已保存，正在等待 Codex 回報這次工作的最終用量。' : 'AI 正在依需要調用素材、剪輯、畫面、聲音與預覽工具；每次修改都有可回復版本。'}</p></div>
+          <div className="edit-agent-progress-copy"><div><strong>{finalizing ? '正在保存 Token 用量…' : runLabel(run)}</strong><span>{calls} / {maxCalls} 次工具操作</span></div><p>{finalizing ? `AI 剪輯版本已保存，正在等待 ${provider.name} 回報這次工作的最終用量。` : 'AI 正在依需要調用素材、剪輯、畫面、聲音與預覽工具；每次修改都有可回復版本。'}</p></div>
           <progress max="100" value={finalizing ? 99 : progress}>{finalizing ? 99 : progress}%</progress>
           {!finalizing && <button className="button ghost" disabled={busy} onClick={() => void cancel()}>{busy ? '正在取消…' : '取消樣片製作'}</button>}
         </div>
@@ -288,13 +290,13 @@ export function EditAgentSection({ projectId, csrf, canStart, onResultAvailable 
             <div><dt>Output</dt><dd>{run.usage ? formatTokens(run.usage.output_tokens) : '未回報'}</dd></div>
             <div><dt>處理總量</dt><dd>{run.usage ? formatTokens(run.usage.total_tokens) : '未回報'}</dd></div>
           </dl>
-          {run.usage && <p className="agent-usage-note">處理總量包含快取內容，不等於同額新增 Quota；實際帳號額度仍以 Codex 計算為準。</p>}
+          {run.usage && <p className="agent-usage-note">處理總量包含快取內容，不等於同額新增 Quota；實際帳號額度仍以 {provider.name} 計算為準。</p>}
           {result && <TimelineResultView result={result} />}
         </div>
       )}
 
       {!loading && failed && run && (
-        <div className="edit-agent-result error" role="alert"><div><span aria-hidden="true">×</span><div><strong>{runLabel(run)}</strong><p>{failureCopy[run.error_code ?? ''] ?? '本次工作未完成；已保留原片與先前結果。'}</p><p>本次工具操作 {run.budget.tool_calls} 次。{run.usage ? `已回報：輸入 ${formatTokens(run.usage.input_tokens)}、輸出 ${formatTokens(run.usage.output_tokens)} Tokens。` : 'Token 用量未回報，不代表零用量。'}</p></div></div></div>
+        <div className="edit-agent-result error" role="alert"><div><span aria-hidden="true">×</span><div><strong>{runLabel(run)}</strong><p>{failureCopy[run.error_code ?? '']?.replaceAll('{provider}', provider.name) ?? '本次工作未完成；已保留原片與先前結果。'}</p><p>本次工具操作 {run.budget.tool_calls} 次。{run.usage ? `已回報：輸入 ${formatTokens(run.usage.input_tokens)}、輸出 ${formatTokens(run.usage.output_tokens)} Tokens。` : 'Token 用量未回報，不代表零用量。'}</p></div></div></div>
       )}
 
       {!loading && !succeeded && result && (
@@ -316,7 +318,7 @@ export function EditAgentSection({ projectId, csrf, canStart, onResultAvailable 
             <strong>{proofReady ? '需要重新製作嗎？' : incompleteResult ? '重新建立完整方向樣片' : legacyResult ? '製作新的剪輯方向樣片' : '開始前確認'}</strong>
             <p>{reference ? 'AI 會參考你認可的節目方向，自行搜尋其他原片對話、選材、製作並回看修改。' : 'AI 會依節目方向搜尋原片對話、選材、製作並回看修改。'}最多 96 次工具操作、4 次本機預覽。Clipen 會保存實際 Token；配樂搜尋只傳一般音樂詞，不會上傳完整原片或音訊。</p>
           </div>
-          <label className="consent-check"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} /><span>我同意 AI 使用 Codex 額度、讀取素材縮圖與口語，並依需要搜尋及下載有來源與授權資料的公開配樂</span></label>
+          <label className="consent-check"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} /><span>我同意 AI 使用 {provider.name} 額度、讀取素材縮圖與口語，並依需要搜尋及下載有來源與授權資料的公開配樂</span></label>
           <button className="button primary" disabled={!canStart || !consent || busy} onClick={() => void start()}>{busy ? '正在啟動…' : '製作完整後製樣片'}</button>
           {!canStart && <p className="edit-agent-blocked">請先完成上方的剪輯版本檢查。</p>}
         </div>

@@ -269,16 +269,23 @@ reconcile(attempt)
 Codex 的候選方向是受控非互動 `codex exec`，但正式參數、sandbox、schema、取消、
 費用與登入行為必須由 isolated spike 實測後才定案。
 
-可選 provider 列在 `provider_registry`。AI 製作流程對所有 provider 共用同一個 Clipen
-MCP server 與工具白名單；各 provider 只負責啟動自己的 CLI 與解讀輸出：
+可選 provider 列在 `provider_registry`，每個 provider 提供兩個實作，所有流程行為相同：
 
-- Codex：`codex exec`，以 permission profile 限制檔案與網路。
+- 製作 agent：AI 製作與修改共用同一個 Clipen MCP server 與工具白名單。
+- Exec adapter：剪輯計畫、縮圖觀察與兩段式完成度流程的單次、schema 約束 Attempt，
+  共用同一套 receipt、輸出驗證與 reconcile。
+
+各 provider 只負責啟動自己的 CLI 與解讀輸出：
+
+- Codex：`codex exec`，以 permission profile 限制檔案與網路，`--ignore-user-config`、
+  `--ignore-rules` 排除使用者設定。
 - Claude：`claude --print`，關閉所有內建工具（`--tools ""`）、只允許 Clipen MCP 工具、
-  不載入使用者設定，並以 `--strict-mcp-config` 排除其他 MCP server。
+  以 `--strict-mcp-config` 排除其他 MCP server、不載入使用者設定；單次 Attempt 另以
+  `--safe-mode` 排除 CLAUDE.md、skills 與 hooks，並以 `--json-schema` 約束輸出，
+  縮圖以 stdin 的影像區塊傳入。
 
-剪輯計畫、縮圖觀察與舊的兩段式完成度流程仍直接呼叫 `codex exec`，因此只在 Codex
-可用；其他 provider 會明確拒絕這些舊流程的 AI 步驟。一個製作工作只由建立它的
-provider 接續，切換 provider 不會花另一個帳號的額度。
+一個製作工作只由建立它的 provider 接續；縮圖觀察的中斷恢復也使用原本 provider
+的 adapter 核對，切換 provider 不會花另一個帳號的額度。
 
 ## 7. System Skills
 

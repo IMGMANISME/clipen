@@ -7,7 +7,7 @@ export type ProviderState =
 
 export type StatusPayload = {
   product: { name: 'Clipen'; workspace: 'local' }
-  provider: { id: string; name: string; state: ProviderState; message: string; legacy_workflows: boolean }
+  provider: { id: string; name: string; state: ProviderState; message: string }
   session: { csrf_token: string }
 }
 

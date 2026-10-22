@@ -244,7 +244,7 @@ class EvidenceService:
     def observe(self, project_id, run_id, request_id, item_key, consent):
         validate_request_id(request_id)
         if consent is not True or self.attempt_root is None:
-            raise fail("observation_consent_required", "必須同意將此串流的縮圖傳給 Codex；可能消耗 AI 額度。")
+            raise fail("observation_consent_required", f"必須同意將此串流的縮圖傳給 {getattr(self.adapter_factory, 'display_name', 'AI')}；可能消耗 AI 額度。")
         if not isinstance(item_key, str) or len(item_key) > 100:
             raise fail("invalid_item")
         with self._lock:
@@ -589,7 +589,7 @@ class EvidenceService:
             raise fail("evidence_image_invalid")
         return self.artifacts.path(record)
 
-    def _publish_observation(self, project_id, run_id, observation_id, item, evidence, payload, cli_version):
+    def _publish_observation(self, project_id, run_id, observation_id, item, evidence, payload, cli_version, provider_id="codex"):
         evidence = _observation_evidence(evidence)
         if [o["index"] for o in payload["observations"]] != list(range(len(evidence["frames"]))):
             raise ValueError("observation indices do not match")
@@ -599,7 +599,7 @@ class EvidenceService:
         self._current(project_id, scope)
         result = {**payload, "schema_version": 1, "source": item["source"],
                   "frame_evidence": evidence["frames"], "role": item["role"],
-                  "provider": "codex", "cli_version": cli_version, "model_id": None,
+                  "provider": provider_id, "cli_version": cli_version, "model_id": None,
                   "recipe": "evidence.observation.v1",
                   "unknown_modalities": ["audio", "speech", "inter_frame_motion"]}
         output = self.artifacts.create_staging_file(project_id, suffix=".json")
@@ -630,7 +630,13 @@ class EvidenceService:
             attempt = CodexAttempt(oid, workspace, workspace / "schema.json", spec["prompt"],
                                    timeout_seconds=120, images=tuple(workspace / name for name in spec["images"]))
             # Reconcile only; never launch or probe an AI process during recovery.
-            adapter = self.adapter_factory(self.attempt_root)
+            # Each provider's artifacts are only readable by its own adapter.
+            ran_with = spec.get("provider", "codex")
+            factory = self.adapter_factory
+            if ran_with != getattr(factory, "provider_id", "codex"):
+                from clipen.provider_registry import exec_adapter_factory
+                factory = exec_adapter_factory(ran_with)
+            adapter = factory(self.attempt_root)
             reconciled = adapter.reconcile(attempt)
             from clipen.providers.recovery import AttemptReceiptStore
             receipt = AttemptReceiptStore(workspace, oid).read()
@@ -641,7 +647,7 @@ class EvidenceService:
                 item = next(i for i in scope["items"] if i["key"] == observation["item_key"])
                 evidence = next(r for r in json.loads(run["results_json"]) if r["key"] == item["key"])
                 result = self._publish_observation(project_id, run["run_id"], oid, item, evidence,
-                                                   reconciled.result.payload, spec["cli_version"])
+                                                   reconciled.result.payload, spec["cli_version"], ran_with)
                 state, error_code = "succeeded", None
         except Exception:
             pass
@@ -703,13 +709,15 @@ class EvidenceService:
             (workspace / "approved-attempt.json").write_text(encoded({
                 "prompt": prompt, "images": [p.name for p in images],
                 "cli_version": getattr(probe, "version", "unknown"),
+                "provider": getattr(adapter, "provider_id", "codex"),
             }), encoding="utf-8")
             response = adapter.execute(attempt, cancel)
             usage = None if response.usage is None else response.usage.to_dict()
             if cancel.is_set():
                 raise AudioPreparationError("cancelled")
             result = self._publish_observation(project_id, run_id, observation_id, item, evidence,
-                                               response.payload, getattr(probe, "version", "unknown"))
+                                               response.payload, getattr(probe, "version", "unknown"),
+                                               getattr(adapter, "provider_id", "codex"))
             state, error_code = "succeeded", None
         except Exception as error:
             result = None

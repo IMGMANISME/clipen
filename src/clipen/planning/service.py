@@ -174,7 +174,7 @@ class PlanningService:
         if consent is not True:
             raise ProjectError(
                 "planning_consent_required",
-                "請先同意使用 Codex 額度產生這次剪輯計畫。",
+                f"請先同意使用 {getattr(self.adapter_factory, 'display_name', 'AI')} 額度產生這次剪輯計畫。",
                 status_code=422,
             )
         selectable = {summary.skill_id for summary in self.system_skills.summaries}

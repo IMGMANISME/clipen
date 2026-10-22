@@ -47,8 +47,13 @@ class ProviderRegistryTests(unittest.TestCase):
             editing_agent_factory("local")
         with self.assertRaises(ValueError):
             get_provider("gemini")
-        self.assertTrue(get_provider("codex").legacy_workflows)
-        self.assertFalse(get_provider("claude").legacy_workflows)
+        from clipen.provider_registry import exec_adapter_factory
+        from clipen.providers.claude import ClaudeExecAdapter
+        from clipen.providers.codex import CodexExecAdapter
+        self.assertIs(exec_adapter_factory("codex"), CodexExecAdapter)
+        self.assertIs(exec_adapter_factory("claude"), ClaudeExecAdapter)
+        with self.assertRaises(ValueError):
+            exec_adapter_factory("local")
 
     def test_cli_routes_each_provider_to_its_own_probe(self):
         calls = []
@@ -185,7 +190,7 @@ class ClaudeProbeTests(unittest.TestCase):
             ready = probe_claude(Path("."))
             adapter.return_value.probe.return_value = ClaudeProbeResult("1", False, ())
             login = probe_claude(Path("."))
-        self.assertEqual((ready.state, ready.provider_id, ready.legacy_workflows), (ProviderState.READY, "claude", False))
+        self.assertEqual((ready.state, ready.provider_id), (ProviderState.READY, "claude"))
         self.assertIs(login.state, ProviderState.LOGIN_REQUIRED)
 
 
@@ -214,7 +219,7 @@ class ProviderSelectionTests(unittest.TestCase):
         finally:
             f.tearDown()
 
-    def test_codex_only_legacy_ai_is_refused_under_claude(self):
+    def test_status_names_the_selected_provider(self):
         from clipen.controller import ControllerConfig, LocalSessionAuthority, ProviderState, ProviderStatus, create_app
         from test_project_api import request_app
         with tempfile.TemporaryDirectory() as temporary:
@@ -222,21 +227,13 @@ class ProviderSelectionTests(unittest.TestCase):
             app = create_app(ControllerConfig(static), ProviderStatus("Claude", ProviderState.READY, "ready", "claude"),
                              LocalSessionAuthority())
 
-            def request(method, path, payload=None, headers=None):
-                return asyncio.run(request_app(app, method, path, headers=headers,
-                                               body=b"" if payload is None else json.dumps(payload).encode()))
+            def request(method, path, headers=None):
+                return asyncio.run(request_app(app, method, path, headers=headers, body=b""))
             _, headers, _ = request("POST", "/api/session/connect", headers={"origin": "http://localhost:4200", "sec-fetch-site": "same-origin"})
             cookie = headers["set-cookie"].split(";", 1)[0]
             _, _, body = request("GET", "/api/status", headers={"cookie": cookie})
-            status = json.loads(body)
-            self.assertEqual((status["provider"]["id"], status["provider"]["legacy_workflows"]), ("claude", False))
-            mutation = {"origin": "http://localhost:4200", "sec-fetch-site": "same-origin", "content-type": "application/json",
-                        "cookie": cookie, "x-clipen-csrf": status["session"]["csrf_token"]}
-            code, _, body = request("POST", f"/api/projects/{PROJECT}/planning/commands/start",
-                                    {"request_id": "r", "expected_revision": 1, "editing_skill_id": "s", "consent": True,
-                                     "expected_context_hash": "h"}, mutation)
-            self.assertEqual(code, 409)
-            self.assertEqual(json.loads(body)["error"]["code"], "provider_workflow_unsupported")
+            self.assertEqual(json.loads(body)["provider"]["id"], "claude")
+            self.assertEqual(json.loads(body)["provider"]["name"], "Claude")
 
 
 if __name__ == "__main__":

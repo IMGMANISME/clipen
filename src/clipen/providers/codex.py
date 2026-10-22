@@ -298,6 +298,9 @@ class CodexReconciliation:
 class CodexExecAdapter:
     """Run one ephemeral Codex attempt without loading project configuration."""
 
+    provider_id = "codex"
+    display_name = "Codex"
+
     def __init__(
         self,
         attempt_root: Path,
@@ -836,6 +839,10 @@ class CodexExecAdapter:
             raise ProviderPermissionError("Codex permission confinement failed")
         raise ProviderProtocolError(f"Codex attempt exited with code {returncode}")
 
+    def _stdin_payload(self, attempt: CodexAttempt) -> bytes:
+        """Codex reads the prompt from stdin and images from --image flags."""
+        return attempt.prompt.encode("utf-8")
+
     def _run_bounded(
         self,
         command: tuple[str, ...],
@@ -848,7 +855,7 @@ class CodexExecAdapter:
     ) -> tuple[bytes, bytes, int]:
         deadline = time.monotonic() + attempt.timeout_seconds
         with tempfile.TemporaryFile() as prompt_stream:
-            prompt_stream.write(attempt.prompt.encode("utf-8"))
+            prompt_stream.write(self._stdin_payload(attempt))
             prompt_stream.seek(0)
             stdout_descriptor = os.open(
                 events_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
