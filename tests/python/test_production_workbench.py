@@ -114,7 +114,7 @@ class ProductionWorkbenchTests(unittest.TestCase):
                     self.assertTrue(coordinator.status(self.project)['production']['last_successful_preview']['stale'])
         finally:coordinator.close()
     def test_manual_changes_are_versioned_without_ai_budget_and_exportable(self):
-        self.f.call('add_program_component',element_id='header',item_id='agent-video-0001',component_id='headline',start_offset_frames=0,duration_frames=60,text='原來的標題',evidence='測試畫面標註',summary='元件')
+        self.f.call('add_program_component',element_id='header',item_id='agent-video-0001',component_id='headline',start_offset_frames=0,duration_frames=60,text='原來的標題',x=.08,y=.25,evidence='測試畫面標註',summary='元件')
         before=self.repository.current_revision(self.project,self.run);budget=self.repository.get(self.project,self.run).tool_calls
         with self.assertRaises(ProjectError):edit(self.repository,self.project,self.run,'remove_item',{'item_id':'header','summary':'刪除'},before.revision_id,'busy')
         self.stop()
@@ -174,7 +174,7 @@ class ProductionWorkbenchTests(unittest.TestCase):
         from clipen.editing import EditAgentCoordinator
         from clipen.providers import ProviderCancelled
         from test_project_api import request_app
-        self.f.call('add_program_component',element_id='editable-header',item_id='agent-video-0001',component_id='headline',start_offset_frames=0,duration_frames=60,text='原標題',evidence='測試標題',summary='標題')
+        self.f.call('add_program_component',element_id='editable-header',item_id='agent-video-0001',component_id='headline',start_offset_frames=0,duration_frames=60,text='原標題',x=.08,y=.25,evidence='測試標題',summary='標題')
         self.stop();before=self.repository.current_revision(self.project,self.run)
         started=threading.Event()
         class LocalAgent:
