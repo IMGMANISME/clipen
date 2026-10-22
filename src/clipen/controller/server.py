@@ -48,6 +48,7 @@ from clipen.rendering import (
 )
 from clipen.providers import CodexExecAdapter, ProviderUnavailable
 from clipen.providers.claude import ClaudeCliAdapter
+from clipen.provider_registry import exec_adapter_factory
 from clipen.analysis.evidence_service import EvidenceService
 from clipen.finishing import FinishingService
 from clipen.annotations import AnnotationRepository
@@ -380,7 +381,10 @@ async def _serve(
                 CapabilityProfile("clipen-export-unverified", 1),
             )
             edit_agent_repository = EditAgentRepository(workspace.repository)
-            finishing = FinishingService(workspace.repository, edit_agent_repository, media_previews, paths.attempt_root)
+            # Every schema-bound AI step uses the provider Clipen was started with.
+            exec_adapter = exec_adapter_factory(provider.provider_id)
+            finishing = FinishingService(workspace.repository, edit_agent_repository, media_previews, paths.attempt_root,
+                                         adapter_factory=exec_adapter)
             finishing.recover()
             preview_renders = PreviewRenderService(
                 PreviewRenderRepository(workspace.repository),
@@ -408,7 +412,8 @@ async def _serve(
             inventories.recover_incomplete(
                 project.project_id for project in workspace.repository.list_projects()
             )
-            evidence_service = EvidenceService(workspace.repository, paths.attempt_root if provider.state is ProviderState.READY else None)
+            evidence_service = EvidenceService(workspace.repository, paths.attempt_root if provider.state is ProviderState.READY else None,
+                                               adapter_factory=exec_adapter)
             evidence_service.recover()
             if paths.plan_schema is not None:
                 planning_service = PlanningService(
@@ -416,6 +421,7 @@ async def _serve(
                     paths.attempt_root,
                     paths.plan_schema,
                     system_skills,
+                    adapter_factory=exec_adapter,
                 )
                 planning_service.recover()
             preparation_repository = PreparationRepository(workspace.repository)

@@ -228,7 +228,7 @@ class EditAgentCoordinator:
         return run
 
     def refine(self, project_id, run_id, request_id, expected_revision_id, instruction, consent, music_asset_id=None, expected_references_version=None):
-        if consent is not True:raise ProjectError('edit_agent_consent_required','請同意使用 Codex 額度修改影片。',status_code=422)
+        if consent is not True:raise ProjectError('edit_agent_consent_required',f'請同意使用 {self.provider.display_name} 額度修改影片。',status_code=422)
         with self._lock:
             key=(project_id,run_id)
             if self._closed or self._queue.full() or key in self._cancel:
@@ -259,7 +259,7 @@ class EditAgentCoordinator:
 
     def resume(self, project_id: str, run_id: str, consent: object) -> AgentRun:
         if consent is not True:
-            raise ProjectError('edit_agent_consent_required', '請同意接續使用 Codex 額度。', status_code=422)
+            raise ProjectError('edit_agent_consent_required', f'請同意接續使用 {self.provider.display_name} 額度。', status_code=422)
         with self._lock:
             key = (project_id, run_id)
             if self._closed or self._queue.full() or key in self._cancel:

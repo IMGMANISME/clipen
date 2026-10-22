@@ -1,3 +1,4 @@
+import { useProvider } from './providerContext'
 import { useEffect, useState } from 'react'
 import { evidenceCommand, getEvidence } from './api'
 import type { EvidenceItem, EvidenceSummary } from './api'
@@ -23,6 +24,7 @@ function timeAt(item: EvidenceItem, pts: string): string {
 }
 
 export function EvidenceSection({ projectId, csrf, inventoryId }: { projectId: string; csrf: string; inventoryId: string }) {
+  const provider = useProvider()
   const [summary, setSummary] = useState<EvidenceSummary | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -115,7 +117,7 @@ export function EvidenceSection({ projectId, csrf, inventoryId }: { projectId: s
             {!!item.coverage?.uncovered.length && <p>未連續分析：{item.coverage.uncovered.map(r => `${timeAt(item, r.start_pts)}～${timeAt(item, r.end_pts)}`).join('、')}</p>}
             {item.kind === 'video' && !observation && !latest.stale && <>
               {approvedItem === item.key ? <div className="evidence-consent">
-                <p>將從上方 {item.frames.length} 張本機縮圖中，依時間平均選出最多 {summary.limits.ai_images_per_call} 張傳給 Codex，包含圖片中可見的私人資訊。不會傳送原始影片、音訊、完整逐字稿或 Repo。這會使用 AI 額度；失敗不會自動重試。</p>
+                <p>將從上方 {item.frames.length} 張本機縮圖中，依時間平均選出最多 {summary.limits.ai_images_per_call} 張傳給 {provider.name}，包含圖片中可見的私人資訊。不會傳送原始影片、音訊、完整逐字稿或 Repo。這會使用 AI 額度；失敗不會自動重試。</p>
                 <button className="button primary" type="button" disabled={busy || running} onClick={() => void act('observe', item.key)}>同意傳送並開始觀察</button>
                 <button className="button secondary" type="button" disabled={busy} onClick={() => setApprovedItem(null)}>先不要</button>
               </div> : <button className="button secondary" type="button" disabled={busy || running || latest.state !== 'succeeded' || availableCalls === 0 || !summary?.provider_available} onClick={() => setApprovedItem(item.key)}>讓 AI 觀察這批畫面</button>}

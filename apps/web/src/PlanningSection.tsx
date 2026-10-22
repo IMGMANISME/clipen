@@ -1,3 +1,4 @@
+import { useProvider } from './providerContext'
 import { useEffect, useState } from 'react'
 import {
   cancelPlanning,
@@ -41,13 +42,13 @@ const blockedCopy: Record<string, string> = {
 const runErrorCopy: Record<string, string> = {
   controller_stopped: 'Clipen 關閉時已停止這次工作，不會自動重送或重複使用額度。',
   user_cancelled: '你已取消這次計畫生成。',
-  provider_authentication: 'Codex 登入已失效，請回到 Terminal 重新登入後再啟動 Clipen。',
-  provider_usage_limit: 'Codex 額度目前不足，Clipen 沒有自動重試。',
-  provider_timed_out: 'Codex 在 3 分鐘內沒有完成，Clipen 已停止且不會自動重試。',
-  provider_network: 'Codex 連線失敗，Clipen 沒有自動重試。',
-  provider_permission: 'Codex 的隔離權限不符合要求，這次沒有保存計畫。',
-  provider_unavailable: 'Codex 目前無法使用，請確認 Terminal 的連線狀態。',
-  provider_protocol: 'Codex 這次沒有回傳 Clipen 能讀取的計畫格式，因此沒有保存。',
+  provider_authentication: '{provider} 登入已失效，請回到 Terminal 重新登入後再啟動 Clipen。',
+  provider_usage_limit: '{provider} 額度目前不足，Clipen 沒有自動重試。',
+  provider_timed_out: '{provider} 在 3 分鐘內沒有完成，Clipen 已停止且不會自動重試。',
+  provider_network: '{provider} 連線失敗，Clipen 沒有自動重試。',
+  provider_permission: '{provider} 的隔離權限不符合要求，這次沒有保存計畫。',
+  provider_unavailable: '{provider} 目前無法使用，請確認 Terminal 的連線狀態。',
+  provider_protocol: '{provider} 這次沒有回傳 Clipen 能讀取的計畫格式，因此沒有保存。',
   system_skill_changed: '系統剪輯規則在執行前發生變動，Clipen 已停止這次工作。',
 }
 
@@ -110,6 +111,7 @@ function candidateLabel(candidate: PlanningCandidate): string {
 }
 
 export function PlanningSection({ project, csrf, projectDirty, onStatus, onConfirmed }: Props) {
+  const provider = useProvider()
   const [status, setStatus] = useState<PlanningStatus | null>(null)
   const [skills, setSkills] = useState<SystemSkillSummary[]>([])
   const [selectedSkill, setSelectedSkill] = useState('')
@@ -482,7 +484,7 @@ export function PlanningSection({ project, csrf, projectDirty, onStatus, onConfi
           <dl className="planning-estimate">
             <div><dt>候選片段</dt><dd>{status.preflight.candidate_count.toLocaleString()} 段</dd></div>
             <div><dt>素材摘要量</dt><dd>{formatTokens(status.preflight.estimated_input_tokens)}</dd></div>
-            <div><dt>AI 呼叫</dt><dd>1 次 Codex</dd></div>
+            <div><dt>AI 呼叫</dt><dd>1 次 {provider.name}</dd></div>
           </dl>
           <div className="planning-privacy">
             <strong>這次不會傳送</strong>
@@ -493,7 +495,7 @@ export function PlanningSection({ project, csrf, projectDirty, onStatus, onConfi
           <div className="planning-submit">
             <label className="consent-check">
               <input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} />
-              <span><strong>允許這一次 AI 呼叫</strong>將上述素材摘要送給 Codex，並使用我的 AI 額度。</span>
+              <span><strong>允許這一次 AI 呼叫</strong>將上述素材摘要送給 {provider.name}，並使用我的 AI 額度。</span>
             </label>
             <button className="button primary" type="button" disabled={!consent || !selectedSkill || busy || projectDirty} onClick={() => void generate()}>
               {busy ? '正在建立工作…' : draft ? '重新產生剪輯藍圖' : '產生剪輯藍圖'}
@@ -513,14 +515,14 @@ export function PlanningSection({ project, csrf, projectDirty, onStatus, onConfi
       {status?.latest_run && ['failed', 'cancelled', 'interrupted'].includes(status.latest_run.state) && (
         <div className="planning-run-error" role="status">
           <strong>{status.latest_run.state === 'failed' ? '這次沒有產生計畫' : status.latest_run.state === 'cancelled' ? '這次已取消' : '這次已安全中斷'}</strong>
-          <p>{status.latest_run.error_code ? runErrorCopy[status.latest_run.error_code] ?? 'Clipen 沒有保存不完整的結果。' : 'Clipen 沒有保存不完整的結果。'}</p>
+          <p>{status.latest_run.error_code ? (runErrorCopy[status.latest_run.error_code]?.replaceAll('{provider}', provider.name) ?? 'Clipen 沒有保存不完整的結果。') : 'Clipen 沒有保存不完整的結果。'}</p>
         </div>
       )}
 
       {usageRuns.length > 0 && (
         <section className="token-usage-card" aria-labelledby="token-usage-title">
           <div className="token-usage-heading">
-            <div><strong id="token-usage-title">單次 AI Token 紀錄</strong><p>每一列都是一次獨立的 Codex 計畫呼叫。</p></div>
+            <div><strong id="token-usage-title">單次 AI Token 紀錄</strong><p>每一列都是一次獨立的 {provider.name} 計畫呼叫。</p></div>
             <span>最近 {usageRuns.length.toLocaleString()} 次</span>
           </div>
           <div className="token-usage-list">
