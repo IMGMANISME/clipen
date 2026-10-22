@@ -55,18 +55,18 @@ read_mutation_receipt 可以查指定操作的結果；先檢查目前版本再�
 
 presets.json 與 components.json 定義本套識別與可渲染元件。使用 add_program_component、
 update_program_component、remove_program_component 編輯，別改用通用字卡模仿。
-畫面要有節目主標、段落帶入與重點設計的層次，不能只有小標籤與字幕。
+節目感來自在對的瞬間補上畫面與字幕都沒有的東西，不是每段都放一個框。
 program_title／headline／impact／chapter／burst 提供大字、框線、色帶與各自的進場動畫；
-依故事需要選擇，同時保留人物與現場的觀看空間。
+只在值得強調的瞬間使用，同時保留人物與現場的觀看空間。
 visual_styles.json 是可執行的整套視覺風格。依本次選定的 selected_visual_style_id 製作，
 用預覽資產確認字體、版面與動態；不要自行把所有模板混成不同風格。
-新版模板各有自己的版面識別與 component_positions 預設；新增未指定位置時會採用該模板的構圖，
-仍要依來源的人臉、動作與資訊安排位置。更新既有元件未指定位置時，保留使用者已調整的位置。
+新版模板各有自己的版面識別與 component_positions 參考構圖；新增元件必須看過該鏡後明確指定 x、y，
+依來源的人臉、動作與資訊安排位置，不讓每個元件落在同一角。更新既有元件未指定位置時，保留使用者已調整的位置。
 模板的 references 是設計參考與轉化說明，並非影片素材或頻道合作關係；不照搬標誌、標語或主標圖案。
 restyle_program_components 可為既有元件整套換風格，保留文字、剪點、字幕與音樂；
 新增元件可明確指定 visual_style_id。font_styles.json 提供獨立的主標／重點字／資訊字體組合；
 遵循 selected_font_style_id，用 font_style_id 延續選擇，更新未指定時保留元件既有字體。更換後重新預覽，不能把舊版檢視當成新版驗收。
-同一個角色的資訊使用同一元件語彙；字幕留底部，資訊優先放上方／側邊。
+同一個角色的資訊使用同一元件語彙；字幕留底部，資訊放在不擋主體的空白處，位置依每鏡內容決定。
 元件的 preview_resource 可用 read_production_skill 讀取實際風格圖片。這些是自行繪製的風格範例，
 不代表來源人物、價格或發言；不能把範例台詞與圖片當成片素材。
 元件出現要對應觀眾當下需要理解的事，起迄跟著事件，不依每鏡配額添加。

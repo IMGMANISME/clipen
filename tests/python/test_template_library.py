@@ -232,11 +232,16 @@ class NativeIdentityTests(unittest.TestCase):
         try:
             from clipen.editing.production_media import load_text_styles
             f.cut()
-            f.component(component_id='program_title',text='今天的故事',visual_style_id='tpl-slow')
+            # Template positions are suggestions; adding requires an explicit, shot-specific choice.
+            expected=style_presets(get_skill(),'tpl-slow')[1]['component_positions']['program_title']
+            with self.assertRaises(fixtures.ProjectError) as error:
+                f.call('add_program_component',element_id='unplaced',item_id='agent-video-0001',component_id='program_title',
+                       start_offset_frames=6,duration_frames=45,text='今天的故事',evidence='來源有此事件',summary='未指定位置')
+            self.assertEqual(error.exception.code,'component_position_required')
+            f.component(component_id='program_title',text='今天的故事',visual_style_id='tpl-slow',**expected)
             def profile():
                 item=next(i for t in f.tools._timeline().tracks for i in t.items if i.item_id=='dish-label')
                 return load_text_styles(f.projects,f.project.project_id)[item.style_id]
-            expected=style_presets(get_skill(),'tpl-slow')[1]['component_positions']['program_title']
             self.assertEqual({axis:profile()[axis] for axis in ('x','y')},expected)
             common={'element_id':'dish-label','item_id':'agent-video-0001','component_id':'program_title','text':'調整過的故事','start_offset_frames':6,'duration_frames':45,'evidence':'來源有此事件','summary':'更新文字'}
             f.call('update_program_component',**common,x=.11,y=.23)

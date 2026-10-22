@@ -13,7 +13,7 @@ description: 在 Clipen 選用「城市解剖室」模板製作或持續修訂�
 使用共用製作 Skill 的來源、版本與權限流程，以現有 MCP 工具執行。本文件的資源路徑均相對於製作套件根目錄，透過 read_production_skill 讀取。
 先看 `assets/style-tpl-city.png`，並讀 `visual_styles.json` 與 `font_styles.json` 中選定的設定。
 本套畫面風格為 `tpl-city`，預設字體為 `street`；使用者可另外換字體。
-用 list_program_components 選語意元件，透過 add_program_component / update_program_component 編輯；預設構圖來自本套 presets，仍須避開人臉、動作與字幕。
+用 list_program_components 選語意元件，透過 add_program_component / update_program_component 編輯；本套 presets 的構圖只是參考；新增時看過該鏡畫面後明確指定 x、y，避開人臉、動作與字幕，不讓每個元件都落在同一角。
 
 ## 故事與節奏
 
