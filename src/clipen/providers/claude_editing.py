@@ -64,8 +64,9 @@ class ClaudeEditingAgent(BoundedEditingAgent):
             allowed_tools(),
             "--permission-mode",
             "dontAsk",
-            # The attempt workspace is empty, so this excludes user settings,
-            # hooks and plugins without loading anything else.
+            # Excludes user settings, hooks, plugins and CLAUDE.md (verified with a
+            # canary CLAUDE.md in the attempt directory). --safe-mode would do the
+            # same but also disables the --mcp-config server this agent needs.
             "--setting-sources",
             "project",
             "--disable-slash-commands",
