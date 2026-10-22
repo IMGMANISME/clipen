@@ -12,6 +12,7 @@ node_modules/
 AGENTS.md
 CLAUDE.md
 /docs/
+/src/clipen/editing/*.md
 /skills/dev/
 /skills/development/
 
