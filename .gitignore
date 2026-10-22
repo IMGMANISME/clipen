@@ -15,8 +15,9 @@ CLAUDE.md
 /skills/dev/
 /skills/development/
 
-# Documentation stays local; only video-editing Skill Markdown is published
+# Development docs stay local; publish only the README and video-editing Skills
 *.md
+!/README.md
 !/src/clipen/skills/**/*.md
 !/resources/system-skills/**/*.md
 
