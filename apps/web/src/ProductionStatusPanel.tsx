@@ -1,5 +1,6 @@
 import type { EditAgentStatus } from './api'
 import { productionIssue, productionProblem } from './productionMessages'
+import { useProvider } from './providerContext'
 
 type Props = { status: EditAgentStatus; busy: boolean; onResume: () => void; onCancel: () => void; onRefresh: () => void; onEdit: () => void; onView?: () => void }
 function timeLabel(value: string): string {
@@ -8,13 +9,14 @@ function timeLabel(value: string): string {
 }
 
 export function ProductionStatusPanel({ status, busy, onResume, onCancel, onRefresh, onEdit, onView }: Props) {
+  const provider = useProvider()
   const production = status.production
   const run = production ? status.latest_run : null
   if (!production || !run) return null
   const active = ['queued', 'running'].includes(run.state)
   const failed = ['failed', 'interrupted'].includes(run.state)
   const canResume = run.state === 'failed' && run.error_code === 'provider_timed_out'
-  const problem = productionProblem(run.error_code)
+  const problem = productionProblem(run.error_code, provider.name)
   const activity = production.progress?.activity ?? []
   const job = production.local_jobs.find((entry) => entry.state === 'running')
   const previewRunning = production.preview && ['queued', 'running'].includes(production.preview.state)
@@ -30,7 +32,7 @@ export function ProductionStatusPanel({ status, busy, onResume, onCancel, onRefr
     <div className="production-status-heading" role="status" aria-live="polite"><h3 id="production-status-heading">{title}</h3></div>
     <p>{failed ? problem.next : active ? current : run.state === 'cancelled' ? '草稿已保留，可以先看看目前的結果。' : '播放下方影片，看看是否符合你的期待。'}</p>
     {active && download !== null && <div className="production-job"><progress aria-label="準備語音功能" value={download} max={100} /><span>語音功能準備進度 {download}%</span></div>}
-    {canResume && <p>會沿用原本約 {Number(production.intent.target_duration_seconds ?? 60) / 60} 分鐘的剪輯與風格設定，並接續使用 Codex 額度。</p>}
+    {canResume && <p>會沿用原本約 {Number(production.intent.target_duration_seconds ?? 60) / 60} 分鐘的剪輯與風格設定，並接續使用 {provider.name} 額度。</p>}
     <div className="production-recovery-actions">
       {failed && (production.preview?.state === 'succeeded' || production.last_successful_preview?.state === 'succeeded') && <a className="button secondary" href="#production-output" onClick={onView}>查看影片</a>}
       {canResume && <button className="button primary" type="button" disabled={busy} onClick={onResume}>繼續這份草稿</button>}
@@ -38,7 +40,7 @@ export function ProductionStatusPanel({ status, busy, onResume, onCancel, onRefr
       {active && <button className="button ghost" type="button" disabled={busy} onClick={onCancel}>停止製作</button>}
     </div>
     <details className="production-more"><summary>查看製作詳情</summary>
-      {failed && <p>{problem.reason} {canResume ? '繼續會沿用已選素材、剪輯與風格，並接續使用 Codex 額度。' : '草稿已保留。重新製作會建立新工作，不會接續這份草稿。'}</p>}
+      {failed && <p>{problem.reason} {canResume ? `繼續會沿用已選素材、剪輯與風格，並接續使用 ${provider.name} 額度。` : '草稿已保留。重新製作會建立新工作，不會接續這份草稿。'}</p>}
       <button className="button ghost" type="button" onClick={onRefresh}>重新整理狀態</button>
       {issues.length > 0 && <div className="production-checks"><strong>{active ? 'AI 還在處理的項目' : '尚待完成的項目'}</strong>
         <ul>{issues.map((issue) => <li key={issue.code}>{productionIssue(issue.code)}</li>)}</ul>

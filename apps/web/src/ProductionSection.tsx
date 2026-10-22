@@ -9,10 +9,12 @@ import { TemplateLibrary } from './TemplateLibrary'
 import { StudioIcon } from './StudioIcon'
 import type { StudioIconName } from './StudioIcon'
 import { usePromptDraft } from './usePromptDraft'
+import { useProvider } from './providerContext'
 
 type Props = { projectId: string; csrf: string; brief: string; sourceReady: boolean }
 
 export function ProductionSection({ projectId, csrf, brief, sourceReady }: Props) {
+  const provider = useProvider()
   const [skills, setSkills] = useState<ProductionSkill[]>([])
   const [musicId, setMusicId] = useState('')
   const [skillId, setSkillId] = useState('travel-program')
@@ -194,7 +196,7 @@ export function ProductionSection({ projectId, csrf, brief, sourceReady }: Props
         {production && <p>這會依下方設定製作一支新影片，目前版本會保留。</p>}
         <p>{durationValid ? `製作約 ${Number(targetMinutes)} 分鐘的影片；片長越長，分析、字幕與輸出需要的時間和 AI 額度越多。` : '設定片長後即可開始製作。'}</p>
         <label className="consent-check"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} />
-          <span>同意使用 Codex 額度分析縮圖與口語、依需要下載本機語音功能，並搜尋及下載有來源與授權資料的配樂。原片與音訊留在本機。</span></label>
+          <span>同意使用 {provider.name} 額度分析縮圖與口語、依需要下載本機語音功能，並搜尋及下載有來源與授權資料的配樂。原片與音訊留在本機。</span></label>
         <button className="button primary" disabled={busy || loading || connectionError || !sourceReady || !consent || !intent.trim() || !durationValid || skills.length === 0} onClick={() => void start()}>{busy ? '正在啟動…' : '開始製作'}</button>
       </>}
     </div></details>}

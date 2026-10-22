@@ -23,7 +23,8 @@ Clipen 是正在開發中的本機 AI 剪輯工作台。使用者將能提供毛
 > release 的版本。
 
 從 source checkout 第一次設定時執行 `./install`。完成後，先進入要存放作品資料
-的目錄，再以 `clipen codex` 啟動本機工作台。Clipen 只會在該目錄的 `.clipen`
+的目錄，再以 `clipen codex` 或 `clipen claude` 啟動本機工作台（分別使用 Codex CLI
+或 Claude Code 的登入與額度）。Clipen 只會在該目錄的 `.clipen`
 子目錄保存作品；毛片與參考作品仍留在使用者選取的位置。只有在使用者從 UI 確認
 特定步驟後才呼叫 AI；不需要開啟 AI 對話或手動架設本機服務。
 每次啟動都會先驗證該工作區內的作品；空工作區可直接進入 UI 建立第一個作品，

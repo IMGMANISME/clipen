@@ -45,6 +45,7 @@ import type {
 } from './api'
 import { StudioIcon } from './StudioIcon'
 import './index.css'
+import { ProviderContext, useProvider } from './providerContext'
 
 type ApplicationState =
   | { kind: 'connecting' }
@@ -64,11 +65,13 @@ const legacyStages: Array<{ id: WorkspaceStage; label: string }> = [
   { id: 'editing', label: '舊時間軸與輸出' },
 ]
 
-const providerHelp: Record<Exclude<ProviderState, 'ready'>, string> = {
-  login_required: '完成 Codex 登入後再重啟 Clipen。你仍可先建立作品與整理素材位置。',
-  unsupported: '更新 Codex CLI 後再重啟 Clipen。本機作品資料不受影響。',
-  confinement_failed: '安全隔離未通過，因此 Clipen 不會把任何作品資料交給 AI。',
-  unavailable: '目前找不到 Codex CLI。你仍可先建立作品與整理素材位置。',
+function providerHelp(state: Exclude<ProviderState, 'ready'>, name: string): string {
+  return {
+    login_required: `完成 ${name} 登入後再重啟 Clipen。你仍可先建立作品與整理素材位置。`,
+    unsupported: `更新 ${name} CLI 後再重啟 Clipen。本機作品資料不受影響。`,
+    confinement_failed: '安全隔離未通過，因此 Clipen 不會把任何作品資料交給 AI。',
+    unavailable: `目前找不到 ${name} CLI。你仍可先建立作品與整理素材位置。`,
+  }[state]
 }
 
 const availabilityCopy: Record<DirectoryAvailability, { label: string; help: string }> = {
@@ -172,7 +175,7 @@ function ProviderNotice({ status }: { status: StatusPayload }) {
       <span className="notice-symbol" aria-hidden="true">!</span>
       <div>
         <strong>{status.provider.message}</strong>
-        <p>{providerHelp[status.provider.state]}</p>
+        <p>{providerHelp(status.provider.state, status.provider.name)}</p>
       </div>
     </aside>
   )
@@ -726,6 +729,7 @@ function MaterialsWorkspace({
   onBack: () => void
   onDeleted: (projectId: string) => void
 }) {
+  const provider = useProvider()
   const [name, setName] = useState(project.name)
   const [brief, setBrief] = useState(project.brief)
   const [deleting, setDeleting] = useState(false)
@@ -1117,6 +1121,7 @@ function MaterialsWorkspace({
           </ol>
           <details className="legacy-workflow-navigation">
             <summary>舊流程與進階工具</summary>
+            {!provider.legacyWorkflows && <p className="muted-state">舊流程的 AI 步驟目前只支援 Codex；使用 {provider.name} 時請改用「AI 製作」。</p>}
             <ol>{legacyStages.map((stage) => <li key={stage.id} className={activeStage === stage.id ? 'active' : ''}>
               <button type="button" disabled={!stageAvailable(stage.id)} onClick={() => selectStage(stage.id)}>
                 <span aria-hidden="true">↗</span><div><strong>{stage.label}</strong></div>
@@ -1345,15 +1350,15 @@ function App() {
       </header>
 
       {application.kind === 'connecting' && (
-        <main className="system-main"><section className="system-card"><div className="spinner" /><div><p className="eyebrow">正在準備</p><h1>連接本機工作台…</h1><p>正在載入你的作品與 Codex 狀態。</p></div></section></main>
+        <main className="system-main"><section className="system-card"><div className="spinner" /><div><p className="eyebrow">正在準備</p><h1>連接本機工作台…</h1><p>正在載入你的作品與 AI 狀態。</p></div></section></main>
       )}
 
       {application.kind === 'failed' && (
-        <main className="system-main"><section className="system-card warning" role="alert"><span className="notice-symbol">!</span><div><p className="eyebrow">無法連線</p><h1>{application.serverUnavailable ? 'Clipen 本機服務未啟動' : '本機工作台拒絕連線'}</h1><p>{application.message}</p>{application.serverUnavailable && <code>clipen codex</code>}</div></section></main>
+        <main className="system-main"><section className="system-card warning" role="alert"><span className="notice-symbol">!</span><div><p className="eyebrow">無法連線</p><h1>{application.serverUnavailable ? 'Clipen 本機服務未啟動' : '本機工作台拒絕連線'}</h1><p>{application.message}</p>{application.serverUnavailable && <code>clipen codex　或　clipen claude</code>}</div></section></main>
       )}
 
       {ready && (
-        <>
+        <ProviderContext.Provider value={{ name: application.status.provider.name, legacyWorkflows: application.status.provider.legacy_workflows ?? true }}>
           <ProviderNotice status={application.status} />
           {selectedProjectId && !selectedProject ? (
             <main className="system-main"><section className="system-card warning"><span className="notice-symbol">!</span><div><p className="eyebrow">找不到作品</p><h1>這個作品不存在或無法讀取</h1><button className="button primary" onClick={() => navigate(null)}>回到作品首頁</button></div></section></main>
@@ -1367,7 +1372,7 @@ function App() {
               onOpen={(project) => navigate(project)}
             />
           )}
-        </>
+        </ProviderContext.Provider>
       )}
     </div>
   )

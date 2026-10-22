@@ -611,7 +611,7 @@ def ensure_installation(
             )
             print(f"✓ 已建立指令：{command_path}", file=stdout)
             print(f"✓ 已更新 PATH：{profile_path}", file=stdout)
-            print("下次開啟 Terminal 後可直接輸入：clipen codex", file=stdout)
+            print("下次開啟 Terminal 後可直接輸入：clipen codex（或 clipen claude）", file=stdout)
         print("✓ Clipen 完整設定完成", file=stdout)
         return runtime
 
@@ -632,7 +632,7 @@ def ensure_installation(
         )
         print(f"✓ 已建立指令：{command_path}", file=stdout)
         print(f"✓ 已更新 PATH：{profile_path}", file=stdout)
-        print("下次開啟 Terminal 後可直接輸入：clipen codex", file=stdout)
+        print("下次開啟 Terminal 後可直接輸入：clipen codex（或 clipen claude）", file=stdout)
     return runtime
 
 
@@ -793,7 +793,7 @@ def uninstall_installation(
 
 def _print_usage(stream: TextIO) -> None:
     print("第一次安裝：./install", file=stream)
-    print("啟動 Clipen：clipen codex", file=stream)
+    print("啟動 Clipen：clipen codex 或 clipen claude", file=stream)
     print("移除 Clipen：./uninstall", file=stream)
 
 
@@ -801,7 +801,12 @@ def main(repo_root: Path, arguments: Sequence[str]) -> int:
     if list(arguments) in (["--help"], ["-h"]):
         _print_usage(sys.stdout)
         return 0
-    if list(arguments) not in (["install"], ["uninstall"], ["codex"]):
+    from clipen.provider_registry import PROVIDERS, implemented_providers
+
+    launch = len(arguments) == 1 and arguments[0] in implemented_providers()
+    if list(arguments) not in (["install"], ["uninstall"]) and not launch:
+        if len(arguments) == 1 and arguments[0] in PROVIDERS:
+            print(f"Clipen 目前還不支援 {PROVIDERS[arguments[0]].display_name}（{arguments[0]}）。", file=sys.stderr)
         _print_usage(sys.stderr)
         return 2
     try:
@@ -813,7 +818,7 @@ def main(repo_root: Path, arguments: Sequence[str]) -> int:
                 print("\n接下來：")
                 print("1. 開啟新的 Terminal")
                 print("2. cd 到你想存放 Clipen 作品資料的目錄")
-                print("3. 執行：clipen codex")
+                print("3. 執行：clipen codex（或 clipen claude）")
                 print("\n不需要回到 Clipen 程式碼目錄；毛片也可以放在其他位置。")
             return 0
         if list(arguments) == ["uninstall"]:
@@ -828,8 +833,7 @@ def main(repo_root: Path, arguments: Sequence[str]) -> int:
         action = {
             "install": "安裝",
             "uninstall": "移除",
-            "codex": "啟動",
-        }[list(arguments)[0]]
+        }.get(list(arguments)[0], "啟動")
         print(f"Clipen {action}失敗：{error}", file=sys.stderr)
         return 1
     if runtime is None:
@@ -843,7 +847,7 @@ def main(repo_root: Path, arguments: Sequence[str]) -> int:
     }
     os.execve(
         python,
-        [str(python), "-m", "clipen.cli", "codex"],
+        [str(python), "-m", "clipen.cli", arguments[0]],
         environment,
     )
     return 1

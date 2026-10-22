@@ -90,7 +90,8 @@ class EditAgentRepository:
                 **({"production": production} if production is not None else {}),
             }
         )
-        if provider not in {"codex", "claude", "gemini"}:
+        from clipen.provider_registry import implemented_providers
+        if provider not in implemented_providers():
             raise ValueError("provider is invalid")
         run_id = make_id("editrun_", [project_id, request])
         now = utc_now()

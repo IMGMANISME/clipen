@@ -31,8 +31,9 @@ cd "/想存放 Clipen 作品資料的目錄"
 clipen codex
 ```
 
-`codex` 表示本次選用的 AI provider。Clipen 啟動 Controller 與本機 UI，但不開啟
-Codex 互動式 TUI、不注入對話、不建立 MCP 輪詢，也不要求使用者手動架設服務。
+`codex` 表示本次選用的 AI provider；也可用 `clipen claude` 改用 Claude Code。
+`local`（本機模型）已保留名稱，尚未實作。Clipen 啟動 Controller 與本機 UI，但不開啟
+provider 的互動式 TUI、不注入對話、不建立 MCP 輪詢，也不要求使用者手動架設服務。
 AI 只在 UI 明確授權一個分析、規劃或修改步驟後，以單次、有界的 Attempt 執行。
 目前目錄是本次工作區；Clipen 只在其中的 `.clipen/` 管理作品資料。切換目錄後再
 執行相同指令會開啟另一個工作區，每個工作區使用自己的 Controller instance lock。
@@ -268,6 +269,17 @@ reconcile(attempt)
 Codex 的候選方向是受控非互動 `codex exec`，但正式參數、sandbox、schema、取消、
 費用與登入行為必須由 isolated spike 實測後才定案。
 
+可選 provider 列在 `provider_registry`。AI 製作流程對所有 provider 共用同一個 Clipen
+MCP server 與工具白名單；各 provider 只負責啟動自己的 CLI 與解讀輸出：
+
+- Codex：`codex exec`，以 permission profile 限制檔案與網路。
+- Claude：`claude --print`，關閉所有內建工具（`--tools ""`）、只允許 Clipen MCP 工具、
+  不載入使用者設定，並以 `--strict-mcp-config` 排除其他 MCP server。
+
+剪輯計畫、縮圖觀察與舊的兩段式完成度流程仍直接呼叫 `codex exec`，因此只在 Codex
+可用；其他 provider 會明確拒絕這些舊流程的 AI 步驟。一個製作工作只由建立它的
+provider 接續，切換 provider 不會花另一個帳號的額度。
+
 ## 7. System Skills
 
 固定 core Skill 負責流程；其他 system editing Skills 提供內部剪輯判斷。Controller
@@ -361,7 +373,7 @@ clipen reset --project <project-id>
 
 Source checkout 的 `./install` 是首次設定入口。執行後先顯示 runtime、
 全域 `clipen` 指令、PATH 設定檔、安裝位置與會／不會執行的操作，取得一次同意後
-才安裝。設定完成後，新 Terminal 的入口統一為 `clipen codex`；正式發行仍可改由
+才安裝。設定完成後，新 Terminal 的入口為 `clipen codex` 或 `clipen claude`；正式發行仍可改由
 Homebrew 或簽章 installer 提供該指令。
 
 Source checkout 的對稱移除入口是 `./uninstall`。它只移除 Clipen 管理的 runtime、

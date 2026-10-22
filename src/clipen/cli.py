@@ -8,7 +8,8 @@ import sys
 from typing import Sequence
 
 from clipen.controller import LocalSessionAuthority
-from clipen.controller.server import ServerPaths, probe_codex, run_server
+from clipen.controller.server import ServerPaths, probe_claude, probe_codex, run_server
+from clipen.provider_registry import PROVIDERS, implemented_providers
 from clipen.system_skills import verify_system_skill_release
 from clipen.workspace import (
     WorkspaceError,
@@ -35,9 +36,17 @@ def _data_root() -> Path:
 
 def main(arguments: Sequence[str] | None = None) -> int:
     selected = list(sys.argv[1:] if arguments is None else arguments)
-    if selected != ["codex"]:
-        print("用法：clipen codex", file=sys.stderr)
+    available = implemented_providers()
+    usage = "用法：clipen " + "|".join(available)
+    if len(selected) != 1 or selected[0] not in PROVIDERS:
+        print(usage, file=sys.stderr)
         return 2
+    descriptor = PROVIDERS[selected[0]]
+    if not descriptor.implemented:
+        print(f"Clipen 目前還不支援 {descriptor.display_name}（{descriptor.provider_id}）。{usage}", file=sys.stderr)
+        return 2
+    # Resolved at call time so each probe stays a module attribute.
+    probe = {"codex": probe_codex, "claude": probe_claude}[descriptor.provider_id]
     try:
         repo_root = _repo_root()
         data_root = _data_root()
@@ -55,8 +64,8 @@ def main(arguments: Sequence[str] | None = None) -> int:
         system_skills = verify_system_skill_release(
             repo_root / "resources" / "system-skills"
         )
-        print("正在檢查 Codex…", flush=True)
-        provider = probe_codex(attempt_root)
+        print(f"正在檢查 {descriptor.display_name}…", flush=True)
+        provider = probe(attempt_root)
         return run_server(
             ServerPaths(
                 static_root=repo_root / "apps" / "web" / "dist",
