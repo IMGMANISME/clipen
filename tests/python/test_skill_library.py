@@ -112,7 +112,9 @@ class SkillLibraryTests(unittest.TestCase):
         source = write_skill(self.root / "talking", clipen=BINDING)
         first = self.library.import_folder(source)
         self.assertEqual([s["skill_id"] for s in self.library.list()], ["talking-head"])
-        self.assertEqual([s["source"] for s in list_skills()], ["builtin", "custom"])
+        listed = list_skills()
+        self.assertEqual(listed[0]["skill_id"], "travel-program")
+        self.assertEqual([(s["skill_id"], s["source"]) for s in listed if s["source"] == "custom"], [("talking-head", "custom")])
         # Editing the source folder does not change the imported copy.
         (source / "references" / "pacing.md").write_text("改過的規則", encoding="utf-8")
         self.assertEqual(self.library.load("talking-head").content_hash, first.content_hash)
@@ -175,7 +177,8 @@ class CustomSkillProductionTests(unittest.TestCase):
         session = self.repository.production_session(self.project.project_id, self.run.run_id)
         self.assertEqual(session["intent"]["target_duration_seconds"], 90)
         self.assertEqual(session["skill"]["skill_id"], "talking-head")
-        self.assertEqual(session["skill"]["base_skill"]["skill_id"], "travel-program")
+        self.assertEqual(session["skill"]["core"]["skill_id"], "clipen-core")
+        self.assertEqual([e["skill_id"] for e in session["skill"]["skill_chain"]], ["talking-head"])
         read = self.call("read_production_skill").payload["content"]
         self.assertIn("Selected custom Skill: talking-head v1.2.0", read)
         self.assertIn("用跳剪去掉停頓", read)
@@ -235,7 +238,8 @@ class SkillLibraryApiTests(unittest.TestCase):
             self.assertNotIn(str(folder), body.decode())
             self.assertEqual(request("POST", "/api/production/skill-library/commands/import", {"request_id": "import-2"}, mutation)[0], 204)
             _, _, body = request("GET", "/api/production/skills", headers={"cookie": cookie})
-            self.assertEqual([s["skill_id"] for s in json.loads(body)["skills"]], ["travel-program", "talking-head"])
+            ids = [s["skill_id"] for s in json.loads(body)["skills"]]
+            self.assertEqual((ids[0], ids[-1], len(ids)), ("travel-program", "talking-head", 14))
             code, _, _ = request("POST", "/api/production/skill-library/talking-head/commands/remove", {}, mutation)
             self.assertEqual(code, 200)
             _, _, body = request("GET", "/api/production/skill-library", headers={"cookie": cookie})
@@ -245,3 +249,57 @@ class SkillLibraryApiTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SkillCompositionTests(CustomSkillProductionTests):
+    """The production core comes first; skills chain after it."""
+
+    def start(self, request_id, **production):
+        self.repository.cancel(self.project.project_id, self.run.run_id) if self.repository.get(
+            self.project.project_id, self.run.run_id).state in {"queued", "running"} else None
+        run, _ = self.repository.create_run(self.project.project_id, "composition-" + request_id,
+                                            production={"intent": "測試組合", **production})
+        return run, self.repository.production_session(self.project.project_id, run.run_id)
+
+    def read(self, run):
+        tools = EditAgentTools(self.repository, self.project.project_id, run.run_id)
+        tools.activate()
+        try:
+            return tools.call("read_production_skill", {}).payload
+        finally:
+            tools.close_production()
+            self.repository.cancel(self.project.project_id, run.run_id)
+
+    def test_catalog_lists_one_genre_twelve_templates_and_custom_skills(self):
+        kinds = [s["kind"] for s in list_skills()]
+        self.assertEqual((kinds.count("genre"), kinds.count("template"), kinds.count("custom")), (1, 12, 1))
+
+    def test_every_skill_is_read_after_the_production_core(self):
+        from clipen.skills.catalog import builtin_skills
+        core, builtin = builtin_skills()
+        run, session = self.start("genre", skill_id="travel-program")
+        self.assertEqual(session["skill"]["core"]["skill_id"], "clipen-core")
+        content = self.read(run)["content"]
+        self.assertTrue(content.startswith(core["resources"]["SKILL.md"]))
+        self.assertIn(builtin["travel-program"]["resources"]["skills/travel-program/SKILL.md"], content)
+        self.assertIn("Selected built-in Skill: travel-program v3.0.0", content)
+        # Template instructions are not frozen into sessions that did not choose them.
+        self.assertFalse(any(k.startswith("template-skills/") for k in session["skill"]["resources"]))
+
+    def test_a_template_skill_can_be_chosen_directly(self):
+        run, session = self.start("direct-template", skill_id="clipen-food")
+        self.assertEqual(session["intent"]["template"]["template_id"], "food")
+        self.assertEqual((session["skill"]["selected_visual_style_id"], session["skill"]["selected_font_style_id"]), ("tpl-food", "japanese"))
+        self.assertEqual([e["skill_id"] for e in session["skill"]["skill_chain"]], ["clipen-food"])
+        self.assertIn("今天吃哪邊", self.read(run)["content"])
+
+    def test_a_custom_skill_can_extend_a_built_in_skill(self):
+        source = write_skill(self.root / "food-vlog", clipen={"skill_id": "food-vlog", "extends": "clipen-food"})
+        self.library.import_folder(source)
+        run, session = self.start("extends", skill_id="food-vlog")
+        self.assertEqual([e["skill_id"] for e in session["skill"]["skill_chain"]], ["clipen-food", "food-vlog"])
+        self.assertEqual(session["skill"]["selected_visual_style_id"], "tpl-food")
+        content = self.read(run)["content"]
+        self.assertLess(content.index("今天吃哪邊"), content.index("用跳剪去掉停頓"))
+        with self.assertRaises(ProjectError):
+            self.library.import_folder(write_skill(self.root / "bad", clipen={"skill_id": "bad-extends", "extends": "clipen-core"}))

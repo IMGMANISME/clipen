@@ -62,8 +62,13 @@ class EditAgentRepository:
                 if production.get('visual_style_id',template['visual_style_id'])!=template['visual_style_id']:
                     raise ProjectError('template_conflict','畫面風格與選擇的模板不一致，請重新選擇。',status_code=422)
                 production={**production,'visual_style_id':template['visual_style_id'],'font_style_id':production.get('font_style_id',template['font_style_id'])}
+                # A template is its own skill over the production core.
+                skill=get_skill(template['skill']['skill_id'])
                 skill['selected_template_id']=template['template_id']
-                skill['selected_template_skill']=template['skill']
+            elif skill.get('template'):
+                # The template skill was chosen directly; keep its design brief in the intent.
+                template=skill['template']
+                skill['selected_template_id']=template['template_id']
             target=production.get('target_duration_seconds',skill.get('default_duration_seconds',60))
             if isinstance(target,bool) or not isinstance(target,int) or not 30<=target<=1200:
                 raise ProjectError('production_input_invalid','預計片長必須為 30 到 1200 秒。',status_code=422)

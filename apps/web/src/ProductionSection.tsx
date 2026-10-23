@@ -165,7 +165,8 @@ export function ProductionSection({ projectId, csrf, brief, sourceReady }: Props
       <div className="production-brief">
       <label htmlFor="production-skill">影片類型</label>
       <select id="production-skill" value={skillId} disabled={Boolean(active) || busy} onChange={(event) => setSkillId(event.target.value)}>
-        {skills.map((skill) => <option key={skill.skill_id} value={skill.skill_id}>{skill.name}</option>)}
+        {/* Template skills are chosen from the template gallery below. */}
+        {skills.filter((skill) => skill.kind !== 'template').map((skill) => <option key={skill.skill_id} value={skill.skill_id}>{skill.source === 'custom' ? `${skill.name}（自訂）` : skill.name}</option>)}
       </select>
       <label htmlFor="production-duration">預計片長（分鐘）</label>
       <input id="production-duration" type="number" min={1} max={20} step={1} inputMode="numeric"

@@ -2,7 +2,8 @@
 
 A package is a folder with ``SKILL.md`` (YAML-style frontmatter with ``name``
 and ``description``), optional ``references/`` text, optional PNG ``assets/``
-and an optional ``clipen.json`` that binds built-in Clipen design. Only text
+and an optional ``clipen.json`` that binds built-in Clipen design and may
+``extends`` a built-in skill. Only text
 and PNG files are read. Scripts and other files are reported and ignored;
 nothing in a package is ever executed.
 """
@@ -33,7 +34,7 @@ MAX_DEPTH = 4
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 # Finder and editor droppings that are neither content nor worth reporting.
 _QUIET = frozenset({".DS_Store", "Thumbs.db"})
-CLIPEN_KEYS = frozenset({"skill_id", "version", "visual_style_id", "font_style_id",
+CLIPEN_KEYS = frozenset({"skill_id", "version", "extends", "visual_style_id", "font_style_id",
                          "components", "default_duration_seconds"})
 
 
@@ -213,6 +214,8 @@ def _binding(raw: str | None, design: dict[str, object] | None) -> dict[str, obj
     if unknown:
         raise invalid("clipen.json 有無法辨識的欄位：" + "、".join(sorted(unknown)))
     design = design or {}
+    if "extends" in value and value["extends"] not in design.get("extends", ()):
+        raise invalid(f"clipen.json 的 extends「{value['extends']}」不是 Clipen 內建的 Skill。")
     for key, catalog in (("visual_style_id", "visual_styles"), ("font_style_id", "font_styles")):
         if key in value and value[key] not in design.get(catalog, ()):
             raise invalid(f"clipen.json 的 {key}「{value[key]}」不是 Clipen 內建的選項。")
