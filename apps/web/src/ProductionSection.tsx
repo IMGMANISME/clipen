@@ -18,9 +18,9 @@ export function ProductionSection({ projectId, csrf, brief, sourceReady }: Props
   const [skills, setSkills] = useState<ProductionSkill[]>([])
   const [musicId, setMusicId] = useState('')
   const [skillId, setSkillId] = useState('travel-program')
-  const [visualStyleId, setVisualStyleId] = useState('tpl-journal')
-  const [templateId, setTemplateId] = useState('journal')
-  const [fontStyleId, setFontStyleId] = useState('handwriting')
+  const [visualStyleId, setVisualStyleId] = useState('tpl-travel-vlog')
+  const [templateId, setTemplateId] = useState('travel-vlog')
+  const [fontStyleId, setFontStyleId] = useState('variety-tw')
   const [targetMinutes, setTargetMinutes] = useState('10')
   const targetDuration = Number(targetMinutes) * 60
   const durationValid = targetMinutes.trim() !== '' && Number.isInteger(Number(targetMinutes)) && targetDuration >= 60 && targetDuration <= 1200

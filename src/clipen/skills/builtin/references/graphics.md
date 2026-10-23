@@ -62,6 +62,7 @@
 ## 整套換風格
 
 list_program_components 回傳本工作凍結的 visual_styles 與 selected_visual_style_id；每套可讀 preview_resource。
+九套剪輯樣板（tpl-*）各有自己的元件造型與進場方式，見 references/channel-design.md。
 variety 是粗體、斜切色帶與撞擊動畫；editorial（旅誌編輯部）是錯位雙層主標、印刷花章、剪紙貼紙與票券標註；cinema 是宋體、細線框與緩慢淡入。
 有使用者選擇時先遵循選擇。未被要求混搭時，讓本片元件維持同一套視覺語言。
 restyle_program_components 可一次換全部或指定 element_ids；只換畫面元件，字幕時間、配樂、剪點與文字都保留。
@@ -74,6 +75,8 @@ update_program_component 未指定風格會保留該元件原風格。不同字�
 旅誌編輯部的主標會在「・」處分行，無分隔時將長標題分成兩行。請用短而有意義的主標（例如「咖啡・餐桌時光」）；實際位置與兩行字高由工具量測，溢出時縮短文字或移位。花章是節目裝飾，不是來源或評價認證。主標先揭示識別標、再依序出現兩行字與底線；不要用更長的持續時間堆滿畫面。票券適合品名與已知資訊；剪紙貼紙只承接片中實際反應或明確編輯觀點，不替人物編造評價。
 
 ## 字體搭配獨立於版型
+
+每套剪輯樣板有自己的字體組合（例如 handnote-tw 手札體、rounded-tw 圓體、pen-tw 翩翩體、ceremony-tw 楷書），使用 macOS 隨選安裝的系統字體；本機沒有時改用蘋方或黑體，並照常做缺字檢查。
 
 font_styles.json 提供 default（日常沿用模板）、japanese（日系綜藝厚黑）、street（潮流雜誌粗明體／黑體對比）、travel（質感旅遊細明體）。每組分 title、impact、information、detail 角色，請依 list_program_components 回傳的 selected_font_style_id 與預覽資產選擇。這是實際渲染字型，不是只改介面 CSS。
 使用者的字體選擇優先；不要因更換畫面風格而重設它。add_program_component / update_program_component 可用 font_style_id；未指定的更新保留既有字體。restyle_program_components 可搭配現有 visual_style_id 與指定 font_style_id，只換畫面元件的字體組合；保留字幕、音樂與剪點。新增元件時明確延續所選字體。

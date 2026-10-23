@@ -1,403 +1,13 @@
 [
   {
-    "template_id": "journal",
-    "name": "落雁手作日記",
-    "category": "旅行日常",
-    "description": "筆記頁邊、線圈孔、手寫劃線，像剪進影片的一頁旅行手帳。",
-    "visual_style_id": "tpl-journal",
-    "font_style_id": "handwriting",
-    "editorial_direction": "以手寫主標與頁邊註記建立時間感，資訊像現場留下的筆記；反應字保留筆觸，避免通篇票券。",
-    "sample_title": "把日子・寫成一封信",
-    "sample_detail": "留給以後的自己",
-    "preview_resource": "assets/style-tpl-journal.png",
-    "sample_resource": "assets/sample-journal.mp4",
-    "tags": [
-      "手寫邊註",
-      "筆記頁邊",
-      "筆觸展開"
-    ],
-    "music_direction": "溫暖木吉他或輕柔節拍，讓現場對話留在前景",
-    "design_direction": "以手寫主標與頁邊註記建立時間感，資訊像現場留下的筆記；反應字保留筆觸，避免通篇票券。",
-    "references": [
-      {
-        "creator": "Casey Neistat",
-        "title": "DO WHAT YOU CAN’T",
-        "url": "https://www.youtube.com/watch?v=jG7dSXcfVqE",
-        "takeaway": "手作標記與生活物件承載資訊；參考公開作品與手寫圖像，轉成 Clipen 原創版面。"
-      }
-    ],
-    "sample_duration_seconds": 8,
-    "skill_resource": "template-skills/clipen-journal/SKILL.md"
-  },
-  {
-    "template_id": "city",
-    "name": "城市解剖室",
-    "category": "旅行日常",
-    "description": "醒目雙行黑字、編輯欄線與問題標籤，拆解一座城市。",
-    "visual_style_id": "tpl-city",
-    "font_style_id": "street",
-    "editorial_direction": "以問題開場，觀察與證據逐步揭示；圖解字標採印刷欄線與段落層級，地圖僅在來源支持時使用。",
-    "sample_title": "城市為什麼・長這個樣子",
-    "sample_detail": "從一個街角，找一個答案",
-    "preview_resource": "assets/style-tpl-city.png",
-    "sample_resource": "assets/sample-city.mp4",
-    "tags": [
-      "編輯雙行字",
-      "圖解標註",
-      "分段揭示"
-    ],
-    "music_direction": "俐落的都會節拍，章節切換有清楚落點",
-    "design_direction": "以問題開場，觀察與證據逐步揭示；圖解字標採印刷欄線與段落層級，地圖僅在來源支持時使用。",
-    "references": [
-      {
-        "creator": "Vox",
-        "title": "Vox · Video",
-        "url": "https://www.vox.com/videos",
-        "takeaway": "用問題帶動圖解，編輯式標題與證據標註；參考官方影片目錄與視覺。"
-      },
-      {
-        "creator": "Johnny Harris",
-        "title": "How I Make My Maps",
-        "url": "https://www.youtube.com/watch?v=GsojLuJpe_0",
-        "takeaway": "地圖、路徑與局部細節協助敘事；參考創作者製作教學與官方作品頁。"
-      }
-    ],
-    "sample_duration_seconds": 8,
-    "skill_resource": "template-skills/clipen-city/SKILL.md"
-  },
-  {
-    "template_id": "slow",
-    "name": "慢走電影誌",
-    "category": "旅行日常",
-    "description": "低位細明體、開放式留白與細線揭示，把主角留給現場。",
-    "visual_style_id": "tpl-slow",
-    "font_style_id": "travel",
-    "editorial_direction": "保留現場聲、連續動作與空間建立，用短片名與細線章節銜接，避免高密度反應框破壞呼吸。",
-    "sample_title": "沿著風走",
-    "sample_detail": "A LITTLE FURTHER, A LITTLE SLOWER",
-    "preview_resource": "assets/style-tpl-slow.png",
-    "sample_resource": "assets/sample-slow.mp4",
-    "tags": [
-      "電影字標",
-      "低密度留白",
-      "緩慢揭示"
-    ],
-    "music_direction": "舒緩器樂與自然環境聲，保留安靜段落",
-    "design_direction": "保留現場聲、連續動作與空間建立，用短片名與細線章節銜接，避免高密度反應框破壞呼吸。",
-    "references": [
-      {
-        "creator": "Peter McKinnon",
-        "title": "THE BUCKET SHOT",
-        "url": "https://www.youtube.com/watch?v=r25IWquxe9s",
-        "takeaway": "以明確目標建立旅行影誌、片名留白與景別對比；參考官方作品與公開視覺。"
-      }
-    ],
-    "sample_duration_seconds": 8,
-    "skill_resource": "template-skills/clipen-slow/SKILL.md"
-  },
-  {
-    "template_id": "night",
-    "name": "霓虹末班車",
-    "category": "旅行日常",
-    "description": "冷暖錯位霓虹字、開口框線與城市索引，夜景也有節目識別。",
-    "visual_style_id": "tpl-night",
-    "font_style_id": "street",
-    "editorial_direction": "由夜晚目的地與人物選擇推進；霓虹錯位主標及夜色索引分階段亮起，保留店招與人物表情。",
-    "sample_title": "末班車以後",
-    "sample_detail": "AFTER THE LAST TRAIN",
-    "preview_resource": "assets/style-tpl-night.png",
-    "sample_resource": "assets/sample-night.mp4",
-    "tags": [
-      "霓虹錯位字",
-      "夜色框線",
-      "階段亮起"
-    ],
-    "music_direction": "低密度電子氛圍，銜接夜晚環境聲",
-    "design_direction": "由夜晚目的地與人物選擇推進；霓虹錯位主標及夜色索引分階段亮起，保留店招與人物表情。",
-    "references": [
-      {
-        "creator": "Peter McKinnon",
-        "title": "THE BUCKET SHOT",
-        "url": "https://www.youtube.com/watch?v=r25IWquxe9s",
-        "takeaway": "以明確目標建立旅行影誌、片名留白與景別對比；參考官方作品與公開視覺。"
-      },
-      {
-        "creator": "MKBHD / Maxwell Hathaway",
-        "title": "MKBHD · Main Title Design & Animation",
-        "url": "https://www.maxhwy.com/mkbhd",
-        "takeaway": "可延展的頻道包裝、幾何識別與乾淨資訊層次；參考原設計師作品頁。"
-      }
-    ],
-    "sample_duration_seconds": 8,
-    "skill_resource": "template-skills/clipen-night/SKILL.md"
-  },
-  {
-    "template_id": "food",
-    "name": "今天吃哪邊",
-    "category": "美食節目",
-    "description": "紅黃菜單花章、雙方料理識別與粗字反應，像一場餐桌節目。",
-    "visual_style_id": "tpl-food",
-    "font_style_id": "japanese",
-    "editorial_direction": "交代兩種選擇及比較標準，保留第一口鋪陳和真實反應；品名與價格各自標示，章節與結論形成回扣，數據必須有證據。",
-    "sample_title": "一碗日常・兩種答案",
-    "sample_detail": "今天吃哪邊？",
-    "preview_resource": "assets/style-tpl-food.png",
-    "sample_resource": "assets/sample-food.mp4",
-    "tags": [
-      "菜單花章",
-      "雙方識別",
-      "粗字反應"
-    ],
-    "music_direction": "輕快配樂襯托反應，關鍵第一口保留現場聲",
-    "design_direction": "交代兩種選擇及比較標準，保留第一口鋪陳和真實反應；品名與價格各自標示，章節與結論形成回扣，數據必須有證據。",
-    "references": [
-      {
-        "creator": "Joeman",
-        "title": "Joe是要對決 S2 · 雨傘實測",
-        "url": "https://hamivideo.hinet.net/product/146824.do?cs=2",
-        "takeaway": "雙方對比、節目題眼、價格與反應分層；參考發行頁節目介紹與封面。"
-      }
-    ],
-    "sample_duration_seconds": 8,
-    "skill_resource": "template-skills/clipen-food/SKILL.md"
-  },
-  {
-    "template_id": "mission",
-    "name": "任務不可能嗎",
-    "category": "挑戰評測",
-    "description": "切角黑黃告示、規則標線與有力進場，把目標變成觀看動力。",
-    "visual_style_id": "tpl-mission",
-    "font_style_id": "japanese",
-    "editorial_direction": "以目標、條件、嘗試、失敗與結果串起一集；切角任務板交代規則，進度只在真實證據支持時標示，不生成虛構倒數。",
-    "sample_title": "今天就出發",
-    "sample_detail": "先說規則，再看結果",
-    "preview_resource": "assets/style-tpl-mission.png",
-    "sample_resource": "assets/sample-mission.mp4",
-    "tags": [
-      "切角任務板",
-      "警示斜線",
-      "撞擊進場"
-    ],
-    "music_direction": "明確節拍推動任務，結果前適度留白",
-    "design_direction": "以目標、條件、嘗試、失敗與結果串起一集；切角任務板交代規則，進度只在真實證據支持時標示，不生成虛構倒數。",
-    "references": [
-      {
-        "creator": "Joeman",
-        "title": "Joe是要對決 S2 · 雨傘實測",
-        "url": "https://hamivideo.hinet.net/product/146824.do?cs=2",
-        "takeaway": "雙方對比、節目題眼、價格與反應分層；參考發行頁節目介紹與封面。"
-      },
-      {
-        "creator": "Casey Neistat",
-        "title": "DO WHAT YOU CAN’T",
-        "url": "https://www.youtube.com/watch?v=jG7dSXcfVqE",
-        "takeaway": "手作標記與生活物件承載資訊；參考公開作品與手寫圖像，轉成 Clipen 原創版面。"
-      }
-    ],
-    "sample_duration_seconds": 8,
-    "skill_resource": "template-skills/clipen-mission/SKILL.md"
-  },
-  {
-    "template_id": "coffee",
-    "name": "日常研究所",
-    "category": "美食節目",
-    "description": "奶油菜單、細明體、鋸齒收據與咖啡印章，讓資訊有手感。",
-    "visual_style_id": "tpl-coffee",
-    "font_style_id": "travel",
-    "editorial_direction": "圍繞一個日常問題觀察手部與操作細節，出餐與體驗自然串接；使用菜單層級、收據資訊與細線標記，文字低密度。",
-    "sample_title": "一杯的練習",
-    "sample_detail": "把細節，慢慢說清楚",
-    "preview_resource": "assets/style-tpl-coffee.png",
-    "sample_resource": "assets/sample-coffee.mp4",
-    "tags": [
-      "菜單明體",
-      "收據紙邊",
-      "活版細線"
-    ],
-    "music_direction": "輕柔爵士或木吉他，避免蓋過店內對話",
-    "design_direction": "圍繞一個日常問題觀察手部與操作細節，出餐與體驗自然串接；使用菜單層級、收據資訊與細線標記，文字低密度。",
-    "references": [
-      {
-        "creator": "James Hoffmann",
-        "title": "How To Make The Best Coffee At Home",
-        "url": "https://www.youtube.com/watch?v=X9tg3J5OiYU",
-        "takeaway": "圍繞體驗問題與操作細節呈現資訊；參考官方作品，轉成原創菜單排版。"
-      }
-    ],
-    "sample_duration_seconds": 8,
-    "skill_resource": "template-skills/clipen-coffee/SKILL.md"
-  },
-  {
-    "template_id": "family",
-    "name": "家裡有小劇場",
-    "category": "人物紀錄",
-    "description": "圓角對話泡泡、手畫小太陽與生活剪貼，用互動串起一集。",
-    "visual_style_id": "tpl-family",
-    "font_style_id": "calligraphy",
-    "editorial_direction": "用家人互動與小事件串聯，對話泡泡只寫實際反應與有來源的資訊；保留自然對話，收尾回扣開頭的小目標。",
-    "sample_title": "普通一天・也有小事",
-    "sample_detail": "我們的日常，繼續播放",
-    "preview_resource": "assets/style-tpl-family.png",
-    "sample_resource": "assets/sample-family.mp4",
-    "tags": [
-      "生活對話框",
-      "手畫點綴",
-      "柔和跳入"
-    ],
-    "music_direction": "溫暖器樂，讓人物聲音與細小情緒優先",
-    "design_direction": "用家人互動與小事件串聯，對話泡泡只寫實際反應與有來源的資訊；保留自然對話，收尾回扣開頭的小目標。",
-    "references": [
-      {
-        "creator": "Casey Neistat",
-        "title": "DO WHAT YOU CAN’T",
-        "url": "https://www.youtube.com/watch?v=jG7dSXcfVqE",
-        "takeaway": "手作標記與生活物件承載資訊；參考公開作品與手寫圖像，轉成 Clipen 原創版面。"
-      }
-    ],
-    "sample_duration_seconds": 8,
-    "skill_resource": "template-skills/clipen-family/SKILL.md"
-  },
-  {
-    "template_id": "outdoor",
-    "name": "出走座標",
-    "category": "旅行日常",
-    "description": "等高線、測繪側軸與深綠探險銘牌，路程本身就是故事。",
-    "visual_style_id": "tpl-outdoor",
-    "font_style_id": "japanese",
-    "editorial_direction": "交代出發動機、路程與抵達；以等高線銘牌與節點標註協助理解路程，座標與距離無證據不填，裝飾線不能當實際地圖。",
-    "sample_title": "往山的那一邊",
-    "sample_detail": "ONE TRAIL. A NEW PERSPECTIVE.",
-    "preview_resource": "assets/style-tpl-outdoor.png",
-    "sample_resource": "assets/sample-outdoor.mp4",
-    "tags": [
-      "等高線圖形",
-      "測繪銘牌",
-      "路徑節點"
-    ],
-    "music_direction": "疏朗器樂搭配風景現場聲，不蓋過重要提醒",
-    "design_direction": "交代出發動機、路程與抵達；以等高線銘牌與節點標註協助理解路程，座標與距離無證據不填，裝飾線不能當實際地圖。",
-    "references": [
-      {
-        "creator": "Johnny Harris",
-        "title": "How I Make My Maps",
-        "url": "https://www.youtube.com/watch?v=GsojLuJpe_0",
-        "takeaway": "地圖、路徑與局部細節協助敘事；參考創作者製作教學與官方作品頁。"
-      },
-      {
-        "creator": "Peter McKinnon",
-        "title": "THE BUCKET SHOT",
-        "url": "https://www.youtube.com/watch?v=r25IWquxe9s",
-        "takeaway": "以明確目標建立旅行影誌、片名留白與景別對比；參考官方作品與公開視覺。"
-      }
-    ],
-    "sample_duration_seconds": 8,
-    "skill_resource": "template-skills/clipen-outdoor/SKILL.md"
-  },
-  {
-    "template_id": "portrait",
-    "name": "人物側寫",
-    "category": "人物紀錄",
-    "description": "大引號、偏置細框與訪談署名，以一句真話走近一個人。",
-    "visual_style_id": "tpl-portrait",
-    "font_style_id": "travel",
-    "editorial_direction": "用人物關鍵對話帶入，行動和生活細節補充性格；引言只使用核對過的原話，署名清楚，轉折保留完整語境。",
-    "sample_title": "從一句話開始",
-    "sample_detail": "一個人，一段值得聽的故事",
-    "preview_resource": "assets/style-tpl-portrait.png",
-    "sample_resource": "assets/sample-portrait.mp4",
-    "tags": [
-      "訪談引言",
-      "非對稱構圖",
-      "安靜署名"
-    ],
-    "music_direction": "低密度配樂，訪談與停頓優先",
-    "design_direction": "用人物關鍵對話帶入，行動和生活細節補充性格；引言只使用核對過的原話，署名清楚，轉折保留完整語境。",
-    "references": [
-      {
-        "creator": "Peter McKinnon",
-        "title": "THE BUCKET SHOT",
-        "url": "https://www.youtube.com/watch?v=r25IWquxe9s",
-        "takeaway": "以明確目標建立旅行影誌、片名留白與景別對比；參考官方作品與公開視覺。"
-      }
-    ],
-    "sample_duration_seconds": 8,
-    "skill_resource": "template-skills/clipen-portrait/SKILL.md"
-  },
-  {
-    "template_id": "retro",
-    "name": "下一站放映室",
-    "category": "旅行日常",
-    "description": "雙框車票、打孔票根與復古編號，像一張會動的旅行票。",
-    "visual_style_id": "tpl-retro",
-    "font_style_id": "calligraphy",
-    "editorial_direction": "用實際移動與車站作章節，以打孔票根和復古印刷字交代場景；保留地方細節，年代、站名與交通資訊均需取證。",
-    "sample_title": "下一站・舊時光",
-    "sample_detail": "每一站，都有自己的故事",
-    "preview_resource": "assets/style-tpl-retro.png",
-    "sample_resource": "assets/sample-retro.mp4",
-    "tags": [
-      "打孔車票",
-      "雙框印刷",
-      "票根擦入"
-    ],
-    "music_direction": "復古感器樂與俐落章節銜接，不過度懷舊煽情",
-    "design_direction": "用實際移動與車站作章節，以打孔票根和復古印刷字交代場景；保留地方細節，年代、站名與交通資訊均需取證。",
-    "references": [
-      {
-        "creator": "Vox",
-        "title": "Vox · Video",
-        "url": "https://www.vox.com/videos",
-        "takeaway": "用問題帶動圖解，編輯式標題與證據標註；參考官方影片目錄與視覺。"
-      },
-      {
-        "creator": "Casey Neistat",
-        "title": "DO WHAT YOU CAN’T",
-        "url": "https://www.youtube.com/watch?v=jG7dSXcfVqE",
-        "takeaway": "手作標記與生活物件承載資訊；參考公開作品與手寫圖像，轉成 Clipen 原創版面。"
-      }
-    ],
-    "sample_duration_seconds": 8,
-    "skill_resource": "template-skills/clipen-retro/SKILL.md"
-  },
-  {
-    "template_id": "tech",
-    "name": "拆開來實測",
-    "category": "挑戰評測",
-    "description": "深色規格面板、精準網格與青色節點，讓結論有清楚的依據。",
-    "visual_style_id": "tpl-tech",
-    "font_style_id": "japanese",
-    "editorial_direction": "先交代使用情境與測試問題，再呈現操作、比較與結論；用規格面板標示有來源的數據，沒有做過的測試不顯示分數或虛構圖表。",
-    "sample_title": "答案，實測見",
-    "sample_detail": "LESS HYPE. MORE EVIDENCE.",
-    "preview_resource": "assets/style-tpl-tech.png",
-    "sample_resource": "assets/sample-tech.mp4",
-    "tags": [
-      "規格介面",
-      "幾何識別",
-      "模組揭示"
-    ],
-    "music_direction": "乾淨有節奏的配樂，操作說明與結果維持清楚",
-    "design_direction": "先交代使用情境與測試問題，再呈現操作、比較與結論；用規格面板標示有來源的數據，沒有做過的測試不顯示分數或虛構圖表。",
-    "references": [
-      {
-        "creator": "MKBHD / Maxwell Hathaway",
-        "title": "MKBHD · Main Title Design & Animation",
-        "url": "https://www.maxhwy.com/mkbhd",
-        "takeaway": "可延展的頻道包裝、幾何識別與乾淨資訊層次；參考原設計師作品頁。"
-      }
-    ],
-    "sample_duration_seconds": 8,
-    "skill_resource": "template-skills/clipen-tech/SKILL.md"
-  },
-  {
     "template_id": "travel-vlog",
     "name": "旅遊 vlog",
     "category": "旅遊",
     "description": "第一人稱帶觀眾走一趟：出發、路上、到了、感想。",
     "visual_style_id": "tpl-travel-vlog",
-    "font_style_id": "variety-tw",
+    "font_style_id": "handnote-tw",
     "editorial_direction": "跟著你的行程走，保留路上真實的對話與反應；地點、交通與花費在需要時才標出來。",
-    "design_direction": "粗描邊白字開場標題、左上角「地點｜英文」小標，好笑或驚訝的瞬間才用黃色貼圖字。",
+    "design_direction": "手札體描邊標題、膠帶風格的「地點｜英文」小標，好笑或驚訝的瞬間才用黃色貼圖字。",
     "music_direction": "輕快的木吉他或 lo-fi 節拍，說話時退到背景。",
     "sample_title": "東京三天兩夜",
     "sample_detail": "第一天・淺草",
@@ -433,7 +43,7 @@
     "visual_style_id": "tpl-product-unboxing",
     "font_style_id": "variety-tw",
     "editorial_direction": "依開箱順序：外盒、配件、本體、第一次使用；規格與價格只用素材或使用者提供的資訊。",
-    "design_direction": "粗描邊大標開場，規格與價格用描邊文字標在產品旁邊，真心驚訝時才用黃色貼圖字。",
+    "design_direction": "斜切色塊大標開場，規格用黑底標籤貼在產品旁邊，真心驚訝時才用爆炸星形反應字。",
     "music_direction": "乾淨的電子節拍，開箱與說明時降低音量。",
     "sample_title": "新耳機開箱",
     "sample_detail": "盒子裡有什麼？",
@@ -463,7 +73,7 @@
     "visual_style_id": "tpl-travel-highlight",
     "font_style_id": "cinematic-tw",
     "editorial_direction": "挑整趟最好看、最有代表性的瞬間，跟著音樂節奏剪；說話只留最有感的一兩句。",
-    "design_direction": "收斂的中粗標題、左上角地點小標，畫面盡量留給風景。",
+    "design_direction": "寬字距宋體標題與細線地點小標，不用貼圖，全部緩慢淡入，畫面盡量留給風景。",
     "music_direction": "有起伏的配樂主導節奏，剪點跟著拍子。",
     "sample_title": "冰島・十日",
     "sample_detail": "Iceland 2026",
@@ -491,9 +101,9 @@
     "category": "旅遊",
     "description": "帶觀眾吃一家店：為什麼來、點了什麼、第一口的感想。",
     "visual_style_id": "tpl-food-review",
-    "font_style_id": "variety-tw",
+    "font_style_id": "rounded-tw",
     "editorial_direction": "交代來的理由與點了什麼，第一口和真實反應完整保留；價格與店名要有依據。",
-    "design_direction": "粗黑大標、店名與價格貼在食物旁邊，真心好吃或驚訝時才用貼圖字。",
+    "design_direction": "圓體膠囊店名、價格吊牌貼在食物旁邊，真心好吃或驚訝時才用對話框反應。",
     "music_direction": "輕快節拍，吃東西與說感想時降低。",
     "sample_title": "台南牛肉湯",
     "sample_detail": "清晨五點的第一碗",
@@ -527,9 +137,9 @@
     "category": "生活",
     "description": "記錄一天裡發生的小事，像跟朋友聊天。",
     "visual_style_id": "tpl-daily-vlog",
-    "font_style_id": "variety-tw",
+    "font_style_id": "pen-tw",
     "editorial_direction": "依一天的時間順序，留下有趣的對話與小事；空景和移動短短帶過。",
-    "design_direction": "輕鬆的粗黑標題、粉色重點，反應字可愛但不要太多。",
+    "design_direction": "翩翩體手寫標題配波浪底線，像寫字一樣出現；反應字可愛但不要太多。",
     "music_direction": "溫暖的 lo-fi 或木吉他，說話時退到背景。",
     "sample_title": "週末在家做蛋糕",
     "sample_detail": "第一次就成功？",
@@ -557,9 +167,9 @@
     "category": "產品",
     "description": "一步一步示範產品怎麼用，讓觀眾看得懂、學得會。",
     "visual_style_id": "tpl-product-demo",
-    "font_style_id": "variety-tw",
+    "font_style_id": "interface-tw",
     "editorial_direction": "依操作順序分步驟，每一步先說要做什麼，再給清楚的特寫。",
-    "design_direction": "左上角「步驟」小標、手繪箭頭指出按鍵與畫面，資訊用描邊文字。",
+    "design_direction": "深色介面面板標題、「STEP｜步驟」鍵帽小標，直線箭頭指出按鍵與畫面。",
     "music_direction": "低調的電子節拍，講解時明顯降低。",
     "sample_title": "三分鐘學會剪輯",
     "sample_detail": "STEP 1 匯入素材",
@@ -587,9 +197,9 @@
     "category": "產品",
     "description": "實際用過之後的心得：優點、缺點、適合誰。",
     "visual_style_id": "tpl-product-review",
-    "font_style_id": "variety-tw",
+    "font_style_id": "verdict-tw",
     "editorial_direction": "先說測了什麼、怎麼測，再分優點與缺點，最後給適合誰的結論；評價只來自素材裡講者實際的使用經驗。",
-    "design_direction": "優點、缺點逐項用描邊文字標在畫面旁邊，結論用大字。",
+    "design_direction": "螢光筆劃重點標題，優點打勾、缺點打叉逐項標示，結論用印章字。",
     "music_direction": "穩定的節拍，說明與比較時降低。",
     "sample_title": "用了一個月",
     "sample_detail": "真的值得買嗎？",
@@ -617,9 +227,9 @@
     "category": "紀錄",
     "description": "婚禮、聚會、展覽的重點回顧，保留現場的氣氛。",
     "visual_style_id": "tpl-event-recap",
-    "font_style_id": "cinematic-tw",
+    "font_style_id": "ceremony-tw",
     "editorial_direction": "依活動流程挑重點時刻：開場、主要時刻、大家的反應與收尾；致詞或誓詞保留完整的關鍵句。",
-    "design_direction": "暖金色的收斂標題與時間地點小標，人物名字用描邊文字。",
+    "design_direction": "楷書金色標題配細線、時間地點小標，人物名字加細底線，全部典雅淡入。",
     "music_direction": "溫暖的鋼琴或弦樂，致詞時停或大幅降低。",
     "sample_title": "小安＆阿哲",
     "sample_detail": "2026.05.20 婚禮",
@@ -649,7 +259,7 @@
     "visual_style_id": "tpl-shorts-highlight",
     "font_style_id": "variety-tw",
     "editorial_direction": "開頭直接放最好笑或最驚人的瞬間，接著快速交代來龍去脈；每 2–3 秒要有新畫面或新資訊。",
-    "design_direction": "直式大字置中、重點字跟著台詞跳出，字幕放大。",
+    "design_direction": "直式紅黑雙描邊大字、螢光色塊小標，重點字跟著台詞跳出，字幕放大。",
     "music_direction": "節奏明快的配樂，剪點跟著拍子。",
     "sample_title": "這也太扯了吧",
     "sample_detail": "一分鐘看完",

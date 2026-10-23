@@ -43,7 +43,7 @@ def write_skill(root: Path, *, skill_md=SKILL_MD, clipen=None, extra=None) -> Pa
     return root
 
 
-BINDING = {"skill_id": "talking-head", "version": "1.2.0", "visual_style_id": "tpl-food",
+BINDING = {"skill_id": "talking-head", "version": "1.2.0", "visual_style_id": "tpl-food-review",
            "font_style_id": "japanese", "components": ["headline", "impact", "fact"],
            "default_duration_seconds": 90}
 
@@ -186,7 +186,7 @@ class CustomSkillProductionTests(unittest.TestCase):
         self.assertEqual(reference["content"], "跳剪不超過每 3 秒一次。")
         listed = self.call("list_program_components").payload
         self.assertEqual([c["component_id"] for c in listed["components"]], ["fact", "headline", "impact"])
-        self.assertEqual((listed["selected_visual_style_id"], listed["selected_font_style_id"]), ("tpl-food", "japanese"))
+        self.assertEqual((listed["selected_visual_style_id"], listed["selected_font_style_id"]), ("tpl-food-review", "japanese"))
         # Removing the skill later never changes the frozen session.
         self.library.remove("talking-head")
         self.assertIn("用跳剪去掉停頓", self.call("read_production_skill").payload["content"])
@@ -296,20 +296,20 @@ class SkillCompositionTests(CustomSkillProductionTests):
         self.assertFalse(any(k.startswith("template-skills/") for k in session["skill"]["resources"]))
 
     def test_a_template_skill_can_be_chosen_directly(self):
-        run, session = self.start("direct-template", skill_id="clipen-food")
-        self.assertEqual(session["intent"]["template"]["template_id"], "food")
-        self.assertEqual((session["skill"]["selected_visual_style_id"], session["skill"]["selected_font_style_id"]), ("tpl-food", "japanese"))
-        self.assertEqual([e["skill_id"] for e in session["skill"]["skill_chain"]], ["clipen-food"])
-        self.assertIn("今天吃哪邊", self.read(run)["content"])
+        run, session = self.start("direct-template", skill_id="clipen-food-review")
+        self.assertEqual(session["intent"]["template"]["template_id"], "food-review")
+        self.assertEqual((session["skill"]["selected_visual_style_id"], session["skill"]["selected_font_style_id"]), ("tpl-food-review", "rounded-tw"))
+        self.assertEqual([e["skill_id"] for e in session["skill"]["skill_chain"]], ["clipen-food-review"])
+        self.assertIn("美食探店", self.read(run)["content"])
 
     def test_a_custom_skill_can_extend_a_built_in_skill(self):
-        source = write_skill(self.root / "food-vlog", clipen={"skill_id": "food-vlog", "extends": "clipen-food"})
+        source = write_skill(self.root / "food-vlog", clipen={"skill_id": "food-vlog", "extends": "clipen-food-review"})
         self.library.import_folder(source)
         run, session = self.start("extends", skill_id="food-vlog")
-        self.assertEqual([e["skill_id"] for e in session["skill"]["skill_chain"]], ["clipen-food", "food-vlog"])
-        self.assertEqual(session["skill"]["selected_visual_style_id"], "tpl-food")
+        self.assertEqual([e["skill_id"] for e in session["skill"]["skill_chain"]], ["clipen-food-review", "food-vlog"])
+        self.assertEqual(session["skill"]["selected_visual_style_id"], "tpl-food-review")
         content = self.read(run)["content"]
-        self.assertLess(content.index("今天吃哪邊"), content.index("用跳剪去掉停頓"))
+        self.assertLess(content.index("美食探店"), content.index("用跳剪去掉停頓"))
         with self.assertRaises(ProjectError):
             self.library.import_folder(write_skill(self.root / "bad", clipen={"skill_id": "bad-extends", "extends": "clipen-core"}))
 
@@ -331,5 +331,5 @@ class ExampleSkillTests(unittest.TestCase):
         talking = compose_custom_skill(packages["talking-head"], core, builtin)
         self.assertEqual([c["component_id"] for c in talking["components"]], ["fact", "headline", "impact"])
         food = compose_custom_skill(packages["food-vlog"], core, builtin)
-        self.assertEqual([e["skill_id"] for e in food["skill_chain"]], ["clipen-food", "food-vlog"])
-        self.assertEqual(food["selected_visual_style_id"], "tpl-food")
+        self.assertEqual([e["skill_id"] for e in food["skill_chain"]], ["clipen-food-review", "food-vlog"])
+        self.assertEqual(food["selected_visual_style_id"], "tpl-food-review")
