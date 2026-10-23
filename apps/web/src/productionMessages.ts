@@ -2,7 +2,7 @@
 export type ProductionProblem = { title: string; reason: string; next: string }
 const problems: Record<string, ProductionProblem> = {
   provider_protocol_error: { title: 'AI 未正常完成製作流程', reason: 'AI 的回傳結果未能完成 Clipen 的交付流程。', next: '先確認保留的製作結果，再決定是否重新製作。' },
-  provider_usage_limit: { title: '{provider} 額度暫時不足', reason: '這次 AI 工作因用量限制而停止。', next: '確認 {provider} 可用額度，待額度恢復後再建立新的製作工作。' },
+  provider_usage_limit: { title: '{provider} 額度暫時不足', reason: '這次 AI 工作因用量限制而停止。', next: '草稿已保留。待 {provider} 額度恢復後按「繼續這份草稿」接續製作；額度還沒恢復時會再次停止，草稿不受影響。' },
   provider_authentication_required: { title: '{provider} 需要重新登入', reason: 'AI 連線的登入狀態已失效。', next: '完成 {provider} 登入並重啟 Clipen，再重新製作。' },
   provider_network_error: { title: '與 AI 的連線中斷', reason: '這次工作未能維持與 {provider} 的網路連線。', next: '確認網路恢復，再重新製作。' },
   provider_timed_out: { title: 'AI 工作逾時', reason: '這次工作超過執行時間限制，尚未完成交付。', next: '草稿已保留，按「繼續這份草稿」接續製作。' },
