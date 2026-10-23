@@ -1,8 +1,8 @@
 {
-  "skill_id": "travel-program",
-  "version": "2.1.0",
-  "name": "人物與體驗旅遊節目",
-  "description": "從真實人物、對話與體驗製作旅遊節目，統一字幕、資訊標註、動態與聲音。",
+  "skill_id": "clipen-core",
+  "version": "3.0.0",
+  "name": "Clipen 製作核心",
+  "description": "所有影片製作 Skill 共用的取證、剪輯、字幕、聲音、畫面元件與交付流程，以及內建的畫面設計素材。",
   "renderer": "clipen.program-components.v1",
   "required_capabilities": [
     "source_frames",

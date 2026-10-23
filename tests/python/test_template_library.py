@@ -33,7 +33,7 @@ class TemplateLibraryTests(unittest.TestCase):
                 asset=skill['assets'][template['preview_resource']]
                 encoded=base64.b64decode(asset['data']);self.assertTrue(encoded.startswith(b'\x89PNG'))
                 self.assertEqual(hashlib.sha256(encoded).hexdigest(),asset['sha256']);previews.add(asset['sha256'])
-                path=files('clipen.skills').joinpath(skill['skill_id'],template['sample_resource'])
+                path=files('clipen.skills').joinpath('builtin',template['sample_resource'])
                 result=json.loads(subprocess.check_output(['ffprobe','-v','error','-show_streams','-show_format','-of','json',str(path)]))
                 self.assertEqual([s['codec_type'] for s in result['streams']],['video'])
                 self.assertEqual(result['streams'][0]['codec_name'],'h264')
@@ -78,7 +78,8 @@ class TemplateLibraryTests(unittest.TestCase):
         run,_=self.repo.create_run(self.project,'custom-style-skill',production=options)
         session=self.repo.production_session(self.project,run.run_id)
         self.assertEqual(session['skill']['selected_template_id'],'night')
-        self.assertEqual(session['skill']['selected_template_skill']['skill_id'],'clipen-night')
+        self.assertEqual(session['skill']['skill_id'],'clipen-night')
+        self.assertEqual([e['skill_id'] for e in session['skill']['skill_chain']],['clipen-night'])
         self.assertEqual(session['intent']['font_style_id'],'handwriting')
         self.assertEqual(session['skill']['selected_font_style_id'],'handwriting')
 
@@ -110,29 +111,34 @@ class TemplateLibraryTests(unittest.TestCase):
         finally:coordinator.close()
 
     def test_each_template_loads_its_own_skill_through_the_default_mcp_read(self):
-        skill=get_skill()
+        from clipen.skills.catalog import builtin_skills
+        skill=get_skill();core,builtin=builtin_skills()
         instructions=set()
         for template in skill['templates']:
             with self.subTest(template=template['template_id']):
                 run,_=self.repo.create_run(self.project,'own-skill-'+template['template_id'],production={
                     'skill_id':'travel-program','intent':'照選定模板製作，保留使用者指定內容','template_id':template['template_id']})
                 session=self.repo.production_session(self.project,run.run_id)
-                selected=session['skill']['selected_template_skill']
-                self.assertEqual(selected,session['intent']['template']['skill'])
-                self.assertEqual(selected['template_id'],template['template_id'])
-                self.assertEqual(selected['visual_style_id'],session['intent']['visual_style_id'])
-                self.assertEqual(selected['font_style_id'],session['intent']['font_style_id'])
+                chain=session['skill']['skill_chain'];selected=chain[-1]
+                # Each template is its own skill directly over the production core.
+                self.assertEqual(len(chain),1)
+                self.assertEqual(selected['resource'],template['skill_resource'])
+                self.assertEqual(selected['content_hash'],session['intent']['template']['skill']['content_hash'])
+                self.assertEqual(template['visual_style_id'],session['intent']['visual_style_id'])
+                self.assertEqual(template['font_style_id'],session['intent']['font_style_id'])
                 tools=EditAgentTools(self.repo,self.project,run.run_id);tools.activate()
                 try:
                     result=tools.call('read_production_skill',{}).payload
                     own=tools.call('read_production_skill',{'resource':selected['resource']}).payload['content']
                     self.assertIn(own,result['content'])
-                    self.assertEqual(result['applied_template_skills'],[selected])
-                    self.assertEqual(result['skill']['template_skill'],selected)
+                    self.assertTrue(result['content'].startswith(core['resources']['SKILL.md']))
+                    self.assertEqual(result['applied_template_skills'],chain)
+                    self.assertEqual(result['skill']['skill_chain'],chain)
                     instructions.add(hashlib.sha256(own.encode()).hexdigest())
                     for other in skill['templates']:
                         if other['template_id']!=template['template_id']:
-                            self.assertNotIn(skill['resources'][other['skill_resource']],result['content'])
+                            other_text=builtin[other['skill']['skill_id']]['resources'][other['skill_resource']]
+                            self.assertNotIn(other_text,result['content'])
                 finally:tools.close_production()
                 self.repo.cancel(self.project,run.run_id)
         self.assertEqual(len(instructions),len(skill['templates']))
@@ -141,14 +147,18 @@ class TemplateLibraryTests(unittest.TestCase):
         options={'skill_id':'travel-program','intent':'做一集日常研究','template_id':'coffee'}
         run,_=self.repo.create_run(self.project,'frozen-template-skill',production=options)
         frozen=self.repo.production_session(self.project,run.run_id)['skill']
-        selected=frozen['selected_template_skill']
-        updated=get_skill()
-        updated['resources'][selected['resource']]='updated instructions must not replace the frozen session'
-        updated['template_skills']['coffee']['version']='2.0.0'
-        next(t for t in updated['templates'] if t['template_id']=='coffee')['skill']['version']='2.0.0'
+        selected=frozen['skill_chain'][-1]
+        def updated(skill_id='travel-program'):
+            # The catalog now ships a newer coffee Skill than the frozen one.
+            from clipen.skills.catalog import get_skill as live
+            value=live(skill_id)
+            if skill_id=='clipen-coffee':
+                value['resources'][selected['resource']]='updated instructions must not replace the frozen session'
+                value['version']='2.0.0'
+            return value
         self.repo.cancel(self.project,run.run_id)
         revision=self.repo.current_revision(self.project,run.run_id)
-        with patch('clipen.skills.get_skill',return_value=updated):
+        with patch('clipen.skills.get_skill',side_effect=updated):
             replay,created=self.repo.create_run(self.project,'frozen-template-skill',production=options)
             self.assertFalse(created);self.assertEqual(replay.run_id,run.run_id)
             self.repo.request_refinement(self.project,run.run_id,'polish-frozen-skill',revision.revision_id,'保留風格，修改措辭')
@@ -162,8 +172,9 @@ class TemplateLibraryTests(unittest.TestCase):
 
     def test_legacy_frozen_sessions_can_still_read_their_original_skill(self):
         tools=EditAgentTools(self.repo,self.project,self.f.run.run_id)
-        old=get_skill();old.pop('selected_template_skill',None)
-        old['resources']={k:v for k,v in old['resources'].items() if not k.startswith('template-skills/')}
+        # Sessions frozen before the core/skill split have no skill_chain.
+        old=get_skill();old.pop('skill_chain');old.pop('selected_template_skill',None)
+        old['resources']={k:v for k,v in old['resources'].items() if not k.startswith(('template-skills/','skills/'))}
         with patch.object(tools,'_skill_value',return_value=old):
             result=tools._production_read_production_skill({}).payload
         self.assertEqual(result['content'],old['resources']['SKILL.md'])
@@ -176,13 +187,13 @@ class TemplateLibraryTests(unittest.TestCase):
         original=get_skill()
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)
-            shutil.copytree(str(files('clipen.skills').joinpath('travel-program')),root/'travel-program')
-            document=root/'travel-program'/original['templates'][0]['skill_resource']
+            shutil.copytree(str(files('clipen.skills').joinpath('builtin')),root/'builtin')
+            document=root/'builtin'/original['templates'][0]['skill_resource']
             document.write_text(document.read_text()+'\n本次增加新的故事驗收條件。\n')
-            with patch('clipen.skills.catalog.files',return_value=root):updated=get_skill()
-            self.assertNotEqual(original['content_hash'],updated['content_hash'])
-            self.assertNotEqual(original['template_skills']['journal']['content_hash'],updated['template_skills']['journal']['content_hash'])
-            self.assertEqual(original['template_skills']['tech']['content_hash'],updated['template_skills']['tech']['content_hash'])
+            with patch('clipen.skills.catalog.files',return_value=root):
+                journal,tech=get_skill('clipen-journal'),get_skill('clipen-tech')
+            self.assertNotEqual(get_skill('clipen-journal')['content_hash'],journal['content_hash'])
+            self.assertEqual(get_skill('clipen-tech')['content_hash'],tech['content_hash'])
             manifest=document.parent/'manifest.json'
             value=json.loads(manifest.read_text());value['visual_style_id']='tpl-tech'
             manifest.write_text(json.dumps(value))

@@ -50,6 +50,7 @@ class SkillTools:
     def _skill_summary(self):
         value = self._skill_value()
         return {**{key: value[key] for key in ("skill_id", "version", "name", "content_hash", "limitations")},
+                **({'core':value['core'],'skill_chain':value['skill_chain']} if value.get('skill_chain') else {}),
                 **({'template_skill':value['selected_template_skill']} if value.get('selected_template_skill') else {})}
 
     def _production_read_production_skill(self, args):
@@ -71,13 +72,16 @@ class SkillTools:
         if resource not in skill["resources"]:
             raise ProjectError("skill_resource_not_found", "Skill 沒有這份資源。", status_code=404)
         content=skill['resources'][resource]
-        selected=skill.get('selected_template_skill')
-        applied=[]
-        if selected and resource=='SKILL.md':
-            # The default read must actually deliver the selected instructions,
-            # even if the director has not discovered the nested resource yet.
-            content+='\n\n---\n\n'+f"Selected {'custom' if skill.get('source')=='custom' else 'template'} Skill: {selected['skill_id']} v{selected['version']}\nResource: {selected['resource']}\n\n"+skill['resources'][selected['resource']]
-            applied=[selected]
+        # The default read must actually deliver the selected instructions,
+        # even if the director has not discovered the nested resources yet.
+        # Sessions frozen before the core/skill split carry one selected skill.
+        applied=skill.get('skill_chain') or ([skill['selected_template_skill']] if skill.get('selected_template_skill') else [])
+        if resource=='SKILL.md':
+            for selected in applied:
+                kind={'custom':'custom'}.get(selected.get('source'),'template' if 'skill_chain' not in skill else 'built-in')
+                content+='\n\n---\n\n'+f"Selected {kind} Skill: {selected['skill_id']} v{selected['version']}\nResource: {selected['resource']}\n\n"+skill['resources'][selected['resource']]
+        else:
+            applied=[]
         return ToolResult({"skill": self._skill_summary(), "resource": resource,
                            "content": content, 'applied_template_skills':applied,
                            "available_resources": list(skill["resources"])+list(skill.get('assets',{}))})

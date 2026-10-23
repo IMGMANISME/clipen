@@ -22,6 +22,6 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 clipen = ["py.typed"]
-"clipen.skills" = ["travel-program/*.md", "travel-program/*.json", "travel-program/references/*.md", "travel-program/references/*.txt", "travel-program/assets/*.png", "travel-program/assets/*.mp4", "travel-program/scripts/*.py", "travel-program/template-skills/*/*.md", "travel-program/template-skills/*/*.json"]
+"clipen.skills" = ["builtin/*.md", "builtin/*.json", "builtin/references/*.md", "builtin/references/*.txt", "builtin/assets/*.png", "builtin/assets/*.mp4", "builtin/scripts/*.py", "builtin/template-skills/*/*.md", "builtin/template-skills/*/*.json", "builtin/skills/*/*.md", "builtin/skills/*/*.json"]
 
 "clipen.rendering" = ["fonts/*.ttf", "fonts/*.txt", "fonts/*.json"]

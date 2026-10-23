@@ -1000,7 +1000,7 @@ def create_app(
             skill=get_skill(request.path_params['skill_id'])
             template=next((t for t in skill['templates'] if t['template_id']==request.path_params['template_id']),None)
             if template is None:raise ProjectError('template_unavailable','找不到模板示例。',status_code=404)
-            path=files('clipen.skills').joinpath(skill['skill_id'],template['sample_resource'])
+            path=files('clipen.skills').joinpath('builtin',template['sample_resource'])
             if hashlib.sha256(path.read_bytes()).hexdigest()!=skill['samples'][template['sample_resource']]['sha256']:
                 raise ProjectError('skill_asset_invalid','模板示例未通過校驗。',status_code=409)
             return FileResponse(str(path),media_type='video/mp4',headers={'Cache-Control':'no-cache'})

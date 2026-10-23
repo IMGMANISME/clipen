@@ -502,7 +502,7 @@ export type EditAgentStatus = {
 export type VisualStyle = { visual_style_id: string; name: string; description: string; preview_resource?: string }
 export type FontStyle = { font_style_id: string; name: string; description: string; preview_resource?: string }
 export type VideoTemplate = { template_id: string; name: string; category: string; description: string; visual_style_id: string; font_style_id: string; editorial_direction: string; skill_resource?: string; skill?: { skill_id: string; version: string; resource: string; content_hash: string }; design_direction?: string; references?: { creator: string; title: string; url: string; takeaway: string }[]; sample_duration_seconds?: number; sample_title: string; sample_detail: string; music_direction: string; preview_resource: string; sample_resource: string; tags: string[] }
-export type ProductionSkill = { templates?: VideoTemplate[]; skill_id: string; name: string; description?: string; version: string; content_hash: string; visual_styles?: VisualStyle[]; selected_visual_style_id?: string; font_styles?: FontStyle[]; selected_font_style_id?: string }
+export type ProductionSkill = { kind?: 'genre' | 'template' | 'custom'; source?: 'builtin' | 'custom'; templates?: VideoTemplate[]; skill_id: string; name: string; description?: string; version: string; content_hash: string; visual_styles?: VisualStyle[]; selected_visual_style_id?: string; font_styles?: FontStyle[]; selected_font_style_id?: string }
 
 export async function getProductionSkills(): Promise<ProductionSkill[]> {
   return (await request<{ skills: ProductionSkill[] }>('/api/production/skills')).skills
