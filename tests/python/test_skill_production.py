@@ -136,6 +136,23 @@ class SkillProductionTests(unittest.TestCase):
         with self.assertRaises(ProjectError):
             validate_alignment([{'text':'一','start':0,'end':0},{'text':'個','start':1,'end':1.3}],'一個',2)
 
+    def test_real_aligner_output_with_grid_step_and_isolated_instants_is_kept_without_invented_time(self):
+        # Recorded from the pinned aligner on real footage: 這 sits one 80 ms step before 是.
+        hotel=validate_alignment([{'text':'這','start':7.6,'end':7.6},{'text':'是','start':7.68,'end':7.76},{'text':'我','start':7.76,'end':7.76},
+                                  {'text':'們','start':7.84,'end':8.0},{'text':'的','start':8.0,'end':8.08},{'text':'飯','start':8.16,'end':8.32},
+                                  {'text':'店','start':8.48,'end':8.96}],'這是我們的飯店。',9.16)
+        self.assertEqual((hotel[0]['text'],hotel[0]['start_seconds'],hotel[0]['end_seconds']),('這是我',7.6,7.76))
+        # A character far from its neighbours keeps only its observed instant.
+        words=validate_alignment([{'text':'衛','start':.72,'end':.8},{'text':'星','start':.8,'end':.96},{'text':'在','start':.96,'end':1.12},
+                                  {'text':'錄','start':2.56,'end':2.64},{'text':'了','start':3.52,'end':3.52}],'衛星在錄了',4)
+        self.assertEqual((words[-1]['start_seconds'],words[-1]['end_seconds']),(3.52,3.52))
+        # When the speech collapses onto one instant the model lost it; keep it for repair.
+        with self.assertRaises(ProjectError) as error:
+            validate_alignment([{'text':'吃','start':8.08,'end':8.32}]+[{'text':c,'start':8.32+n,'end':8.32+n} for n,c in enumerate('好吃就會說')],'吃好吃就會說',20)
+        self.assertEqual(error.exception.code,'alignment_invalid')
+        with self.assertRaises(ProjectError):
+            validate_alignment([{'text':c,'start':8.32,'end':8.32} for c in '好吃'],'好吃',10)
+
     def test_pacing_groups_split_continuous_source_instead_of_counting_fake_variety(self):
         self.cut()
         report=self.call('inspect_pacing').payload
