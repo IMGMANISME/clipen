@@ -410,10 +410,16 @@
     ],
     "references": [
       {
-        "creator": "Casey Neistat",
+        "creator": "The DoDo Men",
         "title": "YouTube 頻道",
-        "url": "https://www.youtube.com/@casey",
-        "takeaway": "第一人稱、邊走邊說的 vlog 節奏；轉成 Clipen 原創版面。"
+        "url": "https://www.youtube.com/@TheDoDoMen",
+        "takeaway": "旅遊行程的地名標示、激動句子放大、資訊寫進字幕；轉成 Clipen 原創版面。"
+      },
+      {
+        "creator": "壹加壹",
+        "title": "YouTube 頻道",
+        "url": "https://www.youtube.com/@illyandsean",
+        "takeaway": "左上角地點小標、店名與評價的小字標示、收斂的畫面質感；轉成 Clipen 原創版面。"
       }
     ],
     "sample_duration_seconds": 8,
@@ -440,13 +446,229 @@
     ],
     "references": [
       {
-        "creator": "Marques Brownlee",
+        "creator": "Joeman",
         "title": "YouTube 頻道",
-        "url": "https://www.youtube.com/@mkbhd",
-        "takeaway": "乾淨的桌面構圖與精簡的資訊標示；轉成 Clipen 原創版面。"
+        "url": "https://www.youtube.com/@joeman",
+        "takeaway": "描邊字幕與黃色重點、貼在人物旁的反應字；轉成 Clipen 原創版面。"
       }
     ],
     "sample_duration_seconds": 8,
     "skill_resource": "template-skills/clipen-product-unboxing/SKILL.md"
+  },
+  {
+    "template_id": "travel-highlight",
+    "name": "旅遊精華",
+    "category": "旅遊",
+    "description": "把整趟旅程濃縮成 3 分鐘內的精華，畫面與音樂為主。",
+    "visual_style_id": "tpl-travel-highlight",
+    "font_style_id": "cinematic-tw",
+    "editorial_direction": "挑整趟最好看、最有代表性的瞬間，跟著音樂節奏剪；說話只留最有感的一兩句。",
+    "design_direction": "收斂的中粗標題、左上角地點小標，畫面盡量留給風景。",
+    "music_direction": "有起伏的配樂主導節奏，剪點跟著拍子。",
+    "sample_title": "冰島・十日",
+    "sample_detail": "Iceland 2026",
+    "preview_resource": "assets/style-tpl-travel-highlight.png",
+    "sample_resource": "assets/sample-travel-highlight.mp4",
+    "tags": [
+      "音樂主導",
+      "精選畫面",
+      "收斂字卡"
+    ],
+    "references": [
+      {
+        "creator": "壹加壹",
+        "title": "YouTube 頻道",
+        "url": "https://www.youtube.com/@illyandsean",
+        "takeaway": "左上角地點小標、店名與評價的小字標示、收斂的畫面質感；轉成 Clipen 原創版面。"
+      }
+    ],
+    "sample_duration_seconds": 8,
+    "skill_resource": "template-skills/clipen-travel-highlight/SKILL.md"
+  },
+  {
+    "template_id": "food-review",
+    "name": "美食探店",
+    "category": "旅遊",
+    "description": "帶觀眾吃一家店：為什麼來、點了什麼、第一口的感想。",
+    "visual_style_id": "tpl-food-review",
+    "font_style_id": "variety-tw",
+    "editorial_direction": "交代來的理由與點了什麼，第一口和真實反應完整保留；價格與店名要有依據。",
+    "design_direction": "粗黑大標、店名與價格貼在食物旁邊，真心好吃或驚訝時才用貼圖字。",
+    "music_direction": "輕快節拍，吃東西與說感想時降低。",
+    "sample_title": "台南牛肉湯",
+    "sample_detail": "清晨五點的第一碗",
+    "preview_resource": "assets/style-tpl-food-review.png",
+    "sample_resource": "assets/sample-food-review.mp4",
+    "tags": [
+      "第一口",
+      "店名與價格",
+      "真實反應"
+    ],
+    "references": [
+      {
+        "creator": "Joeman",
+        "title": "YouTube 頻道",
+        "url": "https://www.youtube.com/@joeman",
+        "takeaway": "描邊字幕與黃色重點、貼在人物旁的反應字；轉成 Clipen 原創版面。"
+      },
+      {
+        "creator": "壹加壹",
+        "title": "YouTube 頻道",
+        "url": "https://www.youtube.com/@illyandsean",
+        "takeaway": "左上角地點小標、店名與評價的小字標示、收斂的畫面質感；轉成 Clipen 原創版面。"
+      }
+    ],
+    "sample_duration_seconds": 8,
+    "skill_resource": "template-skills/clipen-food-review/SKILL.md"
+  },
+  {
+    "template_id": "daily-vlog",
+    "name": "日常 vlog",
+    "category": "生活",
+    "description": "記錄一天裡發生的小事，像跟朋友聊天。",
+    "visual_style_id": "tpl-daily-vlog",
+    "font_style_id": "variety-tw",
+    "editorial_direction": "依一天的時間順序，留下有趣的對話與小事；空景和移動短短帶過。",
+    "design_direction": "輕鬆的粗黑標題、粉色重點，反應字可愛但不要太多。",
+    "music_direction": "溫暖的 lo-fi 或木吉他，說話時退到背景。",
+    "sample_title": "週末在家做蛋糕",
+    "sample_detail": "第一次就成功？",
+    "preview_resource": "assets/style-tpl-daily-vlog.png",
+    "sample_resource": "assets/sample-daily-vlog.mp4",
+    "tags": [
+      "生活感",
+      "時間順序",
+      "輕鬆對話"
+    ],
+    "references": [
+      {
+        "creator": "壹加壹",
+        "title": "YouTube 頻道",
+        "url": "https://www.youtube.com/@illyandsean",
+        "takeaway": "左上角地點小標、店名與評價的小字標示、收斂的畫面質感；轉成 Clipen 原創版面。"
+      }
+    ],
+    "sample_duration_seconds": 8,
+    "skill_resource": "template-skills/clipen-daily-vlog/SKILL.md"
+  },
+  {
+    "template_id": "product-demo",
+    "name": "產品 demo",
+    "category": "產品",
+    "description": "一步一步示範產品怎麼用，讓觀眾看得懂、學得會。",
+    "visual_style_id": "tpl-product-demo",
+    "font_style_id": "variety-tw",
+    "editorial_direction": "依操作順序分步驟，每一步先說要做什麼，再給清楚的特寫。",
+    "design_direction": "左上角「步驟」小標、手繪箭頭指出按鍵與畫面，資訊用描邊文字。",
+    "music_direction": "低調的電子節拍，講解時明顯降低。",
+    "sample_title": "三分鐘學會剪輯",
+    "sample_detail": "STEP 1 匯入素材",
+    "preview_resource": "assets/style-tpl-product-demo.png",
+    "sample_resource": "assets/sample-product-demo.mp4",
+    "tags": [
+      "步驟教學",
+      "特寫指示",
+      "操作順序"
+    ],
+    "references": [
+      {
+        "creator": "Joeman",
+        "title": "YouTube 頻道",
+        "url": "https://www.youtube.com/@joeman",
+        "takeaway": "描邊字幕與黃色重點、貼在人物旁的反應字；轉成 Clipen 原創版面。"
+      }
+    ],
+    "sample_duration_seconds": 8,
+    "skill_resource": "template-skills/clipen-product-demo/SKILL.md"
+  },
+  {
+    "template_id": "product-review",
+    "name": "產品評測",
+    "category": "產品",
+    "description": "實際用過之後的心得：優點、缺點、適合誰。",
+    "visual_style_id": "tpl-product-review",
+    "font_style_id": "variety-tw",
+    "editorial_direction": "先說測了什麼、怎麼測，再分優點與缺點，最後給適合誰的結論；評價只來自素材裡講者實際的使用經驗。",
+    "design_direction": "優點、缺點逐項用描邊文字標在畫面旁邊，結論用大字。",
+    "music_direction": "穩定的節拍，說明與比較時降低。",
+    "sample_title": "用了一個月",
+    "sample_detail": "真的值得買嗎？",
+    "preview_resource": "assets/style-tpl-product-review.png",
+    "sample_resource": "assets/sample-product-review.mp4",
+    "tags": [
+      "優缺點",
+      "實測",
+      "結論"
+    ],
+    "references": [
+      {
+        "creator": "Joeman",
+        "title": "YouTube 頻道",
+        "url": "https://www.youtube.com/@joeman",
+        "takeaway": "描邊字幕與黃色重點、貼在人物旁的反應字；轉成 Clipen 原創版面。"
+      }
+    ],
+    "sample_duration_seconds": 8,
+    "skill_resource": "template-skills/clipen-product-review/SKILL.md"
+  },
+  {
+    "template_id": "event-recap",
+    "name": "活動紀錄",
+    "category": "紀錄",
+    "description": "婚禮、聚會、展覽的重點回顧，保留現場的氣氛。",
+    "visual_style_id": "tpl-event-recap",
+    "font_style_id": "cinematic-tw",
+    "editorial_direction": "依活動流程挑重點時刻：開場、主要時刻、大家的反應與收尾；致詞或誓詞保留完整的關鍵句。",
+    "design_direction": "暖金色的收斂標題與時間地點小標，人物名字用描邊文字。",
+    "music_direction": "溫暖的鋼琴或弦樂，致詞時停或大幅降低。",
+    "sample_title": "小安＆阿哲",
+    "sample_detail": "2026.05.20 婚禮",
+    "preview_resource": "assets/style-tpl-event-recap.png",
+    "sample_resource": "assets/sample-event-recap.mp4",
+    "tags": [
+      "活動流程",
+      "重點時刻",
+      "現場氣氛"
+    ],
+    "references": [
+      {
+        "creator": "壹加壹",
+        "title": "YouTube 頻道",
+        "url": "https://www.youtube.com/@illyandsean",
+        "takeaway": "左上角地點小標、店名與評價的小字標示、收斂的畫面質感；轉成 Clipen 原創版面。"
+      }
+    ],
+    "sample_duration_seconds": 8,
+    "skill_resource": "template-skills/clipen-event-recap/SKILL.md"
+  },
+  {
+    "template_id": "shorts-highlight",
+    "name": "短影音精華",
+    "category": "短影音",
+    "description": "直式 30–60 秒的精華短片，第一秒就要抓住目光。",
+    "visual_style_id": "tpl-shorts-highlight",
+    "font_style_id": "variety-tw",
+    "editorial_direction": "開頭直接放最好笑或最驚人的瞬間，接著快速交代來龍去脈；每 2–3 秒要有新畫面或新資訊。",
+    "design_direction": "直式大字置中、重點字跟著台詞跳出，字幕放大。",
+    "music_direction": "節奏明快的配樂，剪點跟著拍子。",
+    "sample_title": "這也太扯了吧",
+    "sample_detail": "一分鐘看完",
+    "preview_resource": "assets/style-tpl-shorts-highlight.png",
+    "sample_resource": "assets/sample-shorts-highlight.mp4",
+    "tags": [
+      "直式 9:16",
+      "前 1 秒抓人",
+      "快節奏"
+    ],
+    "references": [
+      {
+        "creator": "Joeman",
+        "title": "YouTube 頻道",
+        "url": "https://www.youtube.com/@joeman",
+        "takeaway": "描邊字幕與黃色重點、貼在人物旁的反應字；轉成 Clipen 原創版面。"
+      }
+    ],
+    "sample_duration_seconds": 8,
+    "skill_resource": "template-skills/clipen-shorts-highlight/SKILL.md"
   }
 ]

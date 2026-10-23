@@ -1,0 +1,8 @@
+{
+  "skill_id": "clipen-product-review",
+  "version": "1.0.0",
+  "name": "產品評測",
+  "template_id": "product-review",
+  "visual_style_id": "tpl-product-review",
+  "font_style_id": "variety-tw"
+}

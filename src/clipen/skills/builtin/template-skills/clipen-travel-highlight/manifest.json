@@ -1,0 +1,8 @@
+{
+  "skill_id": "clipen-travel-highlight",
+  "version": "1.0.0",
+  "name": "旅遊精華",
+  "template_id": "travel-highlight",
+  "visual_style_id": "tpl-travel-highlight",
+  "font_style_id": "cinematic-tw"
+}
