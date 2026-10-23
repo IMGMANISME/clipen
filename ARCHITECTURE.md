@@ -104,6 +104,7 @@ flowchart LR
 | Media Workers | FFprobe、代理檔、取樣、ASR、畫面與聲音分析 | 自行呼叫 AI 或修改原始素材 |
 | Editing Workers | 執行受 schema 約束的剪輯描述、預覽與 export | 執行任意模型 shell 或未驗證 script |
 | Artifact Store | 保存具 hash、版本與來源的衍生成果 | 把任意路徑當成受管理檔案 |
+| 製作 Skill | 製作核心、設計素材庫與指引 Skill 鏈的組合、驗證與凍結（見第 7 節） | 執行 Skill 內的程式、擴大工具權限、覆寫核心邊界 |
 | System Skills | 內部流程與剪輯判斷方法 | 作為使用者可編輯 Plan 或 UI 可讀內容 |
 
 AI 負責創作理解與決策；Controller 和受控 worker 負責檔案、影音處理、驗證與交付。
@@ -287,14 +288,51 @@ Codex 的候選方向是受控非互動 `codex exec`，但正式參數、sandbox
 一個製作工作只由建立它的 provider 接續；縮圖觀察的中斷恢復也使用原本 provider
 的 adapter 核對，切換 provider 不會花另一個帳號的額度。
 
-## 7. System Skills
+## 7. Skills
+
+Clipen 有兩類 Skill：AI 製作流程使用的製作 Skill（可由使用者自訂），以及舊的剪輯
+計畫流程使用的 system Skill（簽章、不公開原文）。
+
+### 7.1 製作 Skill
+
+每個製作工作的 Skill 由三層組成，並在建立工作時凍結：
+
+| 層級 | 來源 | 內容 | 可否自訂 |
+| --- | --- | --- | --- |
+| 製作核心 | `skills/builtin/SKILL.md`、`references/` | 工具流程、取證、版本、交付檢查與不可覆寫的邊界 | 否，每次都先讀 |
+| 設計素材庫 | `skills/builtin` 的元件、版型、字體與預覽 | 渲染器實際能畫的設計 | 只能以 id 選用 |
+| 指引 Skill 鏈 | 內建題材／模板 Skill，或使用者 Skill（可 `extends` 一套內建 Skill） | 題材、故事、節奏、字幕、元件語彙與驗收 | 是 |
+
+- AI 透過 MCP 的 `read_production_skill` 讀取；預設讀取依序回傳核心與 Skill 鏈。
+  Codex、Claude 與未來 provider 讀到完全相同的內容。
+- 優先順序：使用者本次需求 > Skill > 核心預設。但核心邊界（只用 Clipen 工具、不捏造
+  事實、誠實說明證據、交付前檢查）不因 Skill 改變，衝突時由 AI 回報。
+- `clipen.json` 可選用內建畫面風格、字體與預設片長；`components` 清單由工具強制，
+  不在清單上的元件會被拒絕，而不是只寫在指引裡。
+- 工作只凍結自己選用的 Skill 內容與雜湊；Skill 更新或移除不影響既有工作，
+  拆分前凍結的舊工作仍讀取原本的單一 Skill。
+
+### 7.2 使用者 Skill 庫
+
+- 位置：Clipen 資料目錄的 `skills/`，所有工作區共用。
+- 格式相容 Agent Skills：`SKILL.md` frontmatter 必須有 `name`、`description`；
+  可附 `references/`、PNG `assets/` 與 `clipen.json`。
+- 匯入只讀取 Markdown、文字、JSON 與 PNG，拒絕 symlink、hard link、非 UTF-8 文字與
+  超過大小或數量上限的內容；腳本與其他檔案列入略過報告，永遠不執行。
+- 匯入流程：從 macOS 原生選擇器取得資料夾（瀏覽器不傳路徑）→ 驗證 → 只複製接受的
+  檔案到 staging → 再驗證複本 → 原子發布為以內容雜湊命名的不可變版本。
+- Skill 庫內容被直接修改時標示為無效，不提供給新工作；移除只把受管理目錄移到
+  `.trash`，不刪除使用者的來源資料夾。
+- 內建 Skill 的 id 與 `clipen-` 開頭的 id 保留給 Clipen。
+
+### 7.3 System Skills
 
 固定 core Skill 負責流程；其他 system editing Skills 提供內部剪輯判斷。Controller
 在啟動與 Attempt 建立前驗證簽章、release hash、完整 inventory 與實際內容。
 
 瀏覽器只取得獨立編寫的名稱、用途與可調參數，不取得原文。Plan、API、event log、
-錯誤與 Artifact 不複製 system Skill 原文。使用者可編輯的是本次作品 Plan，不是
-system Skill。
+錯誤與 Artifact 不複製 system Skill 原文。system Skill 不可由使用者編輯；需要
+自訂剪輯方式時使用 7.1 的製作 Skill。
 
 簽章與 UI 隱藏提供完整性與產品權限邊界，不是 DRM。任何隨公開 repo 或本機 runtime
 發行的內容，都不能宣稱對本機管理員真正保密；若未來需要保密，必須改用受管理的
@@ -427,7 +465,7 @@ Launcher 不使用 `sudo`、不修改系統 Python、不設定 MCP，也不把 r
 
 可以發布：使用者導向 README、LICENSE、launcher、產品程式與測試、React source／dist、
 API schema、migration、release manifest、公開驗證金鑰、產品架構、必要 system Skill
-bundle、CI 與發行設定。
+bundle、內建製作 Skill、`examples/skills` 範例 Skill、CI 與發行設定。
 
 不得發布：個人開發 Skills、AGENTS／CLAUDE 指令、session probe、原生啟動實驗、PR／
 branch 暫存、開發進度流水帳、本機 DB、素材、逐字稿、預覽、執行 log、benchmark

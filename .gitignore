@@ -21,6 +21,7 @@ CLAUDE.md
 !/ARCHITECTURE.md
 !/src/clipen/skills/**/*.md
 !/resources/system-skills/**/*.md
+!/examples/skills/**/*.md
 
 # Build and tool caches
 __pycache__/

@@ -1,0 +1,6 @@
+{
+  "skill_id": "food-vlog",
+  "version": "1.0.0",
+  "extends": "clipen-food",
+  "default_duration_seconds": 120
+}
