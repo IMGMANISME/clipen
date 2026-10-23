@@ -835,5 +835,205 @@
         }
       }
     }
+  },
+  {
+    "visual_style_id": "tpl-travel-vlog",
+    "name": "旅遊 vlog",
+    "description": "粗描邊白字標題、左上角地點小標，反應用黃色貼圖字，資訊放在人物旁邊。",
+    "preview_resource": "assets/style-tpl-travel-vlog.png",
+    "overrides": {
+      "palette": {
+        "ink": [
+          16,
+          16,
+          18,
+          255
+        ],
+        "paper": [
+          255,
+          255,
+          255,
+          255
+        ],
+        "accent": [
+          255,
+          198,
+          40,
+          255
+        ],
+        "secondary": [
+          86,
+          196,
+          220,
+          255
+        ]
+      },
+      "appearance": {
+        "skin": "creator",
+        "identity": "travel-vlog",
+        "hero_scale": 1.0,
+        "hero_entry_frames": 10,
+        "hero_exit_frames": 6
+      },
+      "motion": {
+        "entry_frames": 9,
+        "exit_frames": 6,
+        "entry_distance_ratio": 0.012
+      },
+      "subtitle": {
+        "emphasis_color": [
+          255,
+          198,
+          40,
+          255
+        ]
+      },
+      "component_positions": {
+        "program_title": {
+          "x": 0.065,
+          "y": 0.3
+        },
+        "headline": {
+          "x": 0.065,
+          "y": 0.52
+        },
+        "chapter": {
+          "x": 0.045,
+          "y": 0.06
+        },
+        "location": {
+          "x": 0.045,
+          "y": 0.06
+        },
+        "person": {
+          "x": 0.065,
+          "y": 0.52
+        },
+        "fact": {
+          "x": 0.56,
+          "y": 0.5
+        },
+        "impact": {
+          "x": 0.3,
+          "y": 0.22
+        },
+        "reaction": {
+          "x": 0.56,
+          "y": 0.16
+        },
+        "burst": {
+          "x": 0.56,
+          "y": 0.16
+        },
+        "pointer": {
+          "x": 0.3,
+          "y": 0.4
+        },
+        "circle": {
+          "x": 0.3,
+          "y": 0.4
+        }
+      }
+    }
+  },
+  {
+    "visual_style_id": "tpl-product-unboxing",
+    "name": "產品開箱",
+    "description": "粗描邊大標、黃色重點字貼圖，規格用描邊文字標在產品旁邊，不用資訊卡。",
+    "preview_resource": "assets/style-tpl-product-unboxing.png",
+    "overrides": {
+      "palette": {
+        "ink": [
+          12,
+          12,
+          14,
+          255
+        ],
+        "paper": [
+          255,
+          255,
+          255,
+          255
+        ],
+        "accent": [
+          255,
+          220,
+          0,
+          255
+        ],
+        "secondary": [
+          255,
+          92,
+          72,
+          255
+        ]
+      },
+      "appearance": {
+        "skin": "creator",
+        "identity": "product-unboxing",
+        "hero_scale": 0.95,
+        "hero_entry_frames": 8,
+        "hero_exit_frames": 6
+      },
+      "motion": {
+        "entry_frames": 8,
+        "exit_frames": 6,
+        "entry_distance_ratio": 0.012
+      },
+      "subtitle": {
+        "emphasis_color": [
+          255,
+          220,
+          0,
+          255
+        ]
+      },
+      "component_positions": {
+        "program_title": {
+          "x": 0.065,
+          "y": 0.3
+        },
+        "headline": {
+          "x": 0.065,
+          "y": 0.52
+        },
+        "chapter": {
+          "x": 0.045,
+          "y": 0.06
+        },
+        "location": {
+          "x": 0.045,
+          "y": 0.06
+        },
+        "person": {
+          "x": 0.065,
+          "y": 0.52
+        },
+        "fact": {
+          "x": 0.06,
+          "y": 0.5
+        },
+        "impact": {
+          "x": 0.3,
+          "y": 0.22
+        },
+        "reaction": {
+          "x": 0.56,
+          "y": 0.16
+        },
+        "burst": {
+          "x": 0.56,
+          "y": 0.16
+        },
+        "pointer": {
+          "x": 0.26,
+          "y": 0.3
+        },
+        "circle": {
+          "x": 0.3,
+          "y": 0.4
+        }
+      }
+    }
   }
 ]

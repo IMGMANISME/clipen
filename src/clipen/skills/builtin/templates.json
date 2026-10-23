@@ -388,5 +388,65 @@
     ],
     "sample_duration_seconds": 8,
     "skill_resource": "template-skills/clipen-tech/SKILL.md"
+  },
+  {
+    "template_id": "travel-vlog",
+    "name": "旅遊 vlog",
+    "category": "旅遊",
+    "description": "第一人稱帶觀眾走一趟：出發、路上、到了、感想。",
+    "visual_style_id": "tpl-travel-vlog",
+    "font_style_id": "modern",
+    "editorial_direction": "跟著你的行程走，保留路上真實的對話與反應；地點、交通與花費在需要時才標出來。",
+    "design_direction": "粗描邊白字開場標題、左上角「地點｜英文」小標，好笑或驚訝的瞬間才用黃色貼圖字。",
+    "music_direction": "輕快的木吉他或 lo-fi 節拍，說話時退到背景。",
+    "sample_title": "東京三天兩夜",
+    "sample_detail": "第一天・淺草",
+    "preview_resource": "assets/style-tpl-travel-vlog.png",
+    "sample_resource": "assets/sample-travel-vlog.mp4",
+    "tags": [
+      "第一人稱",
+      "行程順序",
+      "地點標示"
+    ],
+    "references": [
+      {
+        "creator": "Casey Neistat",
+        "title": "YouTube 頻道",
+        "url": "https://www.youtube.com/@casey",
+        "takeaway": "第一人稱、邊走邊說的 vlog 節奏；轉成 Clipen 原創版面。"
+      }
+    ],
+    "sample_duration_seconds": 8,
+    "skill_resource": "template-skills/clipen-travel-vlog/SKILL.md"
+  },
+  {
+    "template_id": "product-unboxing",
+    "name": "產品開箱",
+    "category": "產品",
+    "description": "從包裝、內容物到第一印象，讓觀眾知道買到什麼。",
+    "visual_style_id": "tpl-product-unboxing",
+    "font_style_id": "modern",
+    "editorial_direction": "依開箱順序：外盒、配件、本體、第一次使用；規格與價格只用素材或使用者提供的資訊。",
+    "design_direction": "粗描邊大標開場，規格與價格用描邊文字標在產品旁邊，真心驚訝時才用黃色貼圖字。",
+    "music_direction": "乾淨的電子節拍，開箱與說明時降低音量。",
+    "sample_title": "新耳機開箱",
+    "sample_detail": "盒子裡有什麼？",
+    "preview_resource": "assets/style-tpl-product-unboxing.png",
+    "sample_resource": "assets/sample-product-unboxing.mp4",
+    "tags": [
+      "開箱順序",
+      "規格標示",
+      "第一印象"
+    ],
+    "references": [
+      {
+        "creator": "Marques Brownlee",
+        "title": "YouTube 頻道",
+        "url": "https://www.youtube.com/@mkbhd",
+        "takeaway": "乾淨的桌面構圖與精簡的資訊標示；轉成 Clipen 原創版面。"
+      }
+    ],
+    "sample_duration_seconds": 8,
+    "skill_resource": "template-skills/clipen-product-unboxing/SKILL.md"
   }
 ]
