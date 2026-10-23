@@ -171,21 +171,159 @@
     }
   },
   {
-    "font_style_id": "cinematic-tw",
-    "name": "電影感黑體＋娃娃體",
-    "description": "蘭亭黑中粗標題、娃娃體反應字，資訊用蘋方；收斂、有質感，適合精華與紀錄。",
+    "font_style_id": "handnote-tw",
+    "name": "手札體＋娃娃體",
+    "description": "手寫感的手札體當標題、娃娃體反應字，像旅行手帳。",
     "roles": {
       "title": {
-        "family": "lantinghei",
-        "weight": "medium"
+        "family": "hannotate",
+        "weight": "bold"
       },
       "impact": {
         "family": "wawa",
         "weight": "regular"
       },
       "information": {
+        "family": "lantinghei",
+        "weight": "medium"
+      },
+      "detail": {
         "family": "modern",
         "weight": "medium"
+      }
+    }
+  },
+  {
+    "font_style_id": "cinematic-tw",
+    "name": "宋體電影感",
+    "description": "細宋體標題加寬字距，資訊用乾淨的蘋方，安靜留白。",
+    "roles": {
+      "title": {
+        "family": "serif",
+        "weight": "light"
+      },
+      "impact": {
+        "family": "serif",
+        "weight": "light"
+      },
+      "information": {
+        "family": "modern",
+        "weight": "regular"
+      },
+      "detail": {
+        "family": "modern",
+        "weight": "regular"
+      }
+    }
+  },
+  {
+    "font_style_id": "rounded-tw",
+    "name": "圓體",
+    "description": "圓體標題與品名，親切好讀，反應字用娃娃體。",
+    "roles": {
+      "title": {
+        "family": "yuanti",
+        "weight": "bold"
+      },
+      "impact": {
+        "family": "wawa",
+        "weight": "regular"
+      },
+      "information": {
+        "family": "yuanti",
+        "weight": "bold"
+      },
+      "detail": {
+        "family": "modern",
+        "weight": "medium"
+      }
+    }
+  },
+  {
+    "font_style_id": "pen-tw",
+    "name": "翩翩體手寫",
+    "description": "翩翩體手寫字，像在手機備忘錄隨手寫下。",
+    "roles": {
+      "title": {
+        "family": "hanzipen",
+        "weight": "bold"
+      },
+      "impact": {
+        "family": "hanzipen",
+        "weight": "bold"
+      },
+      "information": {
+        "family": "hanzipen",
+        "weight": "regular"
+      },
+      "detail": {
+        "family": "modern",
+        "weight": "medium"
+      }
+    }
+  },
+  {
+    "font_style_id": "interface-tw",
+    "name": "介面蘋方",
+    "description": "蘋方半粗體，像產品介面一樣俐落清楚。",
+    "roles": {
+      "title": {
+        "family": "modern",
+        "weight": "bold"
+      },
+      "impact": {
+        "family": "modern",
+        "weight": "bold"
+      },
+      "information": {
+        "family": "modern",
+        "weight": "medium"
+      },
+      "detail": {
+        "family": "modern",
+        "weight": "regular"
+      }
+    }
+  },
+  {
+    "font_style_id": "verdict-tw",
+    "name": "粗黑＋魏碑印章",
+    "description": "蘭亭黑粗標題、魏碑體印章字，評價有份量。",
+    "roles": {
+      "title": {
+        "family": "lantinghei",
+        "weight": "bold"
+      },
+      "impact": {
+        "family": "weibei",
+        "weight": "bold"
+      },
+      "information": {
+        "family": "lantinghei",
+        "weight": "medium"
+      },
+      "detail": {
+        "family": "modern",
+        "weight": "medium"
+      }
+    }
+  },
+  {
+    "font_style_id": "ceremony-tw",
+    "name": "楷書典禮",
+    "description": "楷書標題與重點字，名字用細宋體，適合婚禮與典禮。",
+    "roles": {
+      "title": {
+        "family": "kaiti",
+        "weight": "bold"
+      },
+      "impact": {
+        "family": "kaiti",
+        "weight": "bold"
+      },
+      "information": {
+        "family": "serif",
+        "weight": "light"
       },
       "detail": {
         "family": "modern",

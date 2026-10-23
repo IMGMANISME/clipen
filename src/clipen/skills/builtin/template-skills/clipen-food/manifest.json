@@ -1,8 +1,0 @@
-{
-  "skill_id": "clipen-food",
-  "version": "1.1.0",
-  "name": "今天吃哪邊",
-  "template_id": "food",
-  "visual_style_id": "tpl-food",
-  "font_style_id": "japanese"
-}

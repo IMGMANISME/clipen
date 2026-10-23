@@ -110,6 +110,12 @@ def load_style_font(font_path, size, profile, role=None):
             # Display faces popular in Taiwanese variety and vlog packaging.
             'lantinghei':_system_asset('Lantinghei.ttc')+_system_asset('PingFang.ttc')+('/System/Library/Fonts/Hiragino Sans GB.ttc',),
             'wawa':_system_asset('WawaTC-Regular.otf')+_system_asset('PingFang.ttc')+('/System/Library/Fonts/Hiragino Sans GB.ttc',),
+            'hannotate':_system_asset('Hannotate.ttc')+_system_asset('PingFang.ttc')+('/System/Library/Fonts/Hiragino Sans GB.ttc',),
+            'hanzipen':_system_asset('Hanzipen.ttc')+_system_asset('PingFang.ttc')+('/System/Library/Fonts/Hiragino Sans GB.ttc',),
+            'yuanti':_system_asset('Yuanti.ttc')+_system_asset('PingFang.ttc')+('/System/Library/Fonts/Hiragino Sans GB.ttc',),
+            'kaiti':_system_asset('Kaiti.ttc')+('/System/Library/Fonts/Supplemental/Songti.ttc',),
+            'lingwai':_system_asset('LingWaiTC-Medium.otf')+('/System/Library/Fonts/Supplemental/Songti.ttc',),
+            'weibei':_system_asset('WeibeiTC-Bold.otf')+_system_asset('Lantinghei.ttc')+('/System/Library/Fonts/Hiragino Sans GB.ttc',),
         }[family]
         candidates+=('/usr/share/fonts/opentype/noto/Noto'+('Serif' if family=='serif' else 'Sans')+'CJK-Regular.ttc',
                      'C:/Windows/Fonts/'+('simsun.ttc' if family=='serif' else 'msjh.ttc'))

@@ -22,7 +22,7 @@ class TemplateLibraryTests(unittest.TestCase):
     def tearDown(self):self.f.tearDown()
 
     def test_all_templates_have_unique_rendered_previews_and_playable_silent_samples(self):
-        skill=get_skill();templates=skill['templates'];self.assertGreaterEqual(len(templates),12)
+        skill=get_skill();templates=skill['templates'];self.assertGreaterEqual(len(templates),9)
         self.assertEqual(len({t['template_id'] for t in templates}),len(templates))
         previews=set();palettes=set()
         for template in templates:
@@ -46,16 +46,16 @@ class TemplateLibraryTests(unittest.TestCase):
         self.assertEqual(len(list_skills()[0]['templates']),len(templates))
 
     def test_template_selection_freezes_font_style_direction_and_is_idempotent(self):
-        options={'skill_id':'travel-program','intent':'以真實素材製作旅誌','template_id':'coffee'}
-        run,created=self.repo.create_run(self.project,'coffee-template',production=options)
+        options={'skill_id':'travel-program','intent':'以真實素材製作旅誌','template_id':'food-review'}
+        run,created=self.repo.create_run(self.project,'food-review-template',production=options)
         self.assertTrue(created)
         session=self.repo.production_session(self.project,run.run_id)
-        self.assertEqual(session['intent']['template']['template_id'],'coffee')
-        self.assertEqual(session['intent']['visual_style_id'],'tpl-coffee')
-        self.assertEqual(session['intent']['font_style_id'],'travel')
-        self.assertEqual(session['skill']['selected_template_id'],'coffee')
-        self.assertIn('出餐',session['intent']['template']['editorial_direction'])
-        replay,created=self.repo.create_run(self.project,'coffee-template',production=options)
+        self.assertEqual(session['intent']['template']['template_id'],'food-review')
+        self.assertEqual(session['intent']['visual_style_id'],'tpl-food-review')
+        self.assertEqual(session['intent']['font_style_id'],'rounded-tw')
+        self.assertEqual(session['skill']['selected_template_id'],'food-review')
+        self.assertIn('第一口',session['intent']['template']['editorial_direction'])
+        replay,created=self.repo.create_run(self.project,'food-review-template',production=options)
         self.assertFalse(created);self.assertEqual(replay.run_id,run.run_id)
         tools=EditAgentTools(self.repo,self.project,run.run_id);tools.activate()
         try:
@@ -68,29 +68,29 @@ class TemplateLibraryTests(unittest.TestCase):
         self.assertEqual(self.repo.production_session(self.project,run.run_id)['intent']['template'],session['intent']['template'])
 
     def test_unknown_or_conflicting_templates_are_rejected(self):
-        for values in ({'template_id':'unknown'},{'template_id':'journal','visual_style_id':'cinema'}):
+        for values in ({'template_id':'unknown'},{'template_id':'travel-vlog','visual_style_id':'cinema'}):
             with self.assertRaises(ProjectError):self.repo.create_run(self.project,'invalid-template',production={'skill_id':'travel-program','intent':'測試模板',**values})
-        run,_=self.repo.create_run(self.project,'font-override',production={'skill_id':'travel-program','intent':'模板換字體','template_id':'journal','font_style_id':'calligraphy'})
+        run,_=self.repo.create_run(self.project,'font-override',production={'skill_id':'travel-program','intent':'模板換字體','template_id':'travel-vlog','font_style_id':'calligraphy'})
         self.assertEqual(self.repo.production_session(self.project,run.run_id)['intent']['font_style_id'],'calligraphy')
 
     def test_custom_style_selection_also_binds_the_matching_template_skill(self):
-        options={'skill_id':'travel-program','intent':'用夜色的節目風格','visual_style_id':'tpl-night','font_style_id':'handwriting'}
+        options={'skill_id':'travel-program','intent':'用夜色的節目風格','visual_style_id':'tpl-daily-vlog','font_style_id':'handwriting'}
         run,_=self.repo.create_run(self.project,'custom-style-skill',production=options)
         session=self.repo.production_session(self.project,run.run_id)
-        self.assertEqual(session['skill']['selected_template_id'],'night')
-        self.assertEqual(session['skill']['skill_id'],'clipen-night')
-        self.assertEqual([e['skill_id'] for e in session['skill']['skill_chain']],['clipen-night'])
+        self.assertEqual(session['skill']['selected_template_id'],'daily-vlog')
+        self.assertEqual(session['skill']['skill_id'],'clipen-daily-vlog')
+        self.assertEqual([e['skill_id'] for e in session['skill']['skill_chain']],['clipen-daily-vlog'])
         self.assertEqual(session['intent']['font_style_id'],'handwriting')
         self.assertEqual(session['skill']['selected_font_style_id'],'handwriting')
 
     def test_new_style_is_available_to_native_mcp_and_old_frozen_sessions_reject_it(self):
         # The existing session already freezes the newly installed template collection.
         from clipen.editing.workbench import state
-        self.assertIn('tpl-night',{s['visual_style_id'] for s in state(self.repo,self.project,self.f.run.run_id)['visual_styles']})
+        self.assertIn('tpl-daily-vlog',{s['visual_style_id'] for s in state(self.repo,self.project,self.f.run.run_id)['visual_styles']})
         from clipen.editing.production_catalog import validate_arguments
-        validate_arguments('restyle_program_components',{'visual_style_id':'tpl-night','summary':'更換模板'})
+        validate_arguments('restyle_program_components',{'visual_style_id':'tpl-daily-vlog','summary':'更換模板'})
         skill=get_skill();old={**skill,'visual_styles':[s for s in skill['visual_styles'] if s['visual_style_id']=='variety']}
-        with self.assertRaises(ProjectError):style_presets(old,'tpl-night')
+        with self.assertRaises(ProjectError):style_presets(old,'tpl-daily-vlog')
 
     def test_sample_endpoint_requires_auth_and_supports_range_requests(self):
         from clipen.controller import ControllerConfig, LocalSessionAuthority, ProviderState, ProviderStatus, create_app
@@ -101,13 +101,13 @@ class TemplateLibraryTests(unittest.TestCase):
         app=create_app(ControllerConfig(static),ProviderStatus('Codex',ProviderState.READY,'ready'),LocalSessionAuthority(),edit_agents=coordinator)
         def request(method,path,headers=None):return asyncio.run(request_app(app,method,path,headers=headers))
         try:
-            url='/api/production/skills/travel-program/templates/journal/sample'
+            url='/api/production/skills/travel-program/templates/travel-vlog/sample'
             self.assertEqual(request('GET',url)[0],401)
             _,headers,_=request('POST','/api/session/connect',{'origin':'http://localhost:4200','sec-fetch-site':'same-origin'})
             auth={'cookie':headers['set-cookie'].split(';',1)[0]}
             code,headers,body=request('GET',url,{**auth,'range':'bytes=0-63'})
             self.assertEqual(code,206);self.assertEqual(headers['content-type'],'video/mp4');self.assertEqual(len(body),64)
-            self.assertEqual(request('GET',url.replace('journal','unknown'),auth)[0],404)
+            self.assertEqual(request('GET',url.replace('travel-vlog','unknown'),auth)[0],404)
         finally:coordinator.close()
 
     def test_each_template_loads_its_own_skill_through_the_default_mcp_read(self):
@@ -144,15 +144,15 @@ class TemplateLibraryTests(unittest.TestCase):
         self.assertEqual(len(instructions),len(skill['templates']))
 
     def test_refinement_and_replay_keep_the_frozen_template_skill_after_catalog_changes(self):
-        options={'skill_id':'travel-program','intent':'做一集日常研究','template_id':'coffee'}
+        options={'skill_id':'travel-program','intent':'做一集日常研究','template_id':'food-review'}
         run,_=self.repo.create_run(self.project,'frozen-template-skill',production=options)
         frozen=self.repo.production_session(self.project,run.run_id)['skill']
         selected=frozen['skill_chain'][-1]
         def updated(skill_id='travel-program'):
-            # The catalog now ships a newer coffee Skill than the frozen one.
+            # The catalog now ships a newer food-review Skill than the frozen one.
             from clipen.skills.catalog import get_skill as live
             value=live(skill_id)
-            if skill_id=='clipen-coffee':
+            if skill_id=='clipen-food-review':
                 value['resources'][selected['resource']]='updated instructions must not replace the frozen session'
                 value['version']='2.0.0'
             return value
@@ -191,11 +191,11 @@ class TemplateLibraryTests(unittest.TestCase):
             document=root/'builtin'/original['templates'][0]['skill_resource']
             document.write_text(document.read_text()+'\n本次增加新的故事驗收條件。\n')
             with patch('clipen.skills.catalog.files',return_value=root):
-                journal,tech=get_skill('clipen-journal'),get_skill('clipen-tech')
-            self.assertNotEqual(get_skill('clipen-journal')['content_hash'],journal['content_hash'])
-            self.assertEqual(get_skill('clipen-tech')['content_hash'],tech['content_hash'])
+                first,other=get_skill('clipen-travel-vlog'),get_skill('clipen-product-demo')
+            self.assertNotEqual(get_skill('clipen-travel-vlog')['content_hash'],first['content_hash'])
+            self.assertEqual(get_skill('clipen-product-demo')['content_hash'],other['content_hash'])
             manifest=document.parent/'manifest.json'
-            value=json.loads(manifest.read_text());value['visual_style_id']='tpl-tech'
+            value=json.loads(manifest.read_text());value['visual_style_id']='tpl-product-demo'
             manifest.write_text(json.dumps(value))
             with patch('clipen.skills.catalog.files',return_value=root),self.assertRaises(ProjectError) as error:get_skill()
             self.assertEqual(error.exception.code,'template_skill_invalid')
@@ -238,18 +238,55 @@ class NativeIdentityTests(unittest.TestCase):
                         if width==640 and kind=='program_title':masks.add(rendered[1])
         self.assertEqual(len(masks),len(skill['templates']))
 
+    def test_retired_template_identities_still_render_for_frozen_sessions(self):
+        from PIL import Image, ImageDraw
+        from clipen.domain import EditTimeline, Rational, TextClip, Track, TrackKind
+        from clipen.rendering.program_components import draw_program_component
+        from clipen.rendering.program_identities import IDENTITIES
+        from clipen.rendering.titles import TitleCardRenderer
+
+        skill=get_skill()
+        self.assertFalse({'tpl-'+name for name in IDENTITIES}&{s['visual_style_id'] for s in skill['visual_styles']})
+        timeline=EditTimeline('legacy','legacy',None,None,None,Rational(30,1),640,360,90,(Track('video',TrackKind.VIDEO,()),),production_session_id='legacy')
+        for name in sorted(IDENTITIES):
+            with self.subTest(identity=name):
+                _,presets=style_presets(skill,'variety')
+                presets['appearance']={**presets['appearance'],'identity':name}
+                image=Image.new('RGBA',(640,360))
+                draw_program_component(ImageDraw.Draw(image),TitleCardRenderer._font_path(),timeline,TextClip('legacy',0,90,'現場故事\n當下的觀察','legacy'),
+                                       {'kind':'program_component','component_id':'program_title','presets':presets,'x':.07,'y':.12},35)
+                self.assertIsNotNone(image.getchannel('A').getbbox())
+
+    def test_review_verdicts_mark_strengths_and_drawbacks_differently(self):
+        from PIL import Image, ImageDraw
+        from clipen.domain import EditTimeline, Rational, TextClip, Track, TrackKind
+        from clipen.rendering.program_components import draw_program_component
+        from clipen.rendering.titles import TitleCardRenderer
+
+        skill=get_skill();_,presets=style_presets(skill,'tpl-product-review')
+        timeline=EditTimeline('verdict','verdict',None,None,None,Rational(30,1),960,540,90,(Track('video',TrackKind.VIDEO,()),),production_session_id='verdict')
+        def colours(text):
+            image=Image.new('RGBA',(960,540))
+            draw_program_component(ImageDraw.Draw(image),TitleCardRenderer._font_path(),timeline,TextClip('verdict',0,90,text,'verdict'),
+                                   {'kind':'program_component','component_id':'fact','presets':presets,'x':.1,'y':.4},45)
+            return {pixel[:3] for pixel in image.getdata() if pixel[3]==255}
+        accent,secondary=(tuple(presets['palette'][name][:3]) for name in ('accent','secondary'))
+        strength,drawback=colours('優點\n對焦很快'),colours('缺點\n機身有點重')
+        self.assertIn(accent,strength);self.assertNotIn(secondary,strength)
+        self.assertIn(secondary,drawback);self.assertNotIn(accent,drawback)
+
     def test_template_positions_and_user_adjustments_survive_native_mcp_updates(self):
         f=fixtures.SkillProductionTests();f.setUp()
         try:
             from clipen.editing.production_media import load_text_styles
             f.cut()
             # Template positions are suggestions; adding requires an explicit, shot-specific choice.
-            expected=style_presets(get_skill(),'tpl-slow')[1]['component_positions']['program_title']
+            expected=style_presets(get_skill(),'tpl-travel-highlight')[1]['component_positions']['program_title']
             with self.assertRaises(fixtures.ProjectError) as error:
                 f.call('add_program_component',element_id='unplaced',item_id='agent-video-0001',component_id='program_title',
                        start_offset_frames=6,duration_frames=45,text='今天的故事',evidence='來源有此事件',summary='未指定位置')
             self.assertEqual(error.exception.code,'component_position_required')
-            f.component(component_id='program_title',text='今天的故事',visual_style_id='tpl-slow',**expected)
+            f.component(component_id='program_title',text='今天的故事',visual_style_id='tpl-travel-highlight',**expected)
             def profile():
                 item=next(i for t in f.tools._timeline().tracks for i in t.items if i.item_id=='dish-label')
                 return load_text_styles(f.projects,f.project.project_id)[item.style_id]
@@ -258,7 +295,7 @@ class NativeIdentityTests(unittest.TestCase):
             f.call('update_program_component',**common,x=.11,y=.23)
             f.call('update_program_component',**{**common,'text':'保留手動位置'})
             self.assertEqual((profile()['x'],profile()['y']),(.11,.23))
-            self.assertEqual(profile()['presets']['appearance']['identity'],'slow')
+            self.assertEqual(profile()['presets']['appearance']['identity'],'travel-highlight')
             frozen=f.repository.production_session(f.project.project_id,f.run.run_id)['skill']
             self.assertIn('references/channel-design.md',frozen['resources'])
         finally:f.tearDown()
