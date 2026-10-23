@@ -413,6 +413,24 @@ class SkillProductionTests(unittest.TestCase):
         self.repository.record_provider_outcome(self.project.project_id,self.run.run_id,'other-failure',usage=None,error_code='provider_network_error')
         with self.assertRaises(ProjectError):self.repository.resume_timed_out(self.project.project_id,self.run.run_id)
 
+    def test_usage_limit_resume_continues_the_draft_and_keeps_spent_usage(self):
+        self.cut()
+        before=self.repository.get(self.project.project_id,self.run.run_id)
+        spent={'input_tokens':14758358,'cached_input_tokens':14392319,'output_tokens':125750}
+        self.repository.record_provider_outcome(self.project.project_id,self.run.run_id,'quota-attempt',usage=spent,error_code='provider_usage_limit')
+        resumed=self.repository.resume_stopped(self.project.project_id,self.run.run_id)
+        self.assertEqual((resumed.state,resumed.error_code),('queued',None))
+        self.assertEqual(resumed.current_revision_id,before.current_revision_id)
+        self.assertEqual(resumed.tool_calls,before.tool_calls)
+        with self.projects.connect(self.project.project_id) as db:
+            row=db.execute("SELECT payload_json FROM edit_agent_events WHERE run_id=? AND event_type='run_resumed'",(self.run.run_id,)).fetchone()
+        event=json.loads(row['payload_json'])
+        self.assertEqual((event['previous_error_code'],event['previous_usage']),('provider_usage_limit',spent))
+        # The account may still be limited; stopping again keeps the draft resumable.
+        self.repository.activate(self.project.project_id,self.run.run_id)
+        self.repository.record_provider_outcome(self.project.project_id,self.run.run_id,'quota-again',usage=None,error_code='provider_usage_limit')
+        self.assertEqual(self.repository.resume_stopped(self.project.project_id,self.run.run_id).current_revision_id,before.current_revision_id)
+
     def test_explicit_long_form_session_accepts_ten_minutes_without_relaxing_default(self):
         from clipen.editing.production_limits import limits_for
         self.cut()

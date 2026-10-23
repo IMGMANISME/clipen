@@ -264,7 +264,7 @@ class EditAgentCoordinator:
             key = (project_id, run_id)
             if self._closed or self._queue.full() or key in self._cancel:
                 raise ProjectError('edit_agent_busy', '製作工作仍在結束或佇列已滿，請稍後再試。', status_code=409)
-            run = self.repository.resume_timed_out(project_id, run_id)
+            run = self.repository.resume_stopped(project_id, run_id)
             self._projects.add(project_id)
             self._cancel[key] = threading.Event()
             self._queue.put_nowait(key)

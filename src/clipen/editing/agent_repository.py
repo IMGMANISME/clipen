@@ -256,7 +256,12 @@ class EditAgentRepository:
             db.execute('INSERT INTO edit_agent_command_receipts VALUES(?,?,?,?,?)',(request,'refine',request_hash,encoded({'run_id':normalized}),utc_now()))
             result=self._read_run(db,normalized);db.commit();return result,True
 
-    def resume_timed_out(self, project_id: str, run_id: object) -> AgentRun:
+    # Stops that leave a valid draft and say nothing about the draft itself: the
+    # wall clock ran out, or the provider account hit its usage limit. Resuming
+    # continues the same revision and budget once the user asks again.
+    RESUMABLE_ERRORS = frozenset({'provider_timed_out', 'provider_usage_limit'})
+
+    def resume_stopped(self, project_id: str, run_id: object) -> AgentRun:
         normalized = self._validate_run_id(run_id)
         with self.projects.connect(project_id) as db:
             db.execute('BEGIN IMMEDIATE')
@@ -266,17 +271,24 @@ class EditAgentRepository:
                 raise ProjectError('edit_agent_resume_invalid', '已有較新的製作工作，請使用最新工作。', status_code=409)
             if db.execute("SELECT 1 FROM edit_agent_runs WHERE state IN ('queued','running')").fetchone():
                 raise ProjectError('edit_agent_busy', '目前已有 AI 製作工作。', status_code=409)
-            if run.state != 'failed' or run.error_code != 'provider_timed_out':
-                raise ProjectError('edit_agent_resume_invalid', '只能接續因 AI 逾時而停止的工作。', status_code=409)
+            if run.state != 'failed' or run.error_code not in self.RESUMABLE_ERRORS:
+                raise ProjectError('edit_agent_resume_invalid', '只能接續因 AI 逾時或額度不足而停止的工作。', status_code=409)
             if not db.execute('SELECT 1 FROM production_sessions WHERE run_id=?', (normalized,)).fetchone():
                 raise ProjectError('edit_agent_resume_invalid', '這份工作不支援接續製作。', status_code=409)
             if run.tool_calls >= run.max_tool_calls or run.preview_renders >= run.max_preview_renders:
                 raise ProjectError('edit_agent_budget_exhausted', '這份工作的操作或輸出次數已用完。', status_code=409)
-            self._append_event(db, normalized, 'run_resumed', {'previous_attempt_id':run.provider_attempt_id}, utc_now())
+            # The run row only keeps the latest attempt's usage; keep what the
+            # stopped attempt already spent in the append-only event log.
+            previous_usage = db.execute('SELECT usage_json FROM edit_agent_runs WHERE run_id=?', (normalized,)).fetchone()['usage_json']
+            self._append_event(db, normalized, 'run_resumed', {'previous_attempt_id':run.provider_attempt_id,
+                'previous_error_code':run.error_code,
+                'previous_usage':None if previous_usage is None else json.loads(previous_usage)}, utc_now())
             db.execute("UPDATE edit_agent_runs SET state='queued',phase='queued',error_code=NULL,provider_attempt_id=NULL,usage_json=NULL,completed_at=NULL WHERE run_id=?", (normalized,))
             result = self._read_run(db, normalized)
             db.commit()
             return result
+
+    resume_timed_out = resume_stopped
 
     def activate(self, project_id: str, run_id: object) -> AgentRun:
         normalized = self._validate_run_id(run_id)

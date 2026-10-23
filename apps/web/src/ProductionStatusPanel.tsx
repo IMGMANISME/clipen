@@ -15,7 +15,8 @@ export function ProductionStatusPanel({ status, busy, onResume, onCancel, onRefr
   if (!production || !run) return null
   const active = ['queued', 'running'].includes(run.state)
   const failed = ['failed', 'interrupted'].includes(run.state)
-  const canResume = run.state === 'failed' && run.error_code === 'provider_timed_out'
+  // Timeouts and account usage limits leave a valid draft that can continue later.
+  const canResume = run.state === 'failed' && ['provider_timed_out', 'provider_usage_limit'].includes(run.error_code ?? '')
   const problem = productionProblem(run.error_code, provider.name)
   const activity = production.progress?.activity ?? []
   const job = production.local_jobs.find((entry) => entry.state === 'running')
