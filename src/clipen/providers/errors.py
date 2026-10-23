@@ -13,6 +13,14 @@ class ProviderProtocolError(RuntimeError):
     """The provider violated the expected one-shot result contract."""
 
 
+class ProviderStoppedEarly(ProviderProtocolError):
+    """The provider ended its turn before finishing the Clipen edit."""
+
+
+class ProviderDeliveryBlocked(ProviderStoppedEarly):
+    """The provider ended its turn while Clipen's delivery checks still fail."""
+
+
 class ProviderTimedOut(RuntimeError):
     """The provider exceeded the bounded attempt duration."""
 

@@ -1213,6 +1213,7 @@ input:focus, textarea:focus { border-color: #6c8b73; box-shadow: 0 0 0 3px rgba(
 .production-job progress { width: 100%; accent-color: var(--green); }
 .production-job span { font-size: 13px; color: #465d4d; }
 .production-job-notice { padding-left: 12px; border-left: 3px solid #c8b47b; color: #6b582f; font-size: 14px; }
+.production-blockers { margin: 4px 0 12px; padding-left: 22px; display: grid; gap: 6px; line-height: 1.6; }
 .production-checks { padding: 16px; border: 1px solid #dfd1ad; border-radius: 12px; background: #fbf6e9; }
 .production-checks p { margin-top: 6px; color: #6b603e; font-size: 14px; }
 .production-checks ul { margin: 12px 0 0; padding-left: 22px; display: grid; gap: 8px; line-height: 1.6; }

@@ -63,6 +63,24 @@ class CodexEditingAgentTests(unittest.TestCase):
                 with self.assertRaises(ProviderUsageLimitError):agent.execute('prj_'+'a'*32,'editrun_'+'b'*32)
             self.assertEqual(run.call_count,1);self.assertEqual(outcomes[0]['error_code'],'provider_usage_limit');self.assertIsNone(outcomes[0]['usage'])
 
+    def test_unfinished_turns_say_whether_delivery_checks_held_the_draft_back(self):
+        from clipen.providers.errors import ProviderDeliveryBlocked, ProviderStoppedEarly
+        for blockers,error,code in ((('subtitle_source_range_unresolved',),ProviderDeliveryBlocked,'delivery_blocked'),
+                                    ((),ProviderStoppedEarly,'provider_stopped_early'),(None,ProviderStoppedEarly,'provider_stopped_early')):
+            with self.subTest(code=code,blockers=blockers),tempfile.TemporaryDirectory() as temporary:
+                root=Path(temporary);projects=root/'projects';projects.mkdir();attempts=root/'attempts';attempts.mkdir()
+                outcomes=[]
+                unfinished=SimpleNamespace(provider='codex',state='running',final_revision_id=None)
+                repository=SimpleNamespace(production_session=lambda *args:None,get=lambda *args:unfinished,delivery_blockers=lambda *args:blockers,
+                                           record_provider_outcome=lambda *args,**kwargs:outcomes.append(kwargs))
+                agent=CodexEditingAgent(projects,attempts,repository,binary='/bin/echo',python='/usr/bin/python3',environment={'PATH':'/usr/bin','HOME':str(root)})
+                def ended(command,workspace,events,diagnostics,timeout,cancel):
+                    events.write_text('{"type":"turn.completed"}\n');diagnostics.write_text('');return 0
+                with patch.object(agent,'_run',side_effect=ended),self.assertRaises(error) as raised:
+                    agent.execute('prj_'+'a'*32,'editrun_'+'b'*32)
+                self.assertEqual(outcomes[0]['error_code'],code)
+                if blockers:self.assertIn('subtitle_source_range_unresolved',str(raised.exception))
+
     def test_prompt_gives_model_tool_choice_and_requires_observed_final_output(self):
         self.assertIn('list_editing_tools',_PROMPT)
         self.assertIn('Do not add decoration to satisfy a quota',_PROMPT)

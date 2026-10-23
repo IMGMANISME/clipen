@@ -2,21 +2,23 @@ import type { EditAgentStatus } from './api'
 import { productionIssue, productionProblem } from './productionMessages'
 import { useProvider } from './providerContext'
 
-type Props = { status: EditAgentStatus; busy: boolean; onResume: () => void; onCancel: () => void; onRefresh: () => void; onEdit: () => void; onView?: () => void }
+type Props = { status: EditAgentStatus; busy: boolean; onResume: () => void; onCancel: () => void; onRefresh: () => void; onEdit: () => void; onView?: () => void; onRefine?: () => void }
 function timeLabel(value: string): string {
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? '時間未取得' : date.toLocaleTimeString('zh-TW', { hour12: false })
 }
 
-export function ProductionStatusPanel({ status, busy, onResume, onCancel, onRefresh, onEdit, onView }: Props) {
+export function ProductionStatusPanel({ status, busy, onResume, onCancel, onRefresh, onEdit, onView, onRefine }: Props) {
   const provider = useProvider()
   const production = status.production
   const run = production ? status.latest_run : null
   if (!production || !run) return null
   const active = ['queued', 'running'].includes(run.state)
   const failed = ['failed', 'interrupted'].includes(run.state)
-  // Timeouts and account usage limits leave a valid draft that can continue later.
-  const canResume = run.state === 'failed' && ['provider_timed_out', 'provider_usage_limit'].includes(run.error_code ?? '')
+  // Timeouts, account usage limits and early stops leave a valid draft that can continue later.
+  const canResume = run.state === 'failed' && ['provider_timed_out', 'provider_usage_limit', 'provider_stopped_early'].includes(run.error_code ?? '')
+  // A draft held back by delivery checks is fixed through a revision request, so show what is left up front.
+  const blocked = run.state === 'failed' && run.error_code === 'delivery_blocked'
   const problem = productionProblem(run.error_code, provider.name)
   const activity = production.progress?.activity ?? []
   const job = production.local_jobs.find((entry) => entry.state === 'running')
@@ -33,10 +35,12 @@ export function ProductionStatusPanel({ status, busy, onResume, onCancel, onRefr
     <div className="production-status-heading" role="status" aria-live="polite"><h3 id="production-status-heading">{title}</h3></div>
     <p>{failed ? problem.next : active ? current : run.state === 'cancelled' ? '草稿已保留，可以先看看目前的結果。' : '播放下方影片，看看是否符合你的期待。'}</p>
     {active && download !== null && <div className="production-job"><progress aria-label="準備語音功能" value={download} max={100} /><span>語音功能準備進度 {download}%</span></div>}
+    {blocked && issues.length > 0 && <ul className="production-blockers">{issues.map((issue) => <li key={issue.code}>{productionIssue(issue.code)}</li>)}</ul>}
     {canResume && <p>會沿用原本約 {Number(production.intent.target_duration_seconds ?? 60) / 60} 分鐘的剪輯與風格設定，並接續使用 {provider.name} 額度。</p>}
     <div className="production-recovery-actions">
       {failed && (production.preview?.state === 'succeeded' || production.last_successful_preview?.state === 'succeeded') && <a className="button secondary" href="#production-output" onClick={onView}>查看影片</a>}
       {canResume && <button className="button primary" type="button" disabled={busy} onClick={onResume}>繼續這份草稿</button>}
+      {blocked && onRefine && <button className="button primary" type="button" disabled={busy} onClick={onRefine}>用 AI 打磨修正</button>}
       {failed && <button className="button secondary" type="button" disabled={busy} onClick={onEdit}>重新製作</button>}
       {active && <button className="button ghost" type="button" disabled={busy} onClick={onCancel}>停止製作</button>}
     </div>

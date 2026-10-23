@@ -262,9 +262,11 @@ class EditAgentRepository:
             result=self._read_run(db,normalized);db.commit();return result,True
 
     # Stops that leave a valid draft and say nothing about the draft itself: the
-    # wall clock ran out, or the provider account hit its usage limit. Resuming
-    # continues the same revision and budget once the user asks again.
-    RESUMABLE_ERRORS = frozenset({'provider_timed_out', 'provider_usage_limit'})
+    # wall clock ran out, the provider account hit its usage limit, or the
+    # provider ended its turn early. Resuming continues the same revision and
+    # budget once the user asks again. A draft blocked by delivery checks needs
+    # a revision request instead, since the same instructions hit the same checks.
+    RESUMABLE_ERRORS = frozenset({'provider_timed_out', 'provider_usage_limit', 'provider_stopped_early'})
 
     def resume_stopped(self, project_id: str, run_id: object) -> AgentRun:
         normalized = self._validate_run_id(run_id)
@@ -277,7 +279,7 @@ class EditAgentRepository:
             if db.execute("SELECT 1 FROM edit_agent_runs WHERE state IN ('queued','running')").fetchone():
                 raise ProjectError('edit_agent_busy', '目前已有 AI 製作工作。', status_code=409)
             if run.state != 'failed' or run.error_code not in self.RESUMABLE_ERRORS:
-                raise ProjectError('edit_agent_resume_invalid', '只能接續因 AI 逾時或額度不足而停止的工作。', status_code=409)
+                raise ProjectError('edit_agent_resume_invalid', '只能接續因 AI 逾時、額度不足或提早結束而停止的工作。', status_code=409)
             if not db.execute('SELECT 1 FROM production_sessions WHERE run_id=?', (normalized,)).fetchone():
                 raise ProjectError('edit_agent_resume_invalid', '這份工作不支援接續製作。', status_code=409)
             if run.tool_calls >= run.max_tool_calls or run.preview_renders >= run.max_preview_renders:
@@ -294,6 +296,21 @@ class EditAgentRepository:
             return result
 
     resume_timed_out = resume_stopped
+
+    def delivery_blockers(self, project_id: str, run_id: object) -> tuple[str, ...] | None:
+        """Issue codes from the latest delivery check of the current revision; None when it was never checked."""
+        normalized = self._validate_run_id(run_id)
+        with self.projects.connect(project_id) as db:
+            run = self._read_run(db, normalized)
+            rows = db.execute("SELECT payload_json FROM edit_agent_events WHERE run_id=? AND event_type='sequence_validation' ORDER BY sequence DESC LIMIT 30", (normalized,)).fetchall()
+        for row in rows:
+            value = json.loads(row['payload_json'])
+            if value['revision_id'] == run.current_revision_id:
+                if value['valid']:
+                    return ()
+                codes = [issue['code'] for issue in value.get('issues', []) + value.get('delivery_issues', [])]
+                return tuple(dict.fromkeys(codes)) or ('sequence_invalid',)
+        return None
 
     def activate(self, project_id: str, run_id: object) -> AgentRun:
         normalized = self._validate_run_id(run_id)
