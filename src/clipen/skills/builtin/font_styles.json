@@ -146,5 +146,28 @@
     "preview_resource": "assets/font-calligraphy.png",
     "source_url": "https://github.com/ButTaiwan/iansui",
     "license": "OFL-1.1"
+  },
+  {
+    "font_style_id": "modern",
+    "name": "現代黑體",
+    "description": "蘋方粗體標題、清楚的資訊字，適合多數 vlog 與產品影片。",
+    "roles": {
+      "title": {
+        "family": "modern",
+        "weight": "bold"
+      },
+      "impact": {
+        "family": "modern",
+        "weight": "bold"
+      },
+      "information": {
+        "family": "modern",
+        "weight": "medium"
+      },
+      "detail": {
+        "family": "modern",
+        "weight": "regular"
+      }
+    }
   }
 ]

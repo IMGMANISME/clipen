@@ -42,7 +42,7 @@ def font_role(profile):
 
 @lru_cache(maxsize=64)
 def _role_face(path, weight):
-    preferred={'bold':('Bold','W6','Heavy','Black'), 'medium':('Medium','W6','Regular'),
+    preferred={'bold':('Bold','W6','Semibold','Heavy','Black'), 'medium':('Medium','W6','Regular'),
                'light':('Light','W3','Regular'), 'regular':('Regular','W3','Medium')}[weight]
     faces=[]
     for index in range(32):
@@ -50,7 +50,9 @@ def _role_face(path, weight):
         except OSError:break
         # Prefer Traditional Chinese faces when a collection contains both.
         if ' SC' not in family and 'Interface' not in family and family!='STSong':
-            faces.append((index,face))
+            faces.append((index,face,family.endswith(' TC')))
+    # Taiwan forms first when a collection also ships HK or other regional faces.
+    faces=[(index,face) for index,face,_ in sorted(faces,key=lambda entry:not entry[2])]
     for desired in preferred:
         for index,face in faces:
             if face==desired:return index
@@ -78,6 +80,12 @@ def bundled_font(specification):
         raise TitleRenderError('program_font_unavailable') from error
 
 
+@lru_cache(maxsize=1)
+def _pingfang():
+    from glob import glob
+    return tuple(sorted(glob('/System/Library/AssetsV2/com_apple_MobileAsset_Font*/*.asset/AssetData/PingFang.ttc')))[:1]
+
+
 def type_outline(profile, font, fallback):
     specification=profile['presets'].get('font_roles',{}).get(font_role(profile),{})
     ratio=specification.get('outline_em')
@@ -95,6 +103,9 @@ def load_style_font(font_path, size, profile, role=None):
             'gothic':('/System/Library/Fonts/Hiragino Sans GB.ttc','/System/Library/Fonts/STHeiti Medium.ttc'),
             'sans':('/System/Library/Fonts/STHeiti Medium.ttc','/System/Library/Fonts/Hiragino Sans GB.ttc'),
             'serif':('/System/Library/Fonts/Supplemental/Songti.ttc',),
+            # PingFang is the clean system sans creators expect on macOS; it is
+            # an on-demand system asset, so fall back to Hiragino Sans GB.
+            'modern':_pingfang()+('/System/Library/Fonts/Hiragino Sans GB.ttc','/System/Library/Fonts/STHeiti Medium.ttc'),
         }[family]
         candidates+=('/usr/share/fonts/opentype/noto/Noto'+('Serif' if family=='serif' else 'Sans')+'CJK-Regular.ttc',
                      'C:/Windows/Fonts/'+('simsun.ttc' if family=='serif' else 'msjh.ttc'))

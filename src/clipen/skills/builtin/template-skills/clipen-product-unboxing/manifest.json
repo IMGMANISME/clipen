@@ -1,0 +1,8 @@
+{
+  "skill_id": "clipen-product-unboxing",
+  "version": "1.0.0",
+  "name": "產品開箱",
+  "template_id": "product-unboxing",
+  "visual_style_id": "tpl-product-unboxing",
+  "font_style_id": "modern"
+}

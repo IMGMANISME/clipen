@@ -1,0 +1,8 @@
+{
+  "skill_id": "clipen-travel-vlog",
+  "version": "1.0.0",
+  "name": "旅遊 vlog",
+  "template_id": "travel-vlog",
+  "visual_style_id": "tpl-travel-vlog",
+  "font_style_id": "modern"
+}

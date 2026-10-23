@@ -6,11 +6,15 @@ from .titles import TitleRenderError
 from .program_motion import FAMILIES, layout, motion_frames, draw_motion_graphic
 from .program_styles import skin, style_font, load_style_font, styled_text_length, draw_styled_graphic, type_outline
 from . import program_identities
+from . import program_creator
 
 
 def animation_boundaries(item, profile):
     motion = profile["presets"]["motion"]
-    entry_length, exit_length = motion_frames(profile["component_id"],profile) if profile["component_id"] in FAMILIES else (motion["entry_frames"], motion["exit_frames"])
+    if program_creator.is_creator(profile):
+        entry_length, exit_length = program_creator.frames(profile)
+    else:
+        entry_length, exit_length = motion_frames(profile["component_id"],profile) if profile["component_id"] in FAMILIES else (motion["entry_frames"], motion["exit_frames"])
     entry = min(entry_length, item.duration_frames)
     exit_frames = min(exit_length, item.duration_frames)
     return {item.start_frame+n for n in
@@ -18,6 +22,8 @@ def animation_boundaries(item, profile):
 
 
 def component_bounds(draw, font_path, timeline, item, profile):
+    if program_creator.is_creator(profile):
+        return program_creator.layout(draw, font_path, timeline, item, profile)
     if program_identities.identity(profile):
         return program_identities.layout(draw, font_path, timeline, item, profile)
     if profile['component_id'] in FAMILIES:
@@ -44,6 +50,8 @@ def component_bounds(draw, font_path, timeline, item, profile):
 
 
 def draw_program_component(draw, font_path, timeline, item, profile, relative_frame=None):
+    if program_creator.is_creator(profile):
+        return program_creator.draw_graphic(draw, font_path, timeline, item, profile, relative_frame)
     identity = program_identities.identity(profile)
     if profile["component_id"] in FAMILIES and not identity:
         return draw_motion_graphic(draw, font_path, timeline, item, profile, relative_frame)
