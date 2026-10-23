@@ -64,7 +64,7 @@ class EditAgentRepository:
                 production={**production,'visual_style_id':template['visual_style_id'],'font_style_id':production.get('font_style_id',template['font_style_id'])}
                 skill['selected_template_id']=template['template_id']
                 skill['selected_template_skill']=template['skill']
-            target=production.get('target_duration_seconds',60)
+            target=production.get('target_duration_seconds',skill.get('default_duration_seconds',60))
             if isinstance(target,bool) or not isinstance(target,int) or not 30<=target<=1200:
                 raise ProjectError('production_input_invalid','預計片長必須為 30 到 1200 秒。',status_code=422)
             from .workbench import music_choice
