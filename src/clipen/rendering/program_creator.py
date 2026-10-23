@@ -19,8 +19,8 @@ from .program_styles import load_style_font, styled_text_length, draw_style_text
 
 HERO = {'program_title', 'headline', 'impact', 'chapter', 'burst'}
 POP = {'impact', 'burst', 'reaction', 'headline', 'program_title'}
-SIZES = {'program_title': .105, 'headline': .082, 'chapter': .038, 'impact': .118, 'burst': .092,
-         'reaction': .080, 'location': .036, 'person': .056, 'fact': .062, 'pointer': .052, 'circle': .05}
+SIZES = {'program_title': .105, 'headline': .082, 'chapter': .038, 'impact': .13, 'burst': .1,
+         'reaction': .096, 'location': .036, 'person': .056, 'fact': .062, 'pointer': .052, 'circle': .05}
 TILT = {'impact': -4, 'reaction': -5, 'burst': 4}
 POP_SLACK = 1.08
 
@@ -61,7 +61,7 @@ def _rows(item, profile, font_path, size):
         return rows + ([(detail, small, accent, ink, .14, None, 0)] if detail else [])
     if kind in {'impact', 'reaction'}:
         # Sticker words: yellow fill, black outline, white outer ring.
-        return [(primary, font, accent, ink, .13, paper, .26)] + ([(detail, small, paper, ink, .14, None, 0)] if detail else [])
+        return [(primary, font, accent, ink, .10, paper, .24)] + ([(detail, small, paper, ink, .14, None, 0)] if detail else [])
     if kind == 'burst':
         return [(primary, font, paper, accent, .12, ink, .22)] + ([(detail, small, paper, ink, .14, None, 0)] if detail else [])
     if kind == 'headline':
@@ -174,27 +174,53 @@ def draw_graphic(draw, font_path, timeline, item, profile, relative_frame=None):
     return x, y, right, bottom
 
 
+def _brush(draw, points, radius, fill):
+    """A round-capped stroke through points, like a marker on the frame."""
+    for (x0, y0), (x1, y1) in zip(points, points[1:]):
+        draw.line((x0, y0, x1, y1), fill=fill, width=round(radius * 2))
+    for x, y in (points[0], points[-1]):
+        draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill=fill)
+
+
+def _marker(draw, strokes, width, paper, ink):
+    """Outline every stroke first so overlapping strokes join without seams."""
+    for points in strokes:
+        _brush(draw, points, width * 1.3, ink)
+    for points in strokes:
+        _brush(draw, points, width * .66, paper)
+
+
 def _target(draw, timeline, profile, bounds, ease, opacity):
     palette = profile['presets']['palette']
     paper, ink = _rgba(palette, 'paper', opacity), _rgba(palette, 'ink', opacity)
     target = profile['target']
     tx, ty = target['x'] * timeline.width, target['y'] * timeline.height
     radius = target['radius'] * min(timeline.width, timeline.height)
-    stroke = max(3, round(timeline.height * .007))
+    width = max(4., timeline.height * .0105)
     if profile['component_id'] == 'circle':
-        sweep = -90 + max(2, round(360 * ease))
-        box = (tx - radius, ty - radius, tx + radius, ty + radius)
-        draw.arc(box, -90, sweep, fill=ink, width=stroke * 2)
-        draw.arc(box, -90, sweep, fill=paper, width=stroke)
+        # A slightly uneven hand-drawn loop rather than a perfect circle.
+        steps = max(2, round(48 * ease))
+        loop = [(tx + radius * (1 + .06 * math.sin(n * .7)) * math.cos(-math.pi / 2 + 2.15 * math.pi * n / 48),
+                 ty + radius * (1 + .06 * math.sin(n * .7)) * math.sin(-math.pi / 2 + 2.15 * math.pi * n / 48)) for n in range(steps + 1)]
+        _marker(draw, [loop], width, paper, ink)
         return
     x, y, right, bottom = bounds
-    origin = (right, (y + bottom) / 2)
-    tip = (origin[0] + (tx - origin[0]) * ease, origin[1] + (ty - origin[1]) * ease)
-    draw.line((origin, tip), fill=ink, width=stroke * 2)
-    draw.line((origin, tip), fill=paper, width=stroke)
-    if ease > .9:
-        angle = math.atan2(ty - origin[1], tx - origin[0])
-        size = stroke * 4
-        head = [tip, (tip[0] - size * math.cos(angle - .5), tip[1] - size * math.sin(angle - .5)),
-                (tip[0] - size * math.cos(angle + .5), tip[1] - size * math.sin(angle + .5))]
-        draw.polygon(head, fill=paper, outline=ink)
+    # Leave from the label side facing the target, and bow the path like a quick hand stroke.
+    start = (right + width * 2, (y + bottom) / 2) if tx >= (x + right) / 2 else (x - width * 2, (y + bottom) / 2)
+    gap = radius * .9
+    distance = math.hypot(tx - start[0], ty - start[1]) or 1.
+    end = (tx - (tx - start[0]) / distance * gap, ty - (ty - start[1]) / distance * gap)
+    bend = .22 * distance
+    control = ((start[0] + end[0]) / 2 + (end[1] - start[1]) / distance * bend,
+               (start[1] + end[1]) / 2 - (end[0] - start[0]) / distance * bend)
+    steps = max(2, round(32 * ease))
+    curve = [((1 - t) ** 2 * start[0] + 2 * (1 - t) * t * control[0] + t ** 2 * end[0],
+              (1 - t) ** 2 * start[1] + 2 * (1 - t) * t * control[1] + t ** 2 * end[1])
+             for t in (n / 32 for n in range(steps + 1))]
+    strokes = [curve]
+    if ease > .85:
+        tip = curve[-1]
+        angle = math.atan2(tip[1] - curve[-3][1], tip[0] - curve[-3][0])
+        length = width * 5.5
+        strokes += [[tip, (tip[0] - length * math.cos(angle + side), tip[1] - length * math.sin(angle + side))] for side in (-.6, .6)]
+    _marker(draw, strokes, width, paper, ink)

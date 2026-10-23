@@ -148,25 +148,25 @@
     "license": "OFL-1.1"
   },
   {
-    "font_style_id": "modern",
-    "name": "現代黑體",
-    "description": "蘋方粗體標題、清楚的資訊字，適合多數 vlog 與產品影片。",
+    "font_style_id": "variety-tw",
+    "name": "綜藝粗黑＋娃娃體",
+    "description": "蘭亭黑特粗大標、娃娃體反應字，資訊用清楚的蘋方；接近台灣綜藝與 vlog 的包裝。",
     "roles": {
       "title": {
-        "family": "modern",
+        "family": "lantinghei",
         "weight": "bold"
       },
       "impact": {
-        "family": "modern",
-        "weight": "bold"
+        "family": "wawa",
+        "weight": "regular"
       },
       "information": {
-        "family": "modern",
+        "family": "lantinghei",
         "weight": "medium"
       },
       "detail": {
         "family": "modern",
-        "weight": "regular"
+        "weight": "medium"
       }
     }
   }

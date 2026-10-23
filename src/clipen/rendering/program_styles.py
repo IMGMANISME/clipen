@@ -80,10 +80,11 @@ def bundled_font(specification):
         raise TitleRenderError('program_font_unavailable') from error
 
 
-@lru_cache(maxsize=1)
-def _pingfang():
+@lru_cache(maxsize=8)
+def _system_asset(name):
+    """macOS installs some fonts on demand under a hashed asset folder."""
     from glob import glob
-    return tuple(sorted(glob('/System/Library/AssetsV2/com_apple_MobileAsset_Font*/*.asset/AssetData/PingFang.ttc')))[:1]
+    return tuple(sorted(glob('/System/Library/AssetsV2/com_apple_MobileAsset_Font*/*.asset/AssetData/'+name)))[:1]
 
 
 def type_outline(profile, font, fallback):
@@ -105,7 +106,10 @@ def load_style_font(font_path, size, profile, role=None):
             'serif':('/System/Library/Fonts/Supplemental/Songti.ttc',),
             # PingFang is the clean system sans creators expect on macOS; it is
             # an on-demand system asset, so fall back to Hiragino Sans GB.
-            'modern':_pingfang()+('/System/Library/Fonts/Hiragino Sans GB.ttc','/System/Library/Fonts/STHeiti Medium.ttc'),
+            'modern':_system_asset('PingFang.ttc')+('/System/Library/Fonts/Hiragino Sans GB.ttc','/System/Library/Fonts/STHeiti Medium.ttc'),
+            # Display faces popular in Taiwanese variety and vlog packaging.
+            'lantinghei':_system_asset('Lantinghei.ttc')+_system_asset('PingFang.ttc')+('/System/Library/Fonts/Hiragino Sans GB.ttc',),
+            'wawa':_system_asset('WawaTC-Regular.otf')+_system_asset('PingFang.ttc')+('/System/Library/Fonts/Hiragino Sans GB.ttc',),
         }[family]
         candidates+=('/usr/share/fonts/opentype/noto/Noto'+('Serif' if family=='serif' else 'Sans')+'CJK-Regular.ttc',
                      'C:/Windows/Fonts/'+('simsun.ttc' if family=='serif' else 'msjh.ttc'))
