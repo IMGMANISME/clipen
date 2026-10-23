@@ -128,7 +128,7 @@ export function ProductionSection({ projectId, csrf, brief, sourceReady }: Props
       <button type="button" className="button secondary" onClick={() => setRefreshKey((value) => value + 1)}>立即重試連線</button>
     </div>}
     {status?.production && (view === 'overview' || active || ['failed', 'interrupted'].includes(run?.state ?? '')) && <ProductionStatusPanel status={status} busy={busy}
-      onView={() => setView('overview')} onResume={() => void resume()} onCancel={() => void cancel()} onRefresh={() => setRefreshKey((value) => value + 1)}
+      onView={() => setView('overview')} onRefine={timeline && timeline.duration_frames > 0 ? () => setView('ai') : undefined} onResume={() => void resume()} onCancel={() => void cancel()} onRefresh={() => setRefreshKey((value) => value + 1)}
       onEdit={() => {
         setConsent(false); setBriefOpen(true); setView('new')
         window.requestAnimationFrame(() => document.getElementById('production-intent')?.focus())

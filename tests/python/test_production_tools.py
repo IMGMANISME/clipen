@@ -381,6 +381,10 @@ class ProductionTranscriptTests(unittest.TestCase):
         self.assertFalse(cues);self.assertEqual(limits[0]['reason'],'partial_utterance')
         self.assertEqual(limits[0]['text'],'我們抵達臺北了')
         self.assertIn('complete_source_span',limits[0])
+        # A fast-cut montage hands the slice to music: muted camera sound needs no caption.
+        muted=replace(f.timeline,tracks=tuple(replace(t,items=tuple(replace(c,effects=c.effects+(EffectRequest('audio.source',{'mode':'mute','gain_db':0}),))
+                                                                    for c in t.items)) if t.kind is TrackKind.VIDEO else t for t in f.timeline.tracks))
+        self.assertEqual(transcript_cues(f.projects,f.timeline.project_id,muted),([],[]))
         f.db.execute('UPDATE preparation_items SET review_required=1');f.db.execute('UPDATE transcript_annotations SET confirmed=0')
         cues,limits=transcript_cues(f.projects,f.timeline.project_id,f.timeline)
         self.assertFalse(cues);self.assertEqual(limits[0]['reason'],'transcript_needs_review')

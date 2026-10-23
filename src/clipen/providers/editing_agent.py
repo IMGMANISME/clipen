@@ -27,9 +27,11 @@ from clipen.providers.recovery import ProviderUsage
 from .errors import (
     ProviderAuthenticationError,
     ProviderCancelled,
+    ProviderDeliveryBlocked,
     ProviderNetworkError,
     ProviderPermissionError,
     ProviderProtocolError,
+    ProviderStoppedEarly,
     ProviderTimedOut,
     ProviderUnavailable,
     ProviderUsageLimitError,
@@ -357,7 +359,13 @@ class BoundedEditingAgent:
             self.raise_for_failure(events.read_bytes(), diagnostics.read_bytes(), returncode)
             finished = self.repository.get(project_id, run_id)
             if finished.state != "succeeded" or finished.final_revision_id is None:
-                raise ProviderProtocolError(f"{self.display_name} exited without finishing the Clipen edit")
+                # Tell a draft held back by Clipen's own delivery checks apart
+                # from a provider that simply stopped before finishing.
+                blockers = self.repository.delivery_blockers(project_id, run_id)
+                if blockers:
+                    raise ProviderDeliveryBlocked(
+                        f"{self.display_name} stopped with failing delivery checks: {', '.join(blockers)}")
+                raise ProviderStoppedEarly(f"{self.display_name} exited without finishing the Clipen edit")
             final = self.repository.record_provider_outcome(
                 project_id,
                 run_id,
@@ -453,6 +461,10 @@ class BoundedEditingAgent:
             return "provider_timed_out"
         if isinstance(error, ProviderUnavailable):
             return "provider_unavailable"
+        if isinstance(error, ProviderDeliveryBlocked):
+            return "delivery_blocked"
+        if isinstance(error, ProviderStoppedEarly):
+            return "provider_stopped_early"
         if isinstance(error, ProviderProtocolError):
             return "provider_protocol_error"
         return "provider_failed"

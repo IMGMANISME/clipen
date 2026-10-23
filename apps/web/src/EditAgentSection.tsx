@@ -35,6 +35,8 @@ const failureCopy: Record<string, string> = {
   provider_unavailable: '目前無法啟動 {provider}，請確認登入狀態後重新啟動 Clipen。',
   provider_timed_out: '這次 AI 剪輯方向樣片超過時間上限，已安全停止。',
   provider_protocol_error: '{provider} 沒有依照 Clipen 的安全流程完成剪輯。',
+  provider_stopped_early: '{provider} 在完成剪輯前就結束了這次工作；已保留先前結果。',
+  delivery_blocked: '這次剪輯還沒通過 Clipen 的交付檢查；已保留先前結果。',
   provider_cancelled: '這次 AI 剪輯方向樣片已取消。',
   provider_launch_failed: 'Clipen 無法啟動這次 {provider} 樣片工作。',
   controller_stopped: 'Clipen 關閉時已安全停止這次剪輯，可以重新開始。',

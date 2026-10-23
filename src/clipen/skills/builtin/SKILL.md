@@ -38,7 +38,7 @@ description: Clipen 製作核心：所有影片製作 Skill 共用的取證、�
 依情境用 read_production_skill 讀以下資源，不必一次塞入全部內容：
 
 - 找事件與安排觀眾資訊時讀 references/story.md。
-- 選剪點、原音或 B-roll 時讀 references/editing.md。
+- 選剪點、原音或 B-roll 時讀 references/editing.md；需求要每支素材都出現、或要做快剪蒙太奇時，先讀其中「快剪段落的原音」再排片段。
 - 建立／修正字幕時讀 references/captions.md。
 - 選曲與混音時讀 references/sound.md。
 - 做後製畫面時讀 references/graphics.md，再用 list_program_components 讀實際可用元件與參數。

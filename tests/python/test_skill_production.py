@@ -413,6 +413,25 @@ class SkillProductionTests(unittest.TestCase):
         self.repository.record_provider_outcome(self.project.project_id,self.run.run_id,'other-failure',usage=None,error_code='provider_network_error')
         with self.assertRaises(ProjectError):self.repository.resume_timed_out(self.project.project_id,self.run.run_id)
 
+    def test_delivery_blockers_follow_the_current_revision_and_choose_how_to_recover(self):
+        self.assertIsNone(self.repository.delivery_blockers(self.project.project_id,self.run.run_id))
+        self.cut()
+        validation=self.call('validate_sequence').payload
+        self.assertFalse(validation['valid'])
+        blockers=self.repository.delivery_blockers(self.project.project_id,self.run.run_id)
+        self.assertTrue(blockers)
+        self.assertEqual(set(blockers),{i['code'] for i in validation['issues']+validation['delivery_issues']})
+        # A draft held back by checks needs a revision request, not the same instructions again.
+        self.repository.record_provider_outcome(self.project.project_id,self.run.run_id,'blocked',usage=None,error_code='delivery_blocked')
+        with self.assertRaises(ProjectError):self.repository.resume_stopped(self.project.project_id,self.run.run_id)
+
+    def test_an_early_stop_can_continue_the_same_draft(self):
+        self.cut()
+        before=self.repository.get(self.project.project_id,self.run.run_id)
+        self.repository.record_provider_outcome(self.project.project_id,self.run.run_id,'early',usage=None,error_code='provider_stopped_early')
+        resumed=self.repository.resume_stopped(self.project.project_id,self.run.run_id)
+        self.assertEqual((resumed.state,resumed.current_revision_id),('queued',before.current_revision_id))
+
     def test_usage_limit_resume_continues_the_draft_and_keeps_spent_usage(self):
         self.cut()
         before=self.repository.get(self.project.project_id,self.run.run_id)
