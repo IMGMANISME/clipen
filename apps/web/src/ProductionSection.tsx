@@ -163,7 +163,7 @@ export function ProductionSection({ projectId, csrf, brief, sourceReady }: Props
       onToggle={(event) => setBriefOpen(event.currentTarget.open)}>
       <summary>{production ? active ? '本次製作需求' : '製作下一支影片' : '設定你的影片'}</summary>
       <div className="production-brief">
-      {active && production ? <p className="skill-picker-active">本次製作使用的 Skill：<strong>{production.skill.name}</strong> · v{production.skill.version}</p>
+      {active && production ? <p className="skill-picker-active">本次使用的剪輯樣板：<strong>{production.skill.name}</strong></p>
         : skills.length > 0 && <SkillPicker skills={skills} skillId={skillId} templateId={templateId} disabled={busy} onChoose={(choice) => {
           setSkillId(choice.skillId); setTemplateId(choice.templateId); setVisualStyleId(choice.visualStyleId); setFontStyleId(choice.fontStyleId)
           if (choice.defaultDurationSeconds && choice.defaultDurationSeconds % 60 === 0) setTargetMinutes(String(choice.defaultDurationSeconds / 60))

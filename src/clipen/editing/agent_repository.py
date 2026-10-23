@@ -46,7 +46,7 @@ class EditAgentRepository:
         skill = None
         if production is not None:
             if not isinstance(production, dict) or (not {"skill_id", "intent"} <= set(production) or not set(production) <= {"skill_id", "intent", "visual_style_id", "font_style_id", "target_duration_seconds", "music_asset_id", "template_id"}):
-                raise ProjectError("production_input_invalid", "請指定製作 Skill 與影片需求。", status_code=422)
+                raise ProjectError("production_input_invalid", "請選擇剪輯樣板並填寫影片需求。", status_code=422)
             from clipen.skills import get_skill
             skill = get_skill(production["skill_id"])
             from clipen.skills.visual_styles import style_presets, font_presets

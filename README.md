@@ -30,31 +30,17 @@ Clipen 是正在開發中的本機 AI 剪輯工作台。使用者將能提供毛
 每次啟動都會先驗證該工作區內的作品；空工作區可直接進入 UI 建立第一個作品，
 若作品資料損壞或無法識別則會停止啟動，且不會自行刪除或覆蓋資料。
 
-## 用 Skill 決定怎麼剪
+## 選一個剪輯樣板
 
-Skill 是交給 AI 的剪輯指引：故事怎麼說、節奏、字幕、畫面元件與聲音。製作影片時，
-在「AI 節目製作」頁選一套 Skill，再寫下這次的需求；你寫的需求永遠優先。
+製作影片時，在「AI 節目製作」頁選一個剪輯樣板，再寫下這次想要的影片。樣板決定故事怎麼說、
+節奏、字幕與畫面設計；你寫的需求永遠優先。
 
-- **內建 Skill**：一套「人物與體驗旅遊節目」題材，以及 12 套各有畫面風格的節目模板。
-- **自訂 Skill**：在作品首頁的「Skill 庫」匯入自己的 Skill 資料夾，所有工作區都能使用。
-  格式和 Claude、Codex 使用的 Agent Skills 相同：
+除了內建樣板，也可以在作品首頁的「我的剪輯樣板」加入別人分享或自己做的樣板，所有工作區
+都能使用。樣板只包含文字說明與參考圖，Clipen 不會執行裡面的任何程式；影片開始製作後，
+之後更新或移除樣板都不影響這支影片。Codex 與 Claude 讀到的樣板內容相同。
 
-  ```text
-  my-skill/
-  ├── SKILL.md         必填，開頭的 frontmatter 寫 name 與 description
-  ├── references/*.md  選填，AI 需要時才讀的細節
-  ├── assets/*.png     選填，風格參考圖
-  └── clipen.json      選填，選用 Clipen 內建的畫面風格、字體、元件與預設片長，
-                       或用 extends 延伸一套內建 Skill
-  ```
-
-  [`examples/skills/`](examples/skills) 有兩套範例：只用三種元件的「單人口播」，
-  以及延伸「今天吃哪邊」的「美食開箱日記」。
-
-AI 每次都會先讀 Clipen 內建的製作核心，再讀你選的 Skill。核心的邊界不會被 Skill
-改變：AI 只能使用 Clipen 提供的剪輯工具，不能捏造素材裡沒有的事實。Clipen 只讀取
-Skill 裡的文字與 PNG，資料夾裡的程式不會執行；製作開始時會凍結當下的 Skill，之後
-更新或移除不影響已開始的作品。Codex 與 Claude 讀到的 Skill 完全相同。
+想自己做樣板，可以參考 [`examples/skills/`](examples/skills) 的範例；格式和 Claude、
+Codex 使用的 Agent Skills 相同。
 
 `./uninstall` 會移除 Clipen runtime、本機語音模型、全域指令與 PATH 設定，但會
 保留作品資料、毛片、參考作品與匯出檔案。
