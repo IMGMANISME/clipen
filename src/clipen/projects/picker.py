@@ -33,6 +33,9 @@ class NativeDirectoryPicker:
     def choose(self, role: DirectoryRole) -> Path | None:
         raise NotImplementedError
 
+    def choose_folder(self, prompt: str) -> Path | None:
+        raise NotImplementedError
+
 
 class MacOSDirectoryPicker(NativeDirectoryPicker):
     _PROMPTS = {
@@ -41,6 +44,9 @@ class MacOSDirectoryPicker(NativeDirectoryPicker):
     }
 
     def choose(self, role: DirectoryRole) -> Path | None:
+        return self.choose_folder(self._PROMPTS[role])
+
+    def choose_folder(self, prompt: str) -> Path | None:
         if sys.platform != "darwin":
             raise ProjectError(
                 "picker_unsupported",
@@ -51,7 +57,7 @@ class MacOSDirectoryPicker(NativeDirectoryPicker):
             "use scripting additions\n"
             "try\n"
             "  tell current application to activate\n"
-            f'  set selectedFolder to choose folder with prompt "{self._PROMPTS[role]}"\n'
+            f'  set selectedFolder to choose folder with prompt "{prompt}"\n'
             "  return POSIX path of selectedFolder\n"
             "on error number -128\n"
             '  return ""\n'

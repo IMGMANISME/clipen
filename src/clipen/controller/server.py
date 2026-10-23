@@ -543,6 +543,9 @@ def run_server(
     browser_open: Callable[[str], bool] = webbrowser.open,
 ) -> int:
     paths.prepare()
+    from clipen.skills import configure_library
+    # Custom skills live beside other Clipen data and are shared by all workspaces.
+    configure_library(paths.attempt_root.parent / "skills")
     instance_root = paths.instance_root or paths.attempt_root.parent
     lease = _InstanceLease.acquire(instance_root)
     if lease is None:

@@ -40,6 +40,7 @@ from clipen.projects import (
     ProjectWorkspace,
     TimelineValidationRepository,
 )
+from clipen.projects.models import validate_request_id
 from clipen.system_skills import SystemSkillSummary
 
 
@@ -1019,6 +1020,37 @@ def create_app(
         except ProjectError as error:
             return await project_error_response(error)
 
+    async def skill_library_status(_: Request) -> Response:
+        from clipen.skills import skill_library
+        try:
+            return JSONResponse({'skills': await run_in_threadpool(skill_library().list)})
+        except ProjectError as error:
+            return await project_error_response(error)
+
+    async def import_skill(request: Request) -> Response:
+        """Import a folder the user picks in the native dialog; the browser never sends a path."""
+        from clipen.skills import skill_library
+        try:
+            payload = await read_json(request)
+            require_fields(payload, {'request_id'})
+            validate_request_id(payload['request_id'])
+            folder = await run_in_threadpool(require_workspace().picker.choose_folder, '選擇要匯入的 Skill 資料夾')
+            if folder is None:
+                return Response(status_code=204)
+            package = await run_in_threadpool(skill_library().import_folder, folder)
+            return JSONResponse({'skill': package.summary()}, status_code=201)
+        except ProjectError as error:
+            return await project_error_response(error)
+
+    async def remove_skill(request: Request) -> Response:
+        from clipen.skills import skill_library
+        try:
+            require_fields(await read_json(request), set())
+            await run_in_threadpool(skill_library().remove, request.path_params['skill_id'])
+            return JSONResponse({'removed': request.path_params['skill_id']})
+        except ProjectError as error:
+            return await project_error_response(error)
+
     async def production_prompt_history(request: Request) -> Response:
         try:
             from clipen.editing.prompt_history import history, save
@@ -1550,6 +1582,9 @@ def create_app(
             Route('/api/production/prompts', production_prompt_history, methods=['GET']),
             Route('/api/projects/{project_id}/production/prompts', production_prompt_history, methods=['POST']),
             Route("/api/production/skills", production_skills, methods=["GET"]),
+            Route("/api/production/skill-library", skill_library_status, methods=["GET"]),
+            Route("/api/production/skill-library/commands/import", import_skill, methods=["POST"]),
+            Route("/api/production/skill-library/{skill_id}/commands/remove", remove_skill, methods=["POST"]),
             Route("/api/production/skills/{skill_id}/styles/{style_id}/preview", production_style_preview, methods=["GET"]),
             Route('/api/production/skills/{skill_id}/templates/{template_id}/sample', production_template_sample, methods=['GET']),
             Route("/api/production/skills/{skill_id}/fonts/{font_id}/preview", production_style_preview, methods=["GET"]),

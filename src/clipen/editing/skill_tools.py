@@ -76,7 +76,7 @@ class SkillTools:
         if selected and resource=='SKILL.md':
             # The default read must actually deliver the selected instructions,
             # even if the director has not discovered the nested resource yet.
-            content+='\n\n---\n\n'+f"Selected template Skill: {selected['skill_id']} v{selected['version']}\nResource: {selected['resource']}\n\n"+skill['resources'][selected['resource']]
+            content+='\n\n---\n\n'+f"Selected {'custom' if skill.get('source')=='custom' else 'template'} Skill: {selected['skill_id']} v{selected['version']}\nResource: {selected['resource']}\n\n"+skill['resources'][selected['resource']]
             applied=[selected]
         return ToolResult({"skill": self._skill_summary(), "resource": resource,
                            "content": content, 'applied_template_skills':applied,
@@ -109,6 +109,10 @@ class SkillTools:
         skill = self._skill_value()
         component = next((c for c in skill["components"] if c["component_id"] == args["component_id"]), None)
         if component is None:
+            allowed = (skill.get("custom_skill") or {}).get("binding", {}).get("components")
+            if allowed:
+                # The selected custom Skill narrows the vocabulary; this is enforced, not advisory.
+                raise ProjectError("component_not_allowed", "這套 Skill 只允許使用這些元件：" + "、".join(allowed) + "。", status_code=422)
             raise ProjectError("component_unavailable", "此製作工作凍結的 Skill 沒有這種元件，請另開新版製作工作。", status_code=422)
         if len(args["text"]) > component["max_characters"] or not args["text"].strip():
             raise ProjectError("component_text_overflow", "請縮短這個元件的文字。", status_code=422)
