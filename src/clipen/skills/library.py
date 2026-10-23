@@ -40,13 +40,13 @@ class SkillLibrary:
 
     def _ensure_root(self) -> Path:
         if self.root.is_symlink():
-            raise ProjectError("storage_unsafe", "Skill 庫路徑不安全。", status_code=409)
+            raise ProjectError("storage_unsafe", "樣板庫路徑不安全。", status_code=409)
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
         return self.root.resolve(strict=True)
 
     def _skill_dir(self, skill_id: str) -> Path:
         if not isinstance(skill_id, str) or not SKILL_ID.fullmatch(skill_id):
-            raise ProjectError("skill_not_found", "找不到這套影片製作 Skill。", status_code=404)
+            raise ProjectError("skill_not_found", "找不到這個剪輯樣板。", status_code=404)
         return self._ensure_root() / skill_id
 
     def _current(self, skill_id: str) -> Path | None:
@@ -66,10 +66,10 @@ class SkillLibrary:
     def load(self, skill_id: str) -> SkillPackage:
         version = self._current(skill_id)
         if version is None:
-            raise ProjectError("skill_not_found", "找不到這套影片製作 Skill。", status_code=404)
+            raise ProjectError("skill_not_found", "找不到這個剪輯樣板。", status_code=404)
         package = load_package(version, self.design, self.reserved)
         if package.skill_id != skill_id or not version.name == package.content_hash[:16]:
-            raise ProjectError("skill_package_changed", "Skill 庫裡的這套 Skill 內容已被修改，請重新匯入。", status_code=409)
+            raise ProjectError("skill_package_changed", "樣板庫裡的這個樣板 內容已被修改，請重新匯入。", status_code=409)
         return package
 
     def list(self) -> list[dict[str, object]]:
@@ -103,7 +103,7 @@ class SkillLibrary:
                 # Re-validate what was written; the source may change during the copy.
                 copied = load_package(staging, self.design, self.reserved)
                 if copied.content_hash != package.content_hash or copied.skill_id != package.skill_id:
-                    raise ProjectError("skill_package_changed", "匯入期間 Skill 內容有變動，請重新匯入。", status_code=409)
+                    raise ProjectError("skill_package_changed", "匯入期間 樣板內容有變動，請重新匯入。", status_code=409)
                 directory = self._skill_dir(package.skill_id)
                 directory.mkdir(mode=0o700, exist_ok=True)
                 version_dir = directory / package.content_hash[:16]
@@ -124,7 +124,7 @@ class SkillLibrary:
         with self._lock:
             directory = self._skill_dir(skill_id)
             if directory.is_symlink() or not directory.is_dir():
-                raise ProjectError("skill_not_found", "找不到這套影片製作 Skill。", status_code=404)
+                raise ProjectError("skill_not_found", "找不到這個剪輯樣板。", status_code=404)
             trash = self._ensure_root() / _TRASH
             trash.mkdir(mode=0o700, exist_ok=True)
             # Only managed paths under the library root are ever moved.

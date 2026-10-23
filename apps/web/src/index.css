@@ -1846,3 +1846,8 @@ legend { color: #5a5f6b; font-size: 12px; font-weight: 600; padding-inline: 8px;
 .skill-picker .skill-card.is-selected { border-color: var(--green); box-shadow: 0 0 0 2px var(--green-soft); }
 .skill-picker-active { margin: 0 0 14px; font-size: 14px; }
 @media (max-width: 640px) { .skill-picker-tabs { width: 100%; } .skill-picker-tabs button { flex: 1; justify-content: center; } }
+.skill-picker-mine { margin-bottom: 18px; }
+.skill-picker-mine h4 { margin: 0 0 10px; font-size: 14px; }
+.skill-picker-basic { margin: 14px 0 0; color: var(--muted); font-size: 13px; }
+.link-button { padding: 0; border: 0; color: var(--green); background: none; font: inherit; text-decoration: underline; cursor: pointer; }
+.link-button:disabled { opacity: .5; cursor: default; }

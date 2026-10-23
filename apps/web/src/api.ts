@@ -508,7 +508,6 @@ export type SkillBinding = { extends?: string; visual_style_id?: string; font_st
 export type LibrarySkill =
   | { state: 'ready'; skill_id: string; name: string; description: string; version: string; content_hash: string; binding: SkillBinding; resources: string[]; assets: string[]; ignored: string[] }
   | { state: 'invalid'; skill_id: string; error: string }
-export type SkillDocument = { skill_id: string; name: string; chain: Array<{ skill_id: string; version: string; source: 'builtin' | 'custom'; content: string; references: string[] }> }
 
 export async function getSkillLibrary(): Promise<LibrarySkill[]> {
   return (await request<{ skills: LibrarySkill[] }>('/api/production/skill-library')).skills
@@ -523,10 +522,6 @@ export async function importSkill(csrf: string): Promise<Extract<LibrarySkill, {
 
 export async function removeSkill(csrf: string, skillId: string): Promise<void> {
   await command(`/api/production/skill-library/${encodeURIComponent(skillId)}/commands/remove`, csrf, {})
-}
-
-export async function getSkillDocument(skillId: string): Promise<SkillDocument> {
-  return request<SkillDocument>(`/api/production/skills/${encodeURIComponent(skillId)}/document`)
 }
 
 export async function getProductionSkills(): Promise<ProductionSkill[]> {

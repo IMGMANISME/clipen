@@ -110,15 +110,15 @@ def _walk(root: Path):
             path = Path(entry.path)
             relative = path.relative_to(root).as_posix()
             if entry.is_symlink():
-                raise invalid(f"Skill 不能包含捷徑連結：{relative}")
+                raise invalid(f"樣板不能包含捷徑連結：{relative}")
             if entry.is_dir(follow_symlinks=False):
                 if depth + 1 > MAX_DEPTH:
-                    raise invalid(f"Skill 的資料夾層數太深：{relative}")
+                    raise invalid(f"樣板的資料夾層數太深：{relative}")
                 stack.append((path, depth + 1))
             elif entry.is_file(follow_symlinks=False):
                 yield relative, path
             else:
-                raise invalid(f"Skill 只能包含一般檔案：{relative}")
+                raise invalid(f"樣板只能包含一般檔案：{relative}")
 
 
 def _read_regular(path: Path, limit: int, relative: str) -> bytes:
@@ -126,9 +126,9 @@ def _read_regular(path: Path, limit: int, relative: str) -> bytes:
     try:
         info = os.fstat(descriptor)
         if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
-            raise invalid(f"Skill 檔案必須是單一連結的一般檔案：{relative}")
+            raise invalid(f"樣板檔案必須是單一連結的一般檔案：{relative}")
         if info.st_size > limit:
-            raise invalid(f"Skill 檔案太大：{relative}")
+            raise invalid(f"樣板檔案太大：{relative}")
         with os.fdopen(descriptor, "rb", closefd=False) as stream:
             return stream.read(limit + 1)
     finally:
@@ -139,7 +139,7 @@ def load_package(root: Path, design: dict[str, object] | None = None,
                  reserved: frozenset[str] = frozenset()) -> SkillPackage:
     """Validate a folder; ``design`` lists the built-in ids clipen.json may bind."""
     if root.is_symlink() or not root.is_dir():
-        raise invalid("請選擇一個 Skill 資料夾。")
+        raise invalid("請選擇一個樣板資料夾。")
     root = root.resolve(strict=True)
     resources: dict[str, str] = {}
     assets: dict[str, dict[str, str]] = {}
@@ -158,12 +158,12 @@ def load_package(root: Path, design: dict[str, object] | None = None,
             try:
                 resources[relative] = data.decode("utf-8")
             except UnicodeDecodeError:
-                raise invalid(f"Skill 文字檔需要 UTF-8 編碼：{relative}") from None
+                raise invalid(f"樣板文字檔需要 UTF-8 編碼：{relative}") from None
             text_total += len(data)
         elif suffix in IMAGE_SUFFIXES:
             data = _read_regular(path, MAX_IMAGE_BYTES, relative)
             if not data.startswith(PNG_SIGNATURE):
-                raise invalid(f"Skill 圖片必須是 PNG：{relative}")
+                raise invalid(f"樣板圖片必須是 PNG：{relative}")
             assets[relative] = {"mime_type": "image/png", "sha256": hashlib.sha256(data).hexdigest(),
                                 "data": base64.b64encode(data).decode("ascii")}
         else:
@@ -172,11 +172,11 @@ def load_package(root: Path, design: dict[str, object] | None = None,
             continue
         total += len(data)
         if len(resources) + len(assets) > MAX_FILES:
-            raise invalid(f"Skill 檔案數量超過 {MAX_FILES} 個。")
+            raise invalid(f"樣板檔案數量超過 {MAX_FILES} 個。")
         if text_total > MAX_TOTAL_TEXT_BYTES or total > MAX_TOTAL_BYTES:
-            raise invalid("Skill 的內容總量太大。")
+            raise invalid("樣板的內容總量太大。")
     if "SKILL.md" not in resources:
-        raise invalid("Skill 資料夾最上層需要 SKILL.md。")
+        raise invalid("樣板資料夾最上層需要 SKILL.md。")
     frontmatter, body = parse_frontmatter(resources["SKILL.md"])
     name, description = frontmatter.get("name", "").strip(), frontmatter.get("description", "").strip()
     if not 1 <= len(name) <= 64:
@@ -192,7 +192,7 @@ def load_package(root: Path, design: dict[str, object] | None = None,
     if not SKILL_ID.fullmatch(skill_id):
         raise invalid("clipen.json 的 skill_id 只能用小寫英數與 -，長度 2–64。")
     if skill_id in reserved or skill_id.startswith("clipen-"):
-        raise invalid(f"skill_id「{skill_id}」是 Clipen 內建 Skill 使用的名稱，請在 clipen.json 換一個 skill_id。",
+        raise invalid(f"skill_id「{skill_id}」是 Clipen 內建樣板 使用的名稱，請在 clipen.json 換一個 skill_id。",
                       "skill_id_reserved")
     version = str(binding.pop("version", frontmatter.get("version", "1.0.0")))
     if not VERSION.fullmatch(version):
@@ -215,7 +215,7 @@ def _binding(raw: str | None, design: dict[str, object] | None) -> dict[str, obj
         raise invalid("clipen.json 有無法辨識的欄位：" + "、".join(sorted(unknown)))
     design = design or {}
     if "extends" in value and value["extends"] not in design.get("extends", ()):
-        raise invalid(f"clipen.json 的 extends「{value['extends']}」不是 Clipen 內建的 Skill。")
+        raise invalid(f"clipen.json 的 extends「{value['extends']}」不是 Clipen 內建的樣板。")
     for key, catalog in (("visual_style_id", "visual_styles"), ("font_style_id", "font_styles")):
         if key in value and value[key] not in design.get(catalog, ()):
             raise invalid(f"clipen.json 的 {key}「{value[key]}」不是 Clipen 內建的選項。")
