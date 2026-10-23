@@ -502,7 +502,32 @@ export type EditAgentStatus = {
 export type VisualStyle = { visual_style_id: string; name: string; description: string; preview_resource?: string }
 export type FontStyle = { font_style_id: string; name: string; description: string; preview_resource?: string }
 export type VideoTemplate = { template_id: string; name: string; category: string; description: string; visual_style_id: string; font_style_id: string; editorial_direction: string; skill_resource?: string; skill?: { skill_id: string; version: string; resource: string; content_hash: string }; design_direction?: string; references?: { creator: string; title: string; url: string; takeaway: string }[]; sample_duration_seconds?: number; sample_title: string; sample_detail: string; music_direction: string; preview_resource: string; sample_resource: string; tags: string[] }
-export type ProductionSkill = { kind?: 'genre' | 'template' | 'custom'; source?: 'builtin' | 'custom'; templates?: VideoTemplate[]; skill_id: string; name: string; description?: string; version: string; content_hash: string; visual_styles?: VisualStyle[]; selected_visual_style_id?: string; font_styles?: FontStyle[]; selected_font_style_id?: string }
+export type ProductionSkill = { kind?: 'genre' | 'template' | 'custom'; source?: 'builtin' | 'custom'; chain?: string[]; default_duration_seconds?: number; custom?: { binding: SkillBinding; ignored: string[] }; templates?: VideoTemplate[]; skill_id: string; name: string; description?: string; version: string; content_hash: string; visual_styles?: VisualStyle[]; selected_visual_style_id?: string; font_styles?: FontStyle[]; selected_font_style_id?: string }
+
+export type SkillBinding = { extends?: string; visual_style_id?: string; font_style_id?: string; components?: string[]; default_duration_seconds?: number }
+export type LibrarySkill =
+  | { state: 'ready'; skill_id: string; name: string; description: string; version: string; content_hash: string; binding: SkillBinding; resources: string[]; assets: string[]; ignored: string[] }
+  | { state: 'invalid'; skill_id: string; error: string }
+export type SkillDocument = { skill_id: string; name: string; chain: Array<{ skill_id: string; version: string; source: 'builtin' | 'custom'; content: string; references: string[] }> }
+
+export async function getSkillLibrary(): Promise<LibrarySkill[]> {
+  return (await request<{ skills: LibrarySkill[] }>('/api/production/skill-library')).skills
+}
+
+/** Opens the native folder picker on this Mac; resolves null when the user cancels. */
+export async function importSkill(csrf: string): Promise<Extract<LibrarySkill, { state: 'ready' }> | null> {
+  const result = await command<{ skill: Omit<Extract<LibrarySkill, { state: 'ready' }>, 'state'> } | null>(
+    '/api/production/skill-library/commands/import', csrf, { request_id: crypto.randomUUID() })
+  return result ? { state: 'ready', ...result.skill } : null
+}
+
+export async function removeSkill(csrf: string, skillId: string): Promise<void> {
+  await command(`/api/production/skill-library/${encodeURIComponent(skillId)}/commands/remove`, csrf, {})
+}
+
+export async function getSkillDocument(skillId: string): Promise<SkillDocument> {
+  return request<SkillDocument>(`/api/production/skills/${encodeURIComponent(skillId)}/document`)
+}
 
 export async function getProductionSkills(): Promise<ProductionSkill[]> {
   return (await request<{ skills: ProductionSkill[] }>('/api/production/skills')).skills

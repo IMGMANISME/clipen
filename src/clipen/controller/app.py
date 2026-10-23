@@ -1020,6 +1020,20 @@ def create_app(
         except ProjectError as error:
             return await project_error_response(error)
 
+    async def skill_document(request: Request) -> Response:
+        """Read-only text of a skill and the skills it extends, for review in the UI."""
+        from clipen.skills import get_skill
+        try:
+            skill = await run_in_threadpool(get_skill, request.path_params['skill_id'])
+            chain = [{**{k: entry[k] for k in ('skill_id', 'version', 'source')},
+                      'content': skill['resources'][entry['resource']],
+                      'references': sorted(k for k in skill['resources']
+                                           if k.startswith(entry['resource'].rsplit('/', 1)[0] + '/') and k != entry['resource'])}
+                     for entry in skill['skill_chain']]
+            return JSONResponse({'skill_id': skill['skill_id'], 'name': skill['name'], 'chain': chain})
+        except ProjectError as error:
+            return await project_error_response(error)
+
     async def skill_library_status(_: Request) -> Response:
         from clipen.skills import skill_library
         try:
@@ -1583,6 +1597,7 @@ def create_app(
             Route('/api/projects/{project_id}/production/prompts', production_prompt_history, methods=['POST']),
             Route("/api/production/skills", production_skills, methods=["GET"]),
             Route("/api/production/skill-library", skill_library_status, methods=["GET"]),
+            Route("/api/production/skills/{skill_id}/document", skill_document, methods=["GET"]),
             Route("/api/production/skill-library/commands/import", import_skill, methods=["POST"]),
             Route("/api/production/skill-library/{skill_id}/commands/remove", remove_skill, methods=["POST"]),
             Route("/api/production/skills/{skill_id}/styles/{style_id}/preview", production_style_preview, methods=["GET"]),

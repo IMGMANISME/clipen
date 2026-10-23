@@ -240,6 +240,13 @@ class SkillLibraryApiTests(unittest.TestCase):
             _, _, body = request("GET", "/api/production/skills", headers={"cookie": cookie})
             ids = [s["skill_id"] for s in json.loads(body)["skills"]]
             self.assertEqual((ids[0], ids[-1], len(ids)), ("travel-program", "talking-head", 14))
+            code, _, body = request("GET", "/api/production/skills/talking-head/document", headers={"cookie": cookie})
+            document = json.loads(body)
+            self.assertEqual(code, 200)
+            self.assertEqual([e["skill_id"] for e in document["chain"]], ["talking-head"])
+            self.assertIn("用跳剪去掉停頓", document["chain"][0]["content"])
+            self.assertIn("custom/talking-head/references/pacing.md", document["chain"][0]["references"])
+            self.assertEqual(request("GET", "/api/production/skills/missing-skill/document", headers={"cookie": cookie})[0], 404)
             code, _, _ = request("POST", "/api/production/skill-library/talking-head/commands/remove", {}, mutation)
             self.assertEqual(code, 200)
             _, _, body = request("GET", "/api/production/skill-library", headers={"cookie": cookie})
