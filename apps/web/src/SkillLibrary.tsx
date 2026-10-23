@@ -127,6 +127,7 @@ export function SkillLibrary({ csrf }: { csrf: string }) {
       <p>clipen.json 可以選用內建的畫面風格、字體與元件，也能延伸一套內建 Skill；元件清單會由工具強制執行。</p>
       <pre>{SAMPLE_BINDING}</pre>
       <p>AI 會先讀 Clipen 製作核心，再依序讀延伸的 Skill 與你的 Skill。你在製作頁寫的需求永遠優先。</p>
+      <p>Clipen 程式資料夾的 <code>examples/skills</code> 有兩套範例：「單人口播」只用三種元件，「美食開箱日記」延伸「今天吃哪邊」。可以直接匯入試用，或複製後改成自己的版本。</p>
     </details>
 
     <dialog className="skill-dialog" ref={dialog} aria-labelledby={`${id}-document`} onCancel={(event) => { event.preventDefault(); setDocument(null) }} onClose={() => setDocument(null)}>

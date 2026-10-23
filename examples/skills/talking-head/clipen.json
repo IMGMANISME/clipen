@@ -1,0 +1,8 @@
+{
+  "skill_id": "talking-head",
+  "version": "1.0.0",
+  "visual_style_id": "editorial",
+  "font_style_id": "street",
+  "components": ["headline", "fact", "impact"],
+  "default_duration_seconds": 90
+}

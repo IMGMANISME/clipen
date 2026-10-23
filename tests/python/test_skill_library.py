@@ -310,3 +310,24 @@ class SkillCompositionTests(CustomSkillProductionTests):
         self.assertLess(content.index("今天吃哪邊"), content.index("用跳剪去掉停頓"))
         with self.assertRaises(ProjectError):
             self.library.import_folder(write_skill(self.root / "bad", clipen={"skill_id": "bad-extends", "extends": "clipen-core"}))
+
+
+class ExampleSkillTests(unittest.TestCase):
+    """The repository's example skills must stay importable as documented."""
+
+    def test_examples_validate_and_compose(self):
+        from clipen.skills.catalog import builtin_skills, compose_custom_skill, design_library
+        core, builtin = builtin_skills()
+        examples = Path(__file__).resolve().parents[2] / "examples" / "skills"
+        design = {**design_library(core), "extends": tuple(builtin)}
+        packages = {folder.name: load_package(folder, design, reserved_skill_ids(builtin)) for folder in sorted(examples.iterdir())}
+        self.assertEqual(sorted(packages), ["food-vlog", "talking-head"])
+        for name, package in packages.items():
+            with self.subTest(example=name):
+                self.assertEqual(package.skill_id, name)
+                self.assertEqual(package.ignored, ())
+        talking = compose_custom_skill(packages["talking-head"], core, builtin)
+        self.assertEqual([c["component_id"] for c in talking["components"]], ["fact", "headline", "impact"])
+        food = compose_custom_skill(packages["food-vlog"], core, builtin)
+        self.assertEqual([e["skill_id"] for e in food["skill_chain"]], ["clipen-food", "food-vlog"])
+        self.assertEqual(food["selected_visual_style_id"], "tpl-food")
