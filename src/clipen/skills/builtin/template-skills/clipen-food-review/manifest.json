@@ -1,0 +1,8 @@
+{
+  "skill_id": "clipen-food-review",
+  "version": "1.0.0",
+  "name": "美食探店",
+  "template_id": "food-review",
+  "visual_style_id": "tpl-food-review",
+  "font_style_id": "variety-tw"
+}

@@ -169,5 +169,28 @@
         "weight": "medium"
       }
     }
+  },
+  {
+    "font_style_id": "cinematic-tw",
+    "name": "電影感黑體＋娃娃體",
+    "description": "蘭亭黑中粗標題、娃娃體反應字，資訊用蘋方；收斂、有質感，適合精華與紀錄。",
+    "roles": {
+      "title": {
+        "family": "lantinghei",
+        "weight": "medium"
+      },
+      "impact": {
+        "family": "wawa",
+        "weight": "regular"
+      },
+      "information": {
+        "family": "modern",
+        "weight": "medium"
+      },
+      "detail": {
+        "family": "modern",
+        "weight": "regular"
+      }
+    }
   }
 ]

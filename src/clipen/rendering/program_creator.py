@@ -104,10 +104,17 @@ def _tilted(image, kind):
     return image.rotate(angle, resample=Image.Resampling.BICUBIC, expand=True) if angle else image
 
 
+def _base(timeline):
+    """Type scales with the short side, so vertical video keeps landscape proportions."""
+    return min(timeline.width, timeline.height)
+
+
 def _size(timeline, profile, scale):
     kind = profile['component_id']
-    factor = _appearance(profile).get('hero_scale', 1.) if kind in HERO else 1.
-    return max(11, round(timeline.height * SIZES[kind] * factor * scale))
+    appearance = _appearance(profile)
+    # type_scale enlarges every component (short-form video); hero_scale only the big ones.
+    factor = appearance.get('type_scale', 1.) * (appearance.get('hero_scale', 1.) if kind in HERO else 1.)
+    return max(11, round(_base(timeline) * SIZES[kind] * factor * scale))
 
 
 def _fit(font_path, timeline, item, profile):
@@ -119,7 +126,7 @@ def _fit(font_path, timeline, item, profile):
     while True:
         content = _tilted(_content(item, profile, font_path, _size(timeline, profile, scale)), kind)
         slack = POP_SLACK if kind in POP else 1.
-        width, height = math.ceil(content.width * slack), math.ceil(content.height * slack + (h * .012 if kind not in POP else 0))
+        width, height = math.ceil(content.width * slack), math.ceil(content.height * slack + (_base(timeline) * .012 if kind not in POP else 0))
         if (width <= limit and y + height <= h * .77) or scale <= .6:
             break
         scale -= .05
@@ -130,7 +137,7 @@ def _fit(font_path, timeline, item, profile):
 
 def layout(draw, font_path, timeline, item, profile):
     box, _, scale = _fit(font_path, timeline, item, profile)
-    pad = max(6, round(timeline.height * .016))
+    pad = max(6, round(_base(timeline) * .016))
     return box, load_style_font(font_path, _size(timeline, profile, scale), profile), pad
 
 
@@ -161,7 +168,7 @@ def draw_graphic(draw, font_path, timeline, item, profile, relative_frame=None):
     else:
         sized = content
         left = x
-        top = y + round((1 - ease) * timeline.height * .012)  # a short rise within the footprint
+        top = y + round((1 - ease) * _base(timeline) * .012)  # a short rise within the footprint
     if opacity < 1:
         alpha = sized.getchannel('A').point(lambda value: round(value * opacity))
         sized = sized.copy()
@@ -196,7 +203,7 @@ def _target(draw, timeline, profile, bounds, ease, opacity):
     target = profile['target']
     tx, ty = target['x'] * timeline.width, target['y'] * timeline.height
     radius = target['radius'] * min(timeline.width, timeline.height)
-    width = max(4., timeline.height * .0105)
+    width = max(4., _base(timeline) * .0105)
     if profile['component_id'] == 'circle':
         # A slightly uneven hand-drawn loop rather than a perfect circle.
         steps = max(2, round(48 * ease))

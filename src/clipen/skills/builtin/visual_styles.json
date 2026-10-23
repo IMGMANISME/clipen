@@ -1035,5 +1035,706 @@
         }
       }
     }
+  },
+  {
+    "visual_style_id": "tpl-travel-highlight",
+    "name": "旅遊精華",
+    "description": "收斂的中粗標題與左上角地點小標，畫面留給風景，重點才用黃色貼圖。",
+    "preview_resource": "assets/style-tpl-travel-highlight.png",
+    "overrides": {
+      "palette": {
+        "ink": [
+          16,
+          16,
+          18,
+          255
+        ],
+        "paper": [
+          255,
+          255,
+          255,
+          255
+        ],
+        "accent": [
+          240,
+          224,
+          160,
+          255
+        ],
+        "secondary": [
+          120,
+          180,
+          220,
+          255
+        ]
+      },
+      "appearance": {
+        "skin": "creator",
+        "identity": "travel-highlight",
+        "hero_scale": 0.86,
+        "hero_entry_frames": 14,
+        "hero_exit_frames": 6
+      },
+      "motion": {
+        "entry_frames": 8,
+        "exit_frames": 6,
+        "entry_distance_ratio": 0.012
+      },
+      "subtitle": {
+        "emphasis_color": [
+          240,
+          224,
+          160,
+          255
+        ]
+      },
+      "component_positions": {
+        "program_title": {
+          "x": 0.065,
+          "y": 0.44
+        },
+        "headline": {
+          "x": 0.065,
+          "y": 0.52
+        },
+        "chapter": {
+          "x": 0.045,
+          "y": 0.06
+        },
+        "location": {
+          "x": 0.045,
+          "y": 0.06
+        },
+        "person": {
+          "x": 0.065,
+          "y": 0.52
+        },
+        "fact": {
+          "x": 0.56,
+          "y": 0.5
+        },
+        "impact": {
+          "x": 0.3,
+          "y": 0.22
+        },
+        "reaction": {
+          "x": 0.56,
+          "y": 0.16
+        },
+        "burst": {
+          "x": 0.56,
+          "y": 0.16
+        },
+        "pointer": {
+          "x": 0.3,
+          "y": 0.4
+        },
+        "circle": {
+          "x": 0.3,
+          "y": 0.4
+        }
+      }
+    }
+  },
+  {
+    "visual_style_id": "tpl-food-review",
+    "name": "美食探店",
+    "description": "粗黑大標、店名與價格貼在食物旁，第一口的真實反應用貼圖字。",
+    "preview_resource": "assets/style-tpl-food-review.png",
+    "overrides": {
+      "palette": {
+        "ink": [
+          16,
+          16,
+          18,
+          255
+        ],
+        "paper": [
+          255,
+          255,
+          255,
+          255
+        ],
+        "accent": [
+          255,
+          128,
+          48,
+          255
+        ],
+        "secondary": [
+          255,
+          214,
+          70,
+          255
+        ]
+      },
+      "appearance": {
+        "skin": "creator",
+        "identity": "food-review",
+        "hero_scale": 1.02,
+        "hero_entry_frames": 9,
+        "hero_exit_frames": 6
+      },
+      "motion": {
+        "entry_frames": 8,
+        "exit_frames": 6,
+        "entry_distance_ratio": 0.012
+      },
+      "subtitle": {
+        "emphasis_color": [
+          255,
+          128,
+          48,
+          255
+        ]
+      },
+      "component_positions": {
+        "program_title": {
+          "x": 0.065,
+          "y": 0.3
+        },
+        "headline": {
+          "x": 0.065,
+          "y": 0.52
+        },
+        "chapter": {
+          "x": 0.045,
+          "y": 0.06
+        },
+        "location": {
+          "x": 0.045,
+          "y": 0.06
+        },
+        "person": {
+          "x": 0.065,
+          "y": 0.52
+        },
+        "fact": {
+          "x": 0.06,
+          "y": 0.5
+        },
+        "impact": {
+          "x": 0.3,
+          "y": 0.22
+        },
+        "reaction": {
+          "x": 0.56,
+          "y": 0.16
+        },
+        "burst": {
+          "x": 0.56,
+          "y": 0.16
+        },
+        "pointer": {
+          "x": 0.3,
+          "y": 0.4
+        },
+        "circle": {
+          "x": 0.3,
+          "y": 0.4
+        }
+      }
+    }
+  },
+  {
+    "visual_style_id": "tpl-daily-vlog",
+    "name": "日常 vlog",
+    "description": "輕鬆的粗黑標題與粉色重點，像朋友分享今天發生的事。",
+    "preview_resource": "assets/style-tpl-daily-vlog.png",
+    "overrides": {
+      "palette": {
+        "ink": [
+          16,
+          16,
+          18,
+          255
+        ],
+        "paper": [
+          255,
+          255,
+          255,
+          255
+        ],
+        "accent": [
+          255,
+          150,
+          180,
+          255
+        ],
+        "secondary": [
+          150,
+          210,
+          190,
+          255
+        ]
+      },
+      "appearance": {
+        "skin": "creator",
+        "identity": "daily-vlog",
+        "hero_scale": 0.92,
+        "hero_entry_frames": 10,
+        "hero_exit_frames": 6
+      },
+      "motion": {
+        "entry_frames": 8,
+        "exit_frames": 6,
+        "entry_distance_ratio": 0.012
+      },
+      "subtitle": {
+        "emphasis_color": [
+          255,
+          150,
+          180,
+          255
+        ]
+      },
+      "component_positions": {
+        "program_title": {
+          "x": 0.065,
+          "y": 0.3
+        },
+        "headline": {
+          "x": 0.065,
+          "y": 0.52
+        },
+        "chapter": {
+          "x": 0.045,
+          "y": 0.06
+        },
+        "location": {
+          "x": 0.045,
+          "y": 0.06
+        },
+        "person": {
+          "x": 0.065,
+          "y": 0.52
+        },
+        "fact": {
+          "x": 0.56,
+          "y": 0.5
+        },
+        "impact": {
+          "x": 0.3,
+          "y": 0.22
+        },
+        "reaction": {
+          "x": 0.56,
+          "y": 0.16
+        },
+        "burst": {
+          "x": 0.56,
+          "y": 0.16
+        },
+        "pointer": {
+          "x": 0.3,
+          "y": 0.4
+        },
+        "circle": {
+          "x": 0.3,
+          "y": 0.4
+        }
+      }
+    }
+  },
+  {
+    "visual_style_id": "tpl-product-demo",
+    "name": "產品 demo",
+    "description": "步驟小標加手繪箭頭，一步一步指給觀眾看。",
+    "preview_resource": "assets/style-tpl-product-demo.png",
+    "overrides": {
+      "palette": {
+        "ink": [
+          16,
+          16,
+          18,
+          255
+        ],
+        "paper": [
+          255,
+          255,
+          255,
+          255
+        ],
+        "accent": [
+          80,
+          214,
+          255,
+          255
+        ],
+        "secondary": [
+          255,
+          220,
+          0,
+          255
+        ]
+      },
+      "appearance": {
+        "skin": "creator",
+        "identity": "product-demo",
+        "hero_scale": 0.9,
+        "hero_entry_frames": 8,
+        "hero_exit_frames": 6
+      },
+      "motion": {
+        "entry_frames": 8,
+        "exit_frames": 6,
+        "entry_distance_ratio": 0.012
+      },
+      "subtitle": {
+        "emphasis_color": [
+          80,
+          214,
+          255,
+          255
+        ]
+      },
+      "component_positions": {
+        "program_title": {
+          "x": 0.065,
+          "y": 0.3
+        },
+        "headline": {
+          "x": 0.065,
+          "y": 0.52
+        },
+        "chapter": {
+          "x": 0.045,
+          "y": 0.06
+        },
+        "location": {
+          "x": 0.045,
+          "y": 0.06
+        },
+        "person": {
+          "x": 0.065,
+          "y": 0.52
+        },
+        "fact": {
+          "x": 0.06,
+          "y": 0.52
+        },
+        "impact": {
+          "x": 0.3,
+          "y": 0.22
+        },
+        "reaction": {
+          "x": 0.56,
+          "y": 0.16
+        },
+        "burst": {
+          "x": 0.56,
+          "y": 0.16
+        },
+        "pointer": {
+          "x": 0.06,
+          "y": 0.3
+        },
+        "circle": {
+          "x": 0.3,
+          "y": 0.4
+        }
+      }
+    }
+  },
+  {
+    "visual_style_id": "tpl-product-review",
+    "name": "產品評測",
+    "description": "優缺點用綠色描邊文字逐項標示，結論用大字。",
+    "preview_resource": "assets/style-tpl-product-review.png",
+    "overrides": {
+      "palette": {
+        "ink": [
+          16,
+          16,
+          18,
+          255
+        ],
+        "paper": [
+          255,
+          255,
+          255,
+          255
+        ],
+        "accent": [
+          110,
+          226,
+          120,
+          255
+        ],
+        "secondary": [
+          255,
+          98,
+          86,
+          255
+        ]
+      },
+      "appearance": {
+        "skin": "creator",
+        "identity": "product-review",
+        "hero_scale": 0.98,
+        "hero_entry_frames": 8,
+        "hero_exit_frames": 6
+      },
+      "motion": {
+        "entry_frames": 8,
+        "exit_frames": 6,
+        "entry_distance_ratio": 0.012
+      },
+      "subtitle": {
+        "emphasis_color": [
+          110,
+          226,
+          120,
+          255
+        ]
+      },
+      "component_positions": {
+        "program_title": {
+          "x": 0.065,
+          "y": 0.3
+        },
+        "headline": {
+          "x": 0.065,
+          "y": 0.52
+        },
+        "chapter": {
+          "x": 0.045,
+          "y": 0.06
+        },
+        "location": {
+          "x": 0.045,
+          "y": 0.06
+        },
+        "person": {
+          "x": 0.065,
+          "y": 0.52
+        },
+        "fact": {
+          "x": 0.06,
+          "y": 0.46
+        },
+        "impact": {
+          "x": 0.3,
+          "y": 0.22
+        },
+        "reaction": {
+          "x": 0.56,
+          "y": 0.16
+        },
+        "burst": {
+          "x": 0.56,
+          "y": 0.16
+        },
+        "pointer": {
+          "x": 0.3,
+          "y": 0.4
+        },
+        "circle": {
+          "x": 0.3,
+          "y": 0.4
+        }
+      }
+    }
+  },
+  {
+    "visual_style_id": "tpl-event-recap",
+    "name": "活動紀錄",
+    "description": "暖金色的收斂標題與時間地點小標，保留現場的氣氛。",
+    "preview_resource": "assets/style-tpl-event-recap.png",
+    "overrides": {
+      "palette": {
+        "ink": [
+          16,
+          16,
+          18,
+          255
+        ],
+        "paper": [
+          255,
+          255,
+          255,
+          255
+        ],
+        "accent": [
+          242,
+          200,
+          120,
+          255
+        ],
+        "secondary": [
+          250,
+          170,
+          170,
+          255
+        ]
+      },
+      "appearance": {
+        "skin": "creator",
+        "identity": "event-recap",
+        "hero_scale": 0.82,
+        "hero_entry_frames": 16,
+        "hero_exit_frames": 6
+      },
+      "motion": {
+        "entry_frames": 8,
+        "exit_frames": 6,
+        "entry_distance_ratio": 0.012
+      },
+      "subtitle": {
+        "emphasis_color": [
+          242,
+          200,
+          120,
+          255
+        ]
+      },
+      "component_positions": {
+        "program_title": {
+          "x": 0.065,
+          "y": 0.44
+        },
+        "headline": {
+          "x": 0.065,
+          "y": 0.52
+        },
+        "chapter": {
+          "x": 0.045,
+          "y": 0.06
+        },
+        "location": {
+          "x": 0.045,
+          "y": 0.06
+        },
+        "person": {
+          "x": 0.065,
+          "y": 0.52
+        },
+        "fact": {
+          "x": 0.56,
+          "y": 0.5
+        },
+        "impact": {
+          "x": 0.3,
+          "y": 0.22
+        },
+        "reaction": {
+          "x": 0.56,
+          "y": 0.16
+        },
+        "burst": {
+          "x": 0.56,
+          "y": 0.16
+        },
+        "pointer": {
+          "x": 0.3,
+          "y": 0.4
+        },
+        "circle": {
+          "x": 0.3,
+          "y": 0.4
+        }
+      }
+    }
+  },
+  {
+    "visual_style_id": "tpl-shorts-highlight",
+    "name": "短影音精華",
+    "description": "直式大字置中，第一秒就抓住目光，重點字跟著台詞跳出。",
+    "preview_resource": "assets/style-tpl-shorts-highlight.png",
+    "overrides": {
+      "palette": {
+        "ink": [
+          16,
+          16,
+          18,
+          255
+        ],
+        "paper": [
+          255,
+          255,
+          255,
+          255
+        ],
+        "accent": [
+          255,
+          234,
+          0,
+          255
+        ],
+        "secondary": [
+          90,
+          220,
+          255,
+          255
+        ]
+      },
+      "appearance": {
+        "skin": "creator",
+        "identity": "shorts-highlight",
+        "hero_scale": 1.0,
+        "hero_entry_frames": 6,
+        "hero_exit_frames": 6,
+        "type_scale": 1.3
+      },
+      "motion": {
+        "entry_frames": 8,
+        "exit_frames": 6,
+        "entry_distance_ratio": 0.012
+      },
+      "subtitle": {
+        "emphasis_color": [
+          255,
+          234,
+          0,
+          255
+        ]
+      },
+      "component_positions": {
+        "program_title": {
+          "x": 0.07,
+          "y": 0.16
+        },
+        "headline": {
+          "x": 0.07,
+          "y": 0.36
+        },
+        "chapter": {
+          "x": 0.06,
+          "y": 0.05
+        },
+        "location": {
+          "x": 0.06,
+          "y": 0.05
+        },
+        "person": {
+          "x": 0.065,
+          "y": 0.52
+        },
+        "fact": {
+          "x": 0.08,
+          "y": 0.52
+        },
+        "impact": {
+          "x": 0.1,
+          "y": 0.26
+        },
+        "reaction": {
+          "x": 0.16,
+          "y": 0.26
+        },
+        "burst": {
+          "x": 0.56,
+          "y": 0.16
+        },
+        "pointer": {
+          "x": 0.3,
+          "y": 0.4
+        },
+        "circle": {
+          "x": 0.3,
+          "y": 0.4
+        }
+      }
+    }
   }
 ]
