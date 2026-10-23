@@ -18,25 +18,39 @@ def significant(text):
                    if unicodedata.category(c)[0] not in 'PZC')
 
 
+# The pinned aligner reports times on an 80 ms grid. A zero-width token one
+# step away from its neighbour still marks a boundary the model observed.
+FRAME = .1
+# A result where most characters collapse onto instants, or a run of them
+# share one instant, means the model lost the speech; keep it for repair.
+MAX_INSTANT_SHARE = .4
+MAX_INSTANT_RUN = 4
+
+
 def validate_alignment(words, text, duration):
     if not isinstance(words, list) or not 1 <= len(words) <= 1000:
         raise ProjectError('alignment_invalid', '對齊結果沒有有效字詞。', status_code=422)
-    # Quantized aligners can emit a zero-width token exactly at an adjacent
-    # word boundary. Keep the observed interval as a grouped word; never assign
-    # an invented duration to the individual character or bridge an unknown gap.
+    # Quantized aligners can emit a zero-width token at, or one grid step from,
+    # an adjacent word boundary. Keep the observed interval as a grouped word;
+    # never assign an invented duration to the individual character or bridge
+    # a gap longer than one grid step. A token away from any neighbour stays an
+    # instant: its observed time, with no duration added.
     grouped=[];pending=[]
     for raw in words:
         word=dict(raw);start,end=word.get('start'),word.get('end')
         if not significant(word.get('text','')):continue
         finite=all(not isinstance(v,bool) and isinstance(v,(int,float)) and math.isfinite(v) for v in (start,end))
         zero=finite and 0<=start==end<=duration
-        if zero and grouped and grouped[-1].get('end')==start and grouped[-1].get('start',start)<start and not pending:
-            grouped[-1]['text']+=word['text']
+        last=grouped[-1] if grouped else None
+        if (zero and last and not pending and isinstance(last.get('end'),(int,float)) and not isinstance(last.get('end'),bool)
+                and 0<=start-last['end']<=FRAME and last.get('start',start)<start):
+            last['text']+=word['text'];last['end']=start
         elif zero:
             pending.append(word)
         else:
-            if pending and finite and start<end and all(w['end']==start for w in pending):
+            if pending and finite and start<end and all(0<=start-w['end']<=FRAME for w in pending):
                 word['text']=''.join(w['text'] for w in pending)+word['text']
+                word['start']=min(start,pending[0]['start'])
             else:
                 grouped.extend(pending)
             pending=[];grouped.append(word)
@@ -54,7 +68,7 @@ def validate_alignment(words, text, duration):
             continue
         start, end = word.get('start'), word.get('end')
         if (any(isinstance(v, bool) or not isinstance(v, (int,float)) or not math.isfinite(v) for v in (start,end))
-            or not 0 <= start < end <= duration+.05 or start < previous-.02 or end<=previous
+            or not 0 <= start <= end <= duration+.05 or start < previous-.02 or end < previous
             or normalized[cursor:cursor+len(token)] != token):
             raise ProjectError('alignment_invalid', '字詞對齊與文字或音訊範圍不符，已保留待修。', status_code=422)
         result.append({'text':word['text'], 'char_start':positions[cursor][0],
@@ -64,6 +78,13 @@ def validate_alignment(words, text, duration):
         previous = min(duration,end)
     if cursor != len(normalized) or not result:
         raise ProjectError('alignment_incomplete', '對齊未涵蓋完整文字。', status_code=422)
+    instants = [w['start_seconds'] >= w['end_seconds'] for w in result]
+    run = longest = 0
+    for instant in instants:
+        run = run + 1 if instant else 0
+        longest = max(longest, run)
+    if sum(instants) > len(result) * MAX_INSTANT_SHARE or longest >= MAX_INSTANT_RUN or not any(not i for i in instants):
+        raise ProjectError('alignment_invalid', '對齊結果多數字詞沒有時間長度，已保留待修。', status_code=422)
     return result
 
 
