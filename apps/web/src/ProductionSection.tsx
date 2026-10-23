@@ -5,7 +5,7 @@ import { ProductionStatusPanel } from './ProductionStatusPanel'
 import { ProductionMusicPicker } from './ProductionMusicPicker'
 import { ProductionWorkbench } from './ProductionWorkbench'
 import { PromptHistory } from './PromptHistory'
-import { TemplateLibrary } from './TemplateLibrary'
+import { SkillPicker } from './SkillPicker'
 import { StudioIcon } from './StudioIcon'
 import type { StudioIconName } from './StudioIcon'
 import { usePromptDraft } from './usePromptDraft'
@@ -163,11 +163,11 @@ export function ProductionSection({ projectId, csrf, brief, sourceReady }: Props
       onToggle={(event) => setBriefOpen(event.currentTarget.open)}>
       <summary>{production ? active ? '本次製作需求' : '製作下一支影片' : '設定你的影片'}</summary>
       <div className="production-brief">
-      <label htmlFor="production-skill">影片類型</label>
-      <select id="production-skill" value={skillId} disabled={Boolean(active) || busy} onChange={(event) => setSkillId(event.target.value)}>
-        {/* Template skills are chosen from the template gallery below. */}
-        {skills.filter((skill) => skill.kind !== 'template').map((skill) => <option key={skill.skill_id} value={skill.skill_id}>{skill.source === 'custom' ? `${skill.name}（自訂）` : skill.name}</option>)}
-      </select>
+      {active && production ? <p className="skill-picker-active">本次製作使用的 Skill：<strong>{production.skill.name}</strong> · v{production.skill.version}</p>
+        : skills.length > 0 && <SkillPicker skills={skills} skillId={skillId} templateId={templateId} disabled={busy} onChoose={(choice) => {
+          setSkillId(choice.skillId); setTemplateId(choice.templateId); setVisualStyleId(choice.visualStyleId); setFontStyleId(choice.fontStyleId)
+          if (choice.defaultDurationSeconds && choice.defaultDurationSeconds % 60 === 0) setTargetMinutes(String(choice.defaultDurationSeconds / 60))
+        }} />}
       <label htmlFor="production-duration">預計片長（分鐘）</label>
       <input id="production-duration" type="number" min={1} max={20} step={1} inputMode="numeric"
         value={active ? Number(production?.intent.target_duration_seconds ?? 60) / 60 : targetMinutes}
@@ -175,7 +175,6 @@ export function ProductionSection({ projectId, csrf, brief, sourceReady }: Props
         onChange={(event) => setTargetMinutes(event.target.value)} />
       <p id="production-duration-hint">可自訂 1–20 分鐘。AI 會依素材安排接近目標片長的影片。</p>
       {!active && !durationValid && <p className="inline-message error" role="alert">請輸入 1–20 的整數分鐘。</p>}
-      {Boolean(skills.find((skill) => skill.skill_id === skillId)?.templates?.length) && <TemplateLibrary skillId={skillId} templates={skills.find((skill) => skill.skill_id === skillId)!.templates!} selectedId={active ? (production?.intent as { template?: { template_id: string } })?.template?.template_id ?? '' : templateId} disabled={active || busy} onSelect={(template) => { setTemplateId(template.template_id); setVisualStyleId(template.visual_style_id); setFontStyleId(template.font_style_id) }} />}
       <details className="template-customize"><summary>自訂畫面風格與字體</summary>
       {visualStyles.length > 0 && <><label htmlFor="production-visual-style">畫面風格</label><select id="production-visual-style" value={displayedStyle} disabled={active || busy} onChange={(e) => { setVisualStyleId(e.target.value); setTemplateId(skills.find((skill) => skill.skill_id === skillId)?.templates?.find((template) => template.visual_style_id === e.target.value)?.template_id ?? '') }}>{visualStyles.map((style) => <option value={style.visual_style_id} key={style.visual_style_id}>{style.name}</option>)}</select></>}
       {fontStyles.length > 0 && <div className="font-style-picker">

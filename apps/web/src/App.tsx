@@ -46,6 +46,7 @@ import type {
 import { StudioIcon } from './StudioIcon'
 import './index.css'
 import { ProviderContext } from './providerContext'
+import { SkillLibrary } from './SkillLibrary'
 
 type ApplicationState =
   | { kind: 'connecting' }
@@ -310,6 +311,8 @@ function ProjectHome({
           </div>
         </section>
       )}
+
+      {!creating && <SkillLibrary csrf={csrf} />}
     </main>
   )
 }
