@@ -457,6 +457,25 @@ class SkillProductionTests(unittest.TestCase):
         self.assertEqual(STAGES[reached(['尋找與安排配樂、音效','安排故事與剪輯'])],'music')
         self.assertEqual(reached(['理解製作需求與影片風格'],True),len(STAGES))
 
+    def test_a_revision_hands_the_draft_to_the_ai_clipen_runs_with_but_resuming_never_does(self):
+        from clipen.editing import EditAgentCoordinator
+        self.cut()
+        before=self.repository.get(self.project.project_id,self.run.run_id)
+        self.assertEqual(before.provider,'codex')
+        self.repository.cancel(self.project.project_id,self.run.run_id)
+        revision=self.repository.current_revision(self.project.project_id,self.run.run_id)
+        switched,_=self.repository.request_refinement(self.project.project_id,self.run.run_id,'claude-polish',revision.revision_id,'精修字幕',provider='claude')
+        self.assertEqual((switched.provider,switched.state,switched.current_revision_id),('claude','queued',before.current_revision_id))
+        progress=EditAgentCoordinator(self.repository,self.root).status(self.project.project_id)['production']['progress']
+        self.assertEqual([e['label'] for e in progress['activity']],['收到你的修改要求','改由 Claude 接手修改'])
+        # The same request id with another AI is a different command.
+        with self.assertRaises(ProjectError):
+            self.repository.request_refinement(self.project.project_id,self.run.run_id,'claude-polish',revision.revision_id,'精修字幕',provider='codex')
+        # An interrupted attempt continues with the AI that was running it.
+        self.repository.activate(self.project.project_id,self.run.run_id)
+        self.repository.record_provider_outcome(self.project.project_id,self.run.run_id,'quota',usage=None,error_code='provider_usage_limit')
+        self.assertEqual(self.repository.resume_stopped(self.project.project_id,self.run.run_id).provider,'claude')
+
     def test_a_revision_request_starts_a_fresh_activity_list_with_the_request(self):
         from clipen.editing import EditAgentCoordinator
         self.cut();self.call('list_program_components')
