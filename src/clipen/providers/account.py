@@ -140,14 +140,14 @@ def codex_account(binary: str | Path, environment: Mapping[str, str], timeout: f
     return {"model": model, "quota": quota}
 
 
-def record_claude_account(attempt_root: Path, events: list[dict]) -> None:
+def record_claude_account(attempt_root: Path, events: list[dict], requested: str | None = None) -> None:
     """Keep the model and limit status Claude reported during the last attempt."""
     init = next((e for e in events if e.get("type") == "system" and e.get("subtype") == "init"), None)
     info = next((e.get("rate_limit_info") for e in reversed(events) if e.get("type") == "rate_limit_event"), None)
     model = init.get("model") if isinstance(init, dict) and isinstance(init.get("model"), str) else None
     if model is None and not isinstance(info, dict):
         return
-    snapshot = {"model": model, "observed_at": int(time.time())}
+    snapshot = {"model": model, "requested": requested, "observed_at": int(time.time())}
     if isinstance(info, dict):
         snapshot["limit"] = {key: info.get(key) for key in ("status", "resetsAt", "rateLimitType")
                              if isinstance(info.get(key), (str, int)) and not isinstance(info.get(key), bool)}
@@ -163,15 +163,24 @@ def _claude_name(model: str) -> str:
     return " ".join(w.capitalize() for w in words) or model
 
 
-def claude_account(attempt_root: Path) -> dict:
+def claude_account(attempt_root: Path, environment: Mapping[str, str] | None = None) -> dict:
+    """The last run's model and limit status, with the effort and model chosen in Claude Code settings."""
+    from .claude import claude_preferences
+    wanted, effort = claude_preferences(environment)
+    source = "claude_config" if wanted or effort else "default"
     path = attempt_root / _SNAPSHOT
     try:
         if path.is_symlink() or path.stat().st_size > 4096:
-            return {"model": None, "quota": None}
+            raise ValueError
         snapshot = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(snapshot, dict):
+            raise ValueError
     except (OSError, ValueError):
-        return {"model": None, "quota": None}
+        snapshot = {}
     model = snapshot.get("model")
+    # A model chosen after the last run is what the next run uses.
+    if wanted and (not isinstance(model, str) or snapshot.get("requested") != wanted):
+        model = wanted
     limit = snapshot.get("limit") if isinstance(snapshot.get("limit"), dict) else {}
     observed = snapshot.get("observed_at") if isinstance(snapshot.get("observed_at"), int) else None
     quota = None if not limit else {
@@ -180,6 +189,6 @@ def claude_account(attempt_root: Path) -> dict:
         "warning": limit.get("status") == "allowed_warning",
         "resets_at": limit.get("resetsAt") if isinstance(limit.get("resetsAt"), int) else None,
         "kind": limit.get("rateLimitType") if isinstance(limit.get("rateLimitType"), str) else None}
-    return {"model": None if not isinstance(model, str) else {"id": model, "name": _claude_name(model), "effort": None,
-                                                               "source": "last_run"},
+    return {"model": None if not isinstance(model, str) else {"id": model, "name": _claude_name(model), "effort": effort,
+                                                               "source": source, "unavailable": None},
             "quota": quota}

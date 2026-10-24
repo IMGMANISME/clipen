@@ -60,23 +60,43 @@ class ProviderAccountTests(unittest.TestCase):
                 self.assertEqual(model_config('/bin/codex', {'HOME': '/nonexistent'}), ())
             lookup.assert_not_called()
 
+    def test_claude_runs_with_the_model_and_effort_from_claude_code_settings(self):
+        from clipen.providers.claude import claude_preferences, model_arguments
+        with tempfile.TemporaryDirectory() as temporary:
+            settings = Path(temporary) / 'settings.json'
+            self.assertEqual(model_arguments({'CLAUDE_CONFIG_DIR': temporary}), ())
+            settings.write_text(json.dumps({'model': 'opus', 'effortLevel': 'high', 'hooks': {'Stop': []}}))
+            self.assertEqual(model_arguments({'CLAUDE_CONFIG_DIR': temporary}), ('--model', 'opus', '--effort', 'high'))
+            settings.write_text(json.dumps({'model': 'opus; rm -rf', 'effortLevel': 'turbo'}))
+            self.assertEqual(claude_preferences({'CLAUDE_CONFIG_DIR': temporary}), (None, None))
+            # The status bar names the chosen model before the first run, then the model that ran.
+            settings.write_text(json.dumps({'model': 'opus', 'effortLevel': 'high'}))
+            root = Path(temporary) / 'attempts'; root.mkdir()
+            before = claude_account(root, {'CLAUDE_CONFIG_DIR': temporary})['model']
+            self.assertEqual((before['name'], before['effort'], before['source']), ('Opus', 'high', 'claude_config'))
+            record_claude_account(root, [{'type': 'system', 'subtype': 'init', 'model': 'claude-opus-5'}], 'opus')
+            self.assertEqual(claude_account(root, {'CLAUDE_CONFIG_DIR': temporary})['model']['name'], 'Claude Opus 5')
+            settings.write_text(json.dumps({'model': 'sonnet'}))
+            self.assertEqual(claude_account(root, {'CLAUDE_CONFIG_DIR': temporary})['model']['name'], 'Sonnet')
+
     def test_claude_keeps_what_the_last_attempt_reported(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            self.assertEqual(claude_account(root), {'model': None, 'quota': None})
+            self.assertEqual(claude_account(root, {'HOME': '/nonexistent'}), {'model': None, 'quota': None})
             record_claude_account(root, [
                 {'type': 'system', 'subtype': 'init', 'model': 'claude-sonnet-5-20261001'},
                 {'type': 'rate_limit_event', 'rate_limit_info': {'status': 'allowed', 'resetsAt': 1792767600, 'rateLimitType': 'five_hour'}},
                 {'type': 'rate_limit_event', 'rate_limit_info': {'status': 'rejected', 'resetsAt': 1792771200, 'rateLimitType': 'five_hour'}},
             ])
-            account = claude_account(root)
+            account = claude_account(root, {'HOME': '/nonexistent'})
             self.assertEqual((account['model']['id'], account['model']['name']), ('claude-sonnet-5-20261001', 'Claude Sonnet 5'))
+            self.assertEqual((account['model']['source'], account['model']['effort']), ('default', None))
             self.assertEqual(account['quota']['source'], 'last_run')
             self.assertTrue(account['quota']['limited'])
             self.assertEqual(account['quota']['resets_at'], 1792771200)
             self.assertEqual(account['quota']['windows'], [])
             (root / 'claude-account.json').write_text('{not json')
-            self.assertEqual(claude_account(root), {'model': None, 'quota': None})
+            self.assertEqual(claude_account(root, {'HOME': '/nonexistent'}), {'model': None, 'quota': None})
 
 
 if __name__ == '__main__':
