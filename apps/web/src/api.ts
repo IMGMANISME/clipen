@@ -492,7 +492,7 @@ export type EditAgentStatus = {
     preview: (PreviewRender & { stale: boolean; revision_id: string; media_url: string }) | null
     last_successful_preview?: (PreviewRender & { stale: boolean; revision_id: string; media_url: string }) | null
     validation: { revision_id: string; valid: boolean; issues: Array<{ code: string; message?: string }> } | null
-    progress?: { updated_at: string | null; activity: Array<{ sequence: number; kind: string; label: string; tool: string | null; created_at: string }> }
+    progress?: { updated_at: string | null; ai_message?: string | null; request?: string | null; activity: Array<{ sequence: number; kind: string; label: string; tool: string | null; created_at: string; count?: number }> }
     local_jobs: Array<{ job_id: string; kind: string; state: string; error_code: string | null; phase?: string; completed_bytes?: number; total_bytes?: number }>
     production_contents: EditAgentResult['production_contents']
     export_url: string | null
