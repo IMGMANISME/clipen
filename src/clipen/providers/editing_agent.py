@@ -371,6 +371,7 @@ class BoundedEditingAgent:
                 run_id,
                 attempt_id,
                 usage=None if usage is None else usage.to_dict(),
+                message=self._optional_message(events, final_message),
             )
             return EditingResult(final, time.monotonic() - started, event_types)
         except Exception as error:
@@ -382,6 +383,7 @@ class BoundedEditingAgent:
                 attempt_id,
                 usage=None if usage is None else usage.to_dict(),
                 error_code=error_code,
+                message=self._optional_message(events, final_message),
             )
             raise
 
@@ -438,6 +440,19 @@ class BoundedEditingAgent:
                     process.kill()
             except OSError:
                 pass
+
+    def closing_message(self, stdout: bytes, final_message: Path) -> str | None:
+        """The provider's own last message to the user, written beside its events."""
+        if final_message.is_symlink() or not final_message.is_file() or final_message.stat().st_size > 64 * 1024:
+            return None
+        return final_message.read_text(encoding="utf-8", errors="replace")
+
+    def _optional_message(self, events: Path, final_message: Path) -> str | None:
+        # The message explains a stop to the user; missing it never changes the outcome.
+        try:
+            return self.closing_message(events.read_bytes() if events.is_file() else b"", final_message)
+        except (OSError, ProviderProtocolError):
+            return None
 
     def _optional_usage(self, path: Path):
         try:

@@ -23,6 +23,14 @@ from .agent_models import (
 )
 
 
+def _closing_message(value: str | None) -> str | None:
+    """Keep the provider's last words to the user short enough to show on the status panel."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    text = value.strip()
+    return text if len(text) <= 2000 else text[:1999].rstrip() + "…"
+
+
 class EditAgentRepository:
     """Persist every agent mutation as an immutable revision and append-only event."""
 
@@ -505,6 +513,7 @@ class EditAgentRepository:
         *,
         usage: Mapping[str, int] | None,
         error_code: str | None = None,
+        message: str | None = None,
     ) -> AgentRun:
         normalized = self._validate_run_id(run_id)
         bounded_text(attempt_id, "Provider attempt", 128)
@@ -540,7 +549,8 @@ class EditAgentRepository:
                 database,
                 normalized,
                 "provider_finished" if error_code is None else "provider_failed",
-                {"attempt_id": attempt_id, "usage": usage, "error_code": error_code},
+                {"attempt_id": attempt_id, "usage": usage, "error_code": error_code,
+                 "message": _closing_message(message)},
                 now,
             )
             result = self._read_run(database, normalized)

@@ -111,19 +111,27 @@ class SkillProductionTests(unittest.TestCase):
         coordinator=EditAgentCoordinator(self.repository,self.root)
         status=coordinator.status(self.project.project_id)
         progress=status['production']['progress']
-        self.assertEqual(len(progress['activity']),12)
+        # Repeated calls of one kind read as a single step with its latest time.
+        self.assertLessEqual(len(progress['activity']),10)
         self.assertEqual(progress['activity'][-1]['tool'],'list_program_components')
         self.assertEqual(progress['activity'][-1]['label'],'理解製作需求與影片風格')
+        self.assertGreaterEqual(progress['activity'][-1]['count'],15)
+        self.assertTrue(all(a['label']!=b['label'] for a,b in zip(progress['activity'],progress['activity'][1:])))
         self.assertEqual(progress['updated_at'],progress['activity'][-1]['created_at'])
         self.assertNotIn('percent',progress)
+        self.assertIsNone(progress['ai_message'])
         self.assertEqual([e['sequence'] for e in progress['activity']],sorted(e['sequence'] for e in progress['activity']))
         self.repository.record_provider_outcome(self.project.project_id,self.run.run_id,'failed-test',
-                                               usage=None,error_code='provider_network_error')
+                                               usage=None,error_code='provider_stopped_early',message='  需要你提供音樂檔。\n'+'說明'*1200)
         failed=coordinator.status(self.project.project_id)
-        self.assertEqual(failed['latest_run']['error_code'],'provider_network_error')
+        self.assertEqual(failed['latest_run']['error_code'],'provider_stopped_early')
         self.assertEqual(failed['production']['draft']['ordinal'],status['production']['draft']['ordinal'])
-        self.assertEqual(failed['production']['progress']['activity'][-1]['kind'],'provider_failed')
+        last=failed['production']['progress']['activity'][-1]
+        self.assertEqual((last['kind'],last['label']),('provider_failed','AI 先停下來了，請看 AI 的說明'))
         self.assertEqual(failed['production']['progress']['activity'][-2],progress['activity'][-1])
+        # The AI's own closing words explain the stop, kept short for the panel.
+        message=failed['production']['progress']['ai_message']
+        self.assertTrue(message.startswith('需要你提供音樂檔。'));self.assertLessEqual(len(message),2000);self.assertTrue(message.endswith('…'))
 
     def test_quantized_zero_width_alignment_is_grouped_without_invented_character_times(self):
         words=validate_alignment([{'text':'點','start':2.24,'end':2.56},{'text':'一','start':2.56,'end':2.56},
@@ -429,6 +437,16 @@ class SkillProductionTests(unittest.TestCase):
         self.repository.activate(self.project.project_id,self.run.run_id)
         self.repository.record_provider_outcome(self.project.project_id,self.run.run_id,'other-failure',usage=None,error_code='provider_network_error')
         with self.assertRaises(ProjectError):self.repository.resume_timed_out(self.project.project_id,self.run.run_id)
+
+    def test_a_revision_request_starts_a_fresh_activity_list_with_the_request(self):
+        from clipen.editing import EditAgentCoordinator
+        self.cut();self.call('list_program_components')
+        self.repository.cancel(self.project.project_id,self.run.run_id)
+        revision=self.repository.current_revision(self.project.project_id,self.run.run_id)
+        self.repository.request_refinement(self.project.project_id,self.run.run_id,'swap-music',revision.revision_id,'配樂換成我指定的歌')
+        progress=EditAgentCoordinator(self.repository,self.root).status(self.project.project_id)['production']['progress']
+        self.assertEqual(progress['request'],'配樂換成我指定的歌')
+        self.assertEqual([e['label'] for e in progress['activity']],['收到你的修改要求'])
 
     def test_delivery_blockers_follow_the_current_revision_and_choose_how_to_recover(self):
         self.assertIsNone(self.repository.delivery_blockers(self.project.project_id,self.run.run_id))

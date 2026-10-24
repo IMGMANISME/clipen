@@ -18,33 +18,60 @@ _TOOL_GROUPS = (
 _TOOL_LABELS = {tool: label for label, tools in _TOOL_GROUPS for tool in tools}
 _EVENT_LABELS = {
     'run_created': '製作工作已建立', 'run_started': 'AI 已開始製作',
+    'refinement_requested': '收到你的修改要求', 'run_resumed': '接續上次的草稿',
     'revision_created': '草稿已儲存', 'production_preview': '已提交預覽合成',
     'production_review': '已檢查預覽畫面', 'mix_review': '已取得混音量測',
     'run_finished': '樣片製作已完成，等待你觀看',
-    'provider_failed': 'AI 執行程序回報錯誤',
+    'provider_failed': 'AI 這次沒有完成製作',
     'run_cancelled': '製作已停止', 'run_interrupted': '製作已中斷',
     'budget_exhausted': '本次工作已達操作上限',
 }
+# A failed attempt is described by why it stopped, not as a generic error.
+_FAILURE_LABELS = {
+    'delivery_blocked': 'AI 做完草稿，但還有項目沒通過檢查',
+    'provider_stopped_early': 'AI 先停下來了，請看 AI 的說明',
+    'provider_usage_limit': 'AI 額度不足，暫停製作',
+    'provider_timed_out': '超過製作時間上限，暫停製作',
+}
+# Each request (a new film, a revision, a resume) starts a fresh activity list.
+_STARTS = ('run_created', 'refinement_requested', 'run_resumed')
+_SHOWN = 10
 
 
 def production_activity(database, run_id):
-    kinds = ('tool_called', *_EVENT_LABELS)
+    boundary = database.execute(
+        f"SELECT COALESCE(MAX(sequence),0) FROM edit_agent_events WHERE run_id=? AND event_type IN ({','.join('?' for _ in _STARTS)})",
+        (run_id, *_STARTS)).fetchone()[0]
+    kinds = ('tool_called', 'provider_finished', *_EVENT_LABELS)
     placeholders = ','.join('?' for _ in kinds)
     rows = database.execute(
         f'SELECT sequence,event_type,payload_json,created_at FROM edit_agent_events '
-        f'WHERE run_id=? AND event_type IN ({placeholders}) ORDER BY sequence DESC LIMIT 12',
-        (run_id, *kinds),
+        f'WHERE run_id=? AND sequence>=? AND event_type IN ({placeholders}) ORDER BY sequence',
+        (run_id, boundary, *kinds),
     ).fetchall()
-    activity = []
-    for row in reversed(rows):
+    activity, message, request = [], None, None
+    for row in rows:
         payload = json.loads(row['payload_json'])
-        if row['event_type'] == 'tool_called':
-            tool = payload.get('tool', '')
-            # Polling a local job is not a new editorial milestone.
+        kind = row['event_type']
+        if kind in {'provider_finished', 'provider_failed'}:
+            message = payload.get('message') or message
+            if kind == 'provider_finished':
+                continue
+        if kind == 'refinement_requested':
+            request = payload.get('instruction')
+        tool = payload.get('tool', '') if kind == 'tool_called' else None
+        if kind == 'tool_called':
             label = _TOOL_LABELS.get(tool, 'AI 正在操作剪輯工具')
+        elif kind == 'provider_failed':
+            label = _FAILURE_LABELS.get(payload.get('error_code'), _EVENT_LABELS[kind])
         else:
-            tool = None
-            label = _EVENT_LABELS[row['event_type']]
-        activity.append({'sequence': row['sequence'], 'kind': row['event_type'],
-                         'label': label, 'tool': tool, 'created_at': row['created_at']})
-    return {'activity': activity, 'updated_at': activity[-1]['created_at'] if activity else None}
+            label = _EVENT_LABELS[kind]
+        # Many tool calls in a row are one step to the viewer; keep its latest time.
+        if activity and activity[-1]['label'] == label:
+            activity[-1].update(sequence=row['sequence'], created_at=row['created_at'], count=activity[-1]['count'] + 1)
+            continue
+        activity.append({'sequence': row['sequence'], 'kind': kind, 'label': label, 'tool': tool,
+                         'created_at': row['created_at'], 'count': 1})
+    activity = activity[-_SHOWN:]
+    return {'activity': activity, 'updated_at': activity[-1]['created_at'] if activity else None,
+            'ai_message': message, 'request': request}

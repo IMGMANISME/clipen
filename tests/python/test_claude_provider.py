@@ -236,5 +236,15 @@ class ProviderSelectionTests(unittest.TestCase):
             self.assertEqual(json.loads(body)["provider"]["name"], "Claude")
 
 
+class ClaudeClosingMessageTests(unittest.TestCase):
+    def test_the_result_event_carries_the_last_message_to_the_user(self):
+        import json
+        from pathlib import Path
+        from clipen.providers.claude_editing import ClaudeEditingAgent
+        stream=(json.dumps({'type':'system','subtype':'init'})+'\n'+json.dumps({'type':'result','subtype':'success','result':'需要你提供音樂檔。'})+'\n').encode()
+        self.assertEqual(ClaudeEditingAgent.closing_message(None,stream,Path('unused')),'需要你提供音樂檔。')
+        self.assertIsNone(ClaudeEditingAgent.closing_message(None,b'',Path('unused')))
+
+
 if __name__ == "__main__":
     unittest.main()
