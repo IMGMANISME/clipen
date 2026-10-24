@@ -1,4 +1,8 @@
-"""Bounded, factual activity for the production UI; no inferred completion rates."""
+"""Bounded, factual activity for the production UI; no inferred completion rates.
+
+Stages report how far the AI has observably got, never a percentage of the
+work: an agent revisits steps and has no fixed number of them.
+"""
 import json
 
 
@@ -33,30 +37,65 @@ _FAILURE_LABELS = {
     'provider_usage_limit': 'AI 額度不足，暫停製作',
     'provider_timed_out': '超過製作時間上限，暫停製作',
 }
+# The furthest stage reached moves only forward. Checking the cut before any
+# preview is part of editing; reviewing only counts once a film was rendered.
+STAGES = ('understand', 'sources', 'edit', 'graphics', 'music', 'render', 'review')
+_STAGE_OF_LABEL = {
+    '理解製作需求與影片風格': 'understand', '尋找與檢視來源素材': 'sources', '準備本機語音模型': 'sources',
+    '辨識與對齊來源口語': 'sources', '安排故事與剪輯': 'edit', '製作字幕與畫面設計': 'graphics',
+    '尋找與安排配樂、音效': 'music', '輸出樣片預覽': 'render', '已提交預覽合成': 'render',
+    '檢查畫面、字幕與聲音': 'review', '已檢查預覽畫面': 'review', '已取得混音量測': 'review', '整理交付檔案': 'review',
+}
+
+
+def _stages(labels, finished):
+    furthest, rendered = -1, False
+    for label in labels:
+        stage = _STAGE_OF_LABEL.get(label)
+        if stage is None:
+            continue
+        if stage == 'render':
+            rendered = True
+        if stage == 'review' and not rendered:
+            stage = 'edit'
+        furthest = max(furthest, STAGES.index(stage))
+    if finished:
+        furthest = len(STAGES)
+    return {'stages': STAGES, 'reached': furthest}
+
+
 # Each request (a new film, a revision, a resume) starts a fresh activity list.
 _STARTS = ('run_created', 'refinement_requested', 'run_resumed')
 _SHOWN = 10
 
 
+def _latest_start(database, run_id, kinds):
+    return database.execute(
+        f"SELECT COALESCE(MAX(sequence),0) FROM edit_agent_events WHERE run_id=? AND event_type IN ({','.join('?' for _ in kinds)})",
+        (run_id, *kinds)).fetchone()[0]
+
+
 def production_activity(database, run_id):
-    boundary = database.execute(
-        f"SELECT COALESCE(MAX(sequence),0) FROM edit_agent_events WHERE run_id=? AND event_type IN ({','.join('?' for _ in _STARTS)})",
-        (run_id, *_STARTS)).fetchone()[0]
+    boundary = _latest_start(database, run_id, _STARTS)
+    # Resuming continues the same request, so its stages carry on from before.
+    request_boundary = _latest_start(database, run_id, ('run_created', 'refinement_requested'))
     kinds = ('tool_called', 'provider_finished', *_EVENT_LABELS)
     placeholders = ','.join('?' for _ in kinds)
     rows = database.execute(
         f'SELECT sequence,event_type,payload_json,created_at FROM edit_agent_events '
         f'WHERE run_id=? AND sequence>=? AND event_type IN ({placeholders}) ORDER BY sequence',
-        (run_id, boundary, *kinds),
+        (run_id, request_boundary, *kinds),
     ).fetchall()
-    activity, message, request = [], None, None
+    activity, message, request, labels, finished = [], None, None, [], False
+    started_at = next((row['created_at'] for row in rows if row['sequence'] >= boundary), None)
     for row in rows:
         payload = json.loads(row['payload_json'])
         kind = row['event_type']
-        if kind in {'provider_finished', 'provider_failed'}:
+        finished = finished or kind == 'run_finished'
+        if kind in {'provider_finished', 'provider_failed'} and row['sequence'] >= boundary:
             message = payload.get('message') or message
-            if kind == 'provider_finished':
-                continue
+        if kind == 'provider_finished':
+            continue
         if kind == 'refinement_requested':
             request = payload.get('instruction')
         tool = payload.get('tool', '') if kind == 'tool_called' else None
@@ -66,6 +105,9 @@ def production_activity(database, run_id):
             label = _FAILURE_LABELS.get(payload.get('error_code'), _EVENT_LABELS[kind])
         else:
             label = _EVENT_LABELS[kind]
+        labels.append(label)
+        if row['sequence'] < boundary:
+            continue
         # Many tool calls in a row are one step to the viewer; keep its latest time.
         if activity and activity[-1]['label'] == label:
             activity[-1].update(sequence=row['sequence'], created_at=row['created_at'], count=activity[-1]['count'] + 1)
@@ -74,4 +116,4 @@ def production_activity(database, run_id):
                          'created_at': row['created_at'], 'count': 1})
     activity = activity[-_SHOWN:]
     return {'activity': activity, 'updated_at': activity[-1]['created_at'] if activity else None,
-            'ai_message': message, 'request': request}
+            'ai_message': message, 'request': request, 'started_at': started_at, **_stages(labels, finished)}

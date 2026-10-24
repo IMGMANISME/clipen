@@ -120,6 +120,15 @@ class SkillProductionTests(unittest.TestCase):
         self.assertEqual(progress['updated_at'],progress['activity'][-1]['created_at'])
         self.assertNotIn('percent',progress)
         self.assertIsNone(progress['ai_message'])
+        # Stages only move forward to the furthest real step; no percentage is invented.
+        from clipen.editing.production_progress import STAGES
+        self.assertEqual(list(progress['stages']),list(STAGES))
+        self.assertEqual(STAGES[progress['reached']],'graphics')
+        self.call('validate_sequence')
+        checked=coordinator.status(self.project.project_id)['production']['progress']
+        self.assertEqual(STAGES[checked['reached']],'graphics')
+        self.assertIsNotNone(checked['started_at'])
+        progress=checked
         self.assertEqual([e['sequence'] for e in progress['activity']],sorted(e['sequence'] for e in progress['activity']))
         self.repository.record_provider_outcome(self.project.project_id,self.run.run_id,'failed-test',
                                                usage=None,error_code='provider_stopped_early',message='  需要你提供音樂檔。\n'+'說明'*1200)
@@ -437,6 +446,16 @@ class SkillProductionTests(unittest.TestCase):
         self.repository.activate(self.project.project_id,self.run.run_id)
         self.repository.record_provider_outcome(self.project.project_id,self.run.run_id,'other-failure',usage=None,error_code='provider_network_error')
         with self.assertRaises(ProjectError):self.repository.resume_timed_out(self.project.project_id,self.run.run_id)
+
+    def test_stages_count_review_only_after_a_render_and_fill_up_when_finished(self):
+        from clipen.editing.production_progress import STAGES, _stages
+        reached=lambda labels,finished=False:_stages(labels,finished)['reached']
+        self.assertEqual(reached([]),-1)
+        self.assertEqual(STAGES[reached(['理解製作需求與影片風格','檢查畫面、字幕與聲音'])],'edit')
+        self.assertEqual(STAGES[reached(['安排故事與剪輯','輸出樣片預覽','檢查畫面、字幕與聲音'])],'review')
+        # Going back to earlier work never moves the bar backwards.
+        self.assertEqual(STAGES[reached(['尋找與安排配樂、音效','安排故事與剪輯'])],'music')
+        self.assertEqual(reached(['理解製作需求與影片風格'],True),len(STAGES))
 
     def test_a_revision_request_starts_a_fresh_activity_list_with_the_request(self):
         from clipen.editing import EditAgentCoordinator
