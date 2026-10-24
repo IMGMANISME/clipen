@@ -233,7 +233,8 @@ class EditAgentCoordinator:
             key=(project_id,run_id)
             if self._closed or self._queue.full() or key in self._cancel:
                 raise ProjectError('edit_agent_busy','AI 製作仍在執行，請稍後再試。',status_code=409)
-            run,created=self.repository.request_refinement(project_id,run_id,request_id,expected_revision_id,instruction,music_asset_id,expected_references_version)
+            run,created=self.repository.request_refinement(project_id,run_id,request_id,expected_revision_id,instruction,music_asset_id,expected_references_version,
+                                                           provider=self.provider.provider_id)
             if not created:return run
             self._projects.add(project_id);self._cancel[key]=threading.Event();self._queue.put_nowait(key)
             if self._worker is None:

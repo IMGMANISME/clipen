@@ -23,6 +23,7 @@ _TOOL_LABELS = {tool: label for label, tools in _TOOL_GROUPS for tool in tools}
 _EVENT_LABELS = {
     'run_created': '製作工作已建立', 'run_started': 'AI 已開始製作',
     'refinement_requested': '收到你的修改要求', 'run_resumed': '接續上次的草稿',
+    'provider_switched': '換另一個 AI 接手',
     'revision_created': '草稿已儲存', 'production_preview': '已提交預覽合成',
     'production_review': '已檢查預覽畫面', 'mix_review': '已取得混音量測',
     'run_finished': '樣片製作已完成，等待你觀看',
@@ -69,6 +70,14 @@ _STARTS = ('run_created', 'refinement_requested', 'run_resumed')
 _SHOWN = 10
 
 
+def _provider_name(provider_id):
+    from clipen.provider_registry import get_provider
+    try:
+        return get_provider(provider_id).display_name
+    except (KeyError, ValueError, TypeError):
+        return 'AI'
+
+
 def _latest_start(database, run_id, kinds):
     return database.execute(
         f"SELECT COALESCE(MAX(sequence),0) FROM edit_agent_events WHERE run_id=? AND event_type IN ({','.join('?' for _ in kinds)})",
@@ -103,6 +112,8 @@ def production_activity(database, run_id):
             label = _TOOL_LABELS.get(tool, 'AI 正在操作剪輯工具')
         elif kind == 'provider_failed':
             label = _FAILURE_LABELS.get(payload.get('error_code'), _EVENT_LABELS[kind])
+        elif kind == 'provider_switched':
+            label = f"改由 {_provider_name(payload.get('to'))} 接手修改"
         else:
             label = _EVENT_LABELS[kind]
         labels.append(label)

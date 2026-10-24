@@ -234,14 +234,18 @@ class EditAgentRepository:
             row=db.execute("SELECT payload_json FROM edit_agent_events WHERE run_id=? AND event_type='run_created' ORDER BY sequence LIMIT 1",(run_id,)).fetchone()
         return {} if row is None else json.loads(row['payload_json']).get('creative_direction',{})
 
-    def request_refinement(self, project_id, run_id, request_id, expected_revision_id, instruction, music_asset_id=None, expected_references_version=None):
+    def request_refinement(self, project_id, run_id, request_id, expected_revision_id, instruction, music_asset_id=None, expected_references_version=None, provider=None):
         from .refinement_references import public_state, references
         from .workbench import music_choice
         normalized=self._validate_run_id(run_id)
         request=validate_request_id(request_id)
         instruction=bounded_text(instruction,'修改需求',8000)
         choice=music_choice(self,project_id,music_asset_id)
-        request_hash=command_digest({'run_id':normalized,'expected_revision_id':expected_revision_id,'instruction':instruction,'music_asset_id':music_asset_id,'expected_references_version':expected_references_version})
+        if provider is not None:
+            from clipen.provider_registry import get_provider
+            get_provider(provider)
+        request_hash=command_digest({'run_id':normalized,'expected_revision_id':expected_revision_id,'instruction':instruction,'music_asset_id':music_asset_id,'expected_references_version':expected_references_version,
+                                     **({'provider':provider} if provider is not None else {})})
         with self.projects.connect(project_id) as db:
             db.execute('BEGIN IMMEDIATE')
             receipt=db.execute('SELECT * FROM edit_agent_command_receipts WHERE request_id=?',(request,)).fetchone()
@@ -265,6 +269,12 @@ class EditAgentRepository:
             if choice is not None:intent['music_choice']=choice
             db.execute('UPDATE production_sessions SET intent_json=? WHERE run_id=?',(encoded(intent),normalized))
             self._append_event(db,normalized,'refinement_requested',{'instruction':instruction,'references':reference_snapshot,'base_revision_id':expected_revision_id,'previous_budget':run.to_public()['budget'],'previous_attempt_id':run.provider_attempt_id,'music_choice':intent.get('music_choice')},utc_now())
+            # A revision is a new request from the user, so the AI Clipen runs with
+            # now may take over the draft; it spends its own quota from a fresh budget.
+            # Resuming an interrupted attempt never switches (see resume_stopped).
+            if provider is not None and provider!=run.provider:
+                self._append_event(db,normalized,'provider_switched',{'from':run.provider,'to':provider},utc_now())
+                db.execute('UPDATE edit_agent_runs SET provider=? WHERE run_id=?',(provider,normalized))
             db.execute("UPDATE edit_agent_runs SET state='queued',phase='ready',tool_calls=0,preview_renders=0,max_tool_calls=500,max_preview_renders=6,error_code=NULL,provider_attempt_id=NULL,usage_json=NULL,completed_at=NULL WHERE run_id=?",(normalized,))
             db.execute('INSERT INTO edit_agent_command_receipts VALUES(?,?,?,?,?)',(request,'refine',request_hash,encoded({'run_id':normalized}),utc_now()))
             result=self._read_run(db,normalized);db.commit();return result,True
