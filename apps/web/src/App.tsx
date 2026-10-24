@@ -1357,7 +1357,7 @@ function App() {
       )}
 
       {ready && (
-        <ProviderContext.Provider value={{ name: application.status.provider.name }}>
+        <ProviderContext.Provider value={{ name: application.status.provider.name, id: application.status.provider.id }}>
           <ProviderNotice status={application.status} />
           {selectedProjectId && !selectedProject ? (
             <main className="system-main"><section className="system-card warning"><span className="notice-symbol">!</span><div><p className="eyebrow">找不到作品</p><h1>這個作品不存在或無法讀取</h1><button className="button primary" onClick={() => navigate(null)}>回到作品首頁</button></div></section></main>

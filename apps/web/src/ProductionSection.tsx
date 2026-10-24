@@ -158,7 +158,7 @@ export function ProductionSection({ projectId, csrf, brief, sourceReady }: Props
       {run && !run.usage && <p>實際 AI 用量尚未取得，不代表零用量。</p>}
       </details>
     </div>}
-    {production && run && timeline && timeline.duration_frames > 0 && <div hidden={view !== 'edit' && view !== 'ai'}><ProductionWorkbench key={run.run_id} mode={view === 'ai' ? 'ai' : 'manual'} onRefine={() => setView('ai')} projectId={projectId} csrf={csrf} runId={run.run_id} revisionId={production.draft.revision_id} preview={preview ?? null} active={active} onChanged={() => setRefreshKey((value) => value + 1)} musicId={musicId} onMusicChange={setMusicId} /></div>}
+    {production && run && timeline && timeline.duration_frames > 0 && <div hidden={view !== 'edit' && view !== 'ai'}><ProductionWorkbench key={run.run_id} runProvider={run.provider} mode={view === 'ai' ? 'ai' : 'manual'} onRefine={() => setView('ai')} projectId={projectId} csrf={csrf} runId={run.run_id} revisionId={production.draft.revision_id} preview={preview ?? null} active={active} onChanged={() => setRefreshKey((value) => value + 1)} musicId={musicId} onMusicChange={setMusicId} /></div>}
     {!loading && <details className="production-editor" hidden={Boolean(production) && view !== 'new'} open={!production || briefOpen}
       onToggle={(event) => setBriefOpen(event.currentTarget.open)}>
       <summary>{production ? active ? '本次製作需求' : '製作下一支影片' : '設定你的影片'}</summary>
