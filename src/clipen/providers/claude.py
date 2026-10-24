@@ -6,6 +6,7 @@ import base64
 from dataclasses import dataclass
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -56,6 +57,37 @@ REQUIRED_FLAGS = (
 )
 _PROBE_TIMEOUT_SECONDS = 20
 _CLAUDE_ENVIRONMENT = frozenset({"ANTHROPIC_API_KEY", "CLAUDE_CONFIG_DIR"})
+
+
+# Clipen excludes user settings so they cannot add tools, hooks or rules. Only
+# the chosen model and effort carry over, like Codex's model and effort.
+_CLAUDE_EFFORTS = frozenset({"low", "medium", "high", "xhigh", "max"})
+_CLAUDE_MODEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:\[\]-]{0,79}")
+
+
+def claude_preferences(environment: Mapping[str, str] | None = None) -> tuple[str | None, str | None]:
+    """The `model` and `effortLevel` from the user's Claude Code settings."""
+    source = os.environ if environment is None else environment
+    home = source.get("CLAUDE_CONFIG_DIR") or (str(Path(source["HOME"]) / ".claude") if source.get("HOME") else None)
+    if not home:
+        return None, None
+    path = Path(home) / "settings.json"
+    try:
+        if path.stat().st_size > 1024 * 1024:
+            return None, None
+        settings = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None, None
+    if not isinstance(settings, dict):
+        return None, None
+    model, effort = settings.get("model"), settings.get("effortLevel")
+    return (model if isinstance(model, str) and _CLAUDE_MODEL.fullmatch(model) else None,
+            effort if effort in _CLAUDE_EFFORTS else None)
+
+
+def model_arguments(environment: Mapping[str, str] | None = None) -> tuple[str, ...]:
+    model, effort = claude_preferences(environment)
+    return (*(("--model", model) if model else ()), *(("--effort", effort) if effort else ()))
 
 
 def claude_environment(source: Mapping[str, str] | None = None) -> dict[str, str]:
@@ -269,6 +301,7 @@ class ClaudeExecAdapter(CodexExecAdapter):
             "project",
             "--no-session-persistence",
             "--disable-slash-commands",
+            *model_arguments(self._environment),
         )
 
     def _stdin_payload(self, attempt: CodexAttempt) -> bytes:

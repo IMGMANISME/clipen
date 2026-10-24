@@ -9,6 +9,8 @@ from typing import Mapping
 from .claude import (
     _stream_events,
     claude_environment,
+    claude_preferences,
+    model_arguments,
     raise_for_claude_failure,
     raise_for_failed_result,
     stream_event_types,
@@ -70,6 +72,7 @@ class ClaudeEditingAgent(BoundedEditingAgent):
             "--setting-sources",
             "project",
             "--disable-slash-commands",
+            *model_arguments(self.environment),
         )
 
     def events_and_usage(self, stdout: bytes) -> tuple[tuple[str, ...], ProviderUsage | None]:
@@ -80,7 +83,8 @@ class ClaudeEditingAgent(BoundedEditingAgent):
         # Claude Code has no quota query; keep what this attempt reported.
         from .account import record_claude_account
         try:
-            record_claude_account(self.attempt_root, _stream_events(stdout, _MAX_CAPTURE_BYTES))
+            record_claude_account(self.attempt_root, _stream_events(stdout, _MAX_CAPTURE_BYTES),
+                                  claude_preferences(self.environment)[0])
         except (OSError, ProviderProtocolError):
             pass
 

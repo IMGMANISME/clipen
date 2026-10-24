@@ -188,7 +188,8 @@ def provider_account(provider_id: str, attempt_root: Path, ttl: float = 60.) -> 
 
     def lookup() -> dict:
         if provider_id == "claude":
-            return claude_account(attempt_root)
+            from clipen.providers.claude import claude_environment
+            return claude_account(attempt_root, claude_environment())
         if provider_id != "codex":
             return {"model": None, "quota": None}
         try:

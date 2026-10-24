@@ -287,7 +287,8 @@ Codex 的候選方向是受控非互動 `codex exec`，但正式參數、sandbox
 - Claude：`claude --print`，關閉所有內建工具（`--tools ""`）、只允許 Clipen MCP 工具、
   以 `--strict-mcp-config` 排除其他 MCP server、不載入使用者設定；單次 Attempt 另以
   `--safe-mode` 排除 CLAUDE.md、skills 與 hooks，並以 `--json-schema` 約束輸出，
-  縮圖以 stdin 的影像區塊傳入。
+  縮圖以 stdin 的影像區塊傳入。唯一例外是 Claude Code `settings.json` 的 `model` 與
+  `effortLevel`，以 `--model`、`--effort` 帶入。
 
 一個製作工作只由建立它的 provider 接續；縮圖觀察的中斷恢復也使用原本 provider
 的 adapter 核對，切換 provider 不會花另一個帳號的額度。
