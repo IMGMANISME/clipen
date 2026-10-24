@@ -709,7 +709,7 @@ export async function connectLocalSession(): Promise<void> {
 export type QuotaWindow = { kind: 'five_hour' | 'weekly' | 'other'; minutes: number | null; used_percent: number; resets_at: number | null }
 export type ProviderAccount = {
   provider: { id: string; name: string }
-  model: { id: string; name: string; effort: string | null; source?: 'last_run' | 'codex_config' | 'default'; unavailable?: string | null } | null
+  model: { id: string; name: string; effort: string | null; source?: 'last_run' | 'codex_config' | 'claude_config' | 'default'; unavailable?: string | null } | null
   quota: { source: 'live' | 'last_run'; plan: string | null; windows: QuotaWindow[]; limited: boolean; warning?: boolean;
     resets_at?: number | null; kind?: string | null; observed_at?: number | null } | null
 }
