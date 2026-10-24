@@ -38,10 +38,11 @@ from .errors import (
 )
 
 
-# JSON events include the bounded MCP thumbnails returned to the model. Keep a
-# finite allowance for a representative set of inspected candidates while
-# still terminating unexpectedly verbose provider output.
-_MAX_CAPTURE_BYTES = 32 * 1024 * 1024
+# JSON events include the bounded MCP thumbnails returned to the model, and
+# Claude's stream repeats each tool result (images included) a second time. A
+# real Claude revision with ~90 previews reached 34 MB, so leave room for a long
+# production while still terminating runaway output.
+_MAX_CAPTURE_BYTES = 256 * 1024 * 1024
 _PRODUCTION_PROMPT = """You are the director and editor of one Clipen production session.
 Use only the clipen MCP tools. Read get_edit_status, list_editing_tools and
 read_production_skill(resource="SKILL.md") first. That default read returns the
@@ -355,9 +356,12 @@ class BoundedEditingAgent:
         returncode: int | None = None
         try:
             returncode = self._run(command, workspace, events, diagnostics, timeout_seconds, cancel)
-            event_types, usage = self.events_and_usage(events.read_bytes())
-            self.record_account(events.read_bytes())
-            self.raise_for_failure(events.read_bytes(), diagnostics.read_bytes(), returncode)
+            # Read the (possibly large) event log once for every check.
+            stdout = events.read_bytes()
+            event_types, usage = self.events_and_usage(stdout)
+            self.record_account(stdout)
+            self.raise_for_failure(stdout, diagnostics.read_bytes(), returncode)
+            del stdout
             finished = self.repository.get(project_id, run_id)
             if finished.state != "succeeded" or finished.final_revision_id is None:
                 # Tell a draft held back by Clipen's own delivery checks apart

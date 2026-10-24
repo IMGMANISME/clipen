@@ -25,7 +25,8 @@ _EVENT_LABELS = {
     'refinement_requested': '收到你的修改要求', 'run_resumed': '接續上次的草稿',
     'provider_switched': '換另一個 AI 接手',
     'revision_created': '草稿已儲存', 'production_preview': '已提交預覽合成',
-    'production_review': '已檢查預覽畫面', 'mix_review': '已取得混音量測',
+    # Reviewing a preview and its mix are the same step to the viewer as the review tools.
+    'production_review': '檢查畫面、字幕與聲音', 'mix_review': '檢查畫面、字幕與聲音',
     'run_finished': '樣片製作已完成，等待你觀看',
     'provider_failed': 'AI 這次沒有完成製作',
     'run_cancelled': '製作已停止', 'run_interrupted': '製作已中斷',
@@ -45,7 +46,7 @@ _STAGE_OF_LABEL = {
     '理解製作需求與影片風格': 'understand', '尋找與檢視來源素材': 'sources', '準備本機語音模型': 'sources',
     '辨識與對齊來源口語': 'sources', '安排故事與剪輯': 'edit', '製作字幕與畫面設計': 'graphics',
     '尋找與安排配樂、音效': 'music', '輸出樣片預覽': 'render', '已提交預覽合成': 'render',
-    '檢查畫面、字幕與聲音': 'review', '已檢查預覽畫面': 'review', '已取得混音量測': 'review', '整理交付檔案': 'review',
+    '檢查畫面、字幕與聲音': 'review', '整理交付檔案': 'review',
 }
 
 
