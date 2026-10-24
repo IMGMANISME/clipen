@@ -59,7 +59,9 @@ export function ProviderBadge({ label, ready, providerReady, providerName }: Pro
         {!quota && <div><dt>額度</dt><dd>{providerName === 'Claude' ? '第一次製作後顯示' : '暫時讀不到'}</dd></div>}
       </dl>
       {quota?.source === 'last_run' && <p>Claude Code 不提供剩餘百分比，這是最近一次製作時回報的狀態。</p>}
-      {model && providerName === 'Codex' && <p>Clipen 使用 Codex 帳號的預設模型，不會套用你在 Codex 裡的模型設定。</p>}
+      {model?.unavailable && <p>你在 Codex 設定的模型 {model.unavailable} 目前不能用在這個帳號，改用預設模型{model.source === 'codex_config' ? '；推理強度沿用你的設定' : ''}。</p>}
+      {model && !model.unavailable && model.source === 'codex_config' && <p>沿用你在 Codex 設定的模型與推理強度。</p>}
+      {model && model.source === 'default' && !model.unavailable && <p>你沒有在 Codex 設定模型，使用帳號的預設模型。</p>}
     </div>
   </details>
 }
