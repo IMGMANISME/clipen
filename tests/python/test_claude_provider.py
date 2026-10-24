@@ -236,6 +236,25 @@ class ProviderSelectionTests(unittest.TestCase):
             self.assertEqual(json.loads(body)["provider"]["name"], "Claude")
 
 
+class ClaudeLargeStreamTests(unittest.TestCase):
+    def test_long_revisions_with_many_previews_fit_and_tool_echoes_are_dropped(self):
+        import json
+        from clipen.providers.claude import _stream_events
+        from clipen.providers.editing_agent import _MAX_CAPTURE_BYTES
+        # A real Claude revision with about 90 previews wrote 34.7 MB and was cut off at 32 MB.
+        self.assertGreaterEqual(_MAX_CAPTURE_BYTES, 128 * 1024 * 1024)
+        image = {'type': 'image', 'source': {'type': 'base64', 'media_type': 'image/png', 'data': 'A' * 1000}}
+        stream = '\n'.join(json.dumps(e) for e in (
+            {'type': 'system', 'subtype': 'init', 'model': 'claude-sonnet-5'},
+            {'type': 'user', 'message': {'content': [{'type': 'tool_result', 'content': [image]}]}, 'tool_use_result': [image]},
+            {'type': 'result', 'subtype': 'success', 'result': 'OK'})).encode()
+        events = _stream_events(stream, _MAX_CAPTURE_BYTES)
+        self.assertEqual(events[1], {'type': 'user'})
+        self.assertEqual((events[0]['model'], events[2]['result']), ('claude-sonnet-5', 'OK'))
+        with self.assertRaises(Exception):
+            _stream_events(b'{not json}', _MAX_CAPTURE_BYTES)
+
+
 class ClaudeClosingMessageTests(unittest.TestCase):
     def test_the_result_event_carries_the_last_message_to_the_user(self):
         import json

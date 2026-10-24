@@ -192,17 +192,21 @@ class ClaudeCliAdapter:
 
 
 def _stream_events(stdout: bytes, limit: int = _MAX_CAPTURE_BYTES) -> list[dict]:
+    if len(stdout) > limit:
+        raise ProviderProtocolError("Claude stream-json output exceeded the capture limit")
     events = []
-    for line in _decode_capture(stdout, "stream-json output", limit).splitlines():
+    # Parse line by line from bytes so a large log is never copied into one string.
+    for line in stdout.splitlines():
         if not line.strip():
             continue
         try:
             event = json.loads(line)
-        except json.JSONDecodeError as error:
+        except (json.JSONDecodeError, UnicodeDecodeError) as error:
             raise ProviderProtocolError("Claude stream contained invalid JSON") from error
         if not isinstance(event, dict):
             raise ProviderProtocolError("Claude stream events must be objects")
-        events.append(event)
+        # Tool results echo every thumbnail back; nothing reads them, so keep only the type.
+        events.append({"type": "user"} if event.get("type") == "user" else event)
     return events
 
 
