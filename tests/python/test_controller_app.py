@@ -143,6 +143,19 @@ class ControllerAppTests(unittest.TestCase):
         self.assertEqual(payload["provider"]["state"], "ready")
         self.assertTrue(payload["session"]["csrf_token"])
 
+    def test_account_endpoint_names_the_model_and_quota_only_for_a_session(self) -> None:
+        details = {"model": {"id": "gpt-5.6-sol", "name": "GPT-5.6-Sol", "effort": "low"},
+                   "quota": {"source": "live", "plan": "plus", "windows": [], "limited": False}}
+        self.app = create_app(ControllerConfig(self.static_root), self.provider, self.authority,
+                              provider_account=lambda: details)
+        self.assertEqual(self.request("GET", "/api/provider/account").status, 401)
+        cookie = (self.connect().header("set-cookie") or "").split(";", 1)[0]
+        payload = self.request("GET", "/api/provider/account", {"cookie": cookie}).json()
+        assert isinstance(payload, dict)
+        self.assertEqual(payload["provider"], {"id": "codex", "name": "Codex"})
+        self.assertEqual(payload["model"]["name"], "GPT-5.6-Sol")
+        self.assertEqual(payload["quota"]["plan"], "plus")
+
     def test_fixed_localhost_url_connects_each_browser_without_fragment_token(self) -> None:
         first = self.request(
             "POST",

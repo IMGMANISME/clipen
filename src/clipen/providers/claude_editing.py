@@ -76,6 +76,14 @@ class ClaudeEditingAgent(BoundedEditingAgent):
         events = _stream_events(stdout, _MAX_CAPTURE_BYTES)
         return stream_event_types(events), stream_usage(events)
 
+    def record_account(self, stdout: bytes) -> None:
+        # Claude Code has no quota query; keep what this attempt reported.
+        from .account import record_claude_account
+        try:
+            record_claude_account(self.attempt_root, _stream_events(stdout, _MAX_CAPTURE_BYTES))
+        except (OSError, ProviderProtocolError):
+            pass
+
     def closing_message(self, stdout: bytes, final_message: Path) -> str | None:
         # Claude reports its last message in the stream's result event.
         result = next((e for e in reversed(_stream_events(stdout, _MAX_CAPTURE_BYTES)) if e.get("type") == "result"), None)

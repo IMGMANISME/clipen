@@ -297,6 +297,7 @@ def create_app(
     preview_renders: PreviewRenderService | None = None,
     edit_agents: EditAgentCoordinator | None = None,
     finishing: FinishingService | None = None,
+    provider_account=None,
 ) -> ASGIApp:
     static_root = config.static_root.resolve(strict=True)
     if timeline_validations is None and workspace is not None:
@@ -346,6 +347,14 @@ def create_app(
                 "session": {"csrf_token": credentials.csrf_token},
             }
         )
+
+    async def account(request: Request) -> Response:
+        # Which model runs and how much quota is left; read-only, never calls a model.
+        if authority.authenticate(_cookie_value(request.headers, _SESSION_COOKIE)) is None:
+            return JSONResponse({"error": {"code": "session_required", "message": "請從 Clipen Terminal 重新開啟工作台。"}},
+                                status_code=401)
+        details = await run_in_threadpool(provider_account) if provider_account is not None else {"model": None, "quota": None}
+        return JSONResponse({"provider": {"id": provider.provider_id, "name": provider.name}, **details})
 
     async def reopen_instance(request: Request) -> Response:
         supplied = request.headers.get(_INSTANCE_HEADER)
@@ -1607,6 +1616,7 @@ def create_app(
             Route("/api/session/connect", connect_local_browser, methods=["POST"]),
             Route("/api/instance/reopen", reopen_instance, methods=["POST"]),
             Route("/api/status", status, methods=["GET"]),
+            Route("/api/provider/account", account, methods=["GET"]),
             Route(
                 "/api/system/commands/remove-asr",
                 remove_asr,
