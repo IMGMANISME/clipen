@@ -118,6 +118,54 @@ def _workspace_file(path: Path, workspace: Path, field: str) -> Path:
     return resolved
 
 
+# Clipen ignores the user's Codex config so it cannot change tools, rules or
+# approvals. Only the chosen model and reasoning effort carry over.
+_EFFORTS = frozenset({"none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"})
+_MODEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,79}")
+_TABLE = re.compile(r"^\s*\[\s*([^\[\]]+?)\s*\]\s*(?:#.*)?$")
+_STRING = re.compile(r"""^\s*([A-Za-z0-9_]+)\s*=\s*(?:"([^"\\]*)"|'([^']*)')\s*(?:#.*)?$""")
+
+
+def codex_preferences(environment: Mapping[str, str] | None = None) -> tuple[str | None, str | None]:
+    """The model and reasoning effort from the user's Codex config, honouring `profile`."""
+    source = os.environ if environment is None else environment
+    home = source.get("CODEX_HOME") or (str(Path(source["HOME"]) / ".codex") if source.get("HOME") else None)
+    if not home:
+        return None, None
+    path = Path(home) / "config.toml"
+    try:
+        if path.is_symlink() and not path.resolve().is_file() or path.stat().st_size > 1024 * 1024:
+            return None, None
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return None, None
+    tables: dict[str, dict[str, str]] = {"": {}}
+    table = ""
+    for line in lines:
+        if header := _TABLE.match(line):
+            table = header.group(1).replace('"', "").replace(" ", "")
+            tables.setdefault(table, {})
+        elif value := _STRING.match(line):
+            tables[table][value.group(1)] = value.group(2) if value.group(2) is not None else value.group(3)
+    chosen = {**tables[""], **tables.get("profiles." + tables[""].get("profile", ""), {})} if tables[""].get("profile") else tables[""]
+    model, effort = chosen.get("model"), chosen.get("model_reasoning_effort")
+    return (model if model and _MODEL.fullmatch(model) else None,
+            effort if effort in _EFFORTS else None)
+
+
+def model_config(binary: str | Path, environment: Mapping[str, str] | None = None) -> tuple[str, ...]:
+    """`-c` overrides for the user's model and effort, kept only when this account supports them."""
+    preferences = codex_preferences(environment)
+    if preferences == (None, None):
+        return ()
+    from .account import available_models, resolve_codex_model
+    resolved = resolve_codex_model(preferences, available_models(binary, environment or os.environ))
+    if resolved is None:
+        return ()
+    return (*(("-c", f"model={json.dumps(resolved['id'])}") if resolved["apply_model"] else ()),
+            *(("-c", f"model_reasoning_effort={json.dumps(resolved['effort'])}") if resolved["apply_effort"] else ()))
+
+
 def _provider_environment(source: Mapping[str, str] | None = None) -> dict[str, str]:
     inherited = os.environ if source is None else source
     environment = {key: value for key, value in inherited.items() if key in _ENVIRONMENT_ALLOWLIST}
@@ -467,6 +515,7 @@ class CodexExecAdapter:
             "--output-last-message",
             str(resolved_output),
             *(part for image in attempt.images for part in ("--image", str(image.resolve()))),
+            *model_config(self._binary, self._environment),
             "--cd",
             str(workspace),
             "-",

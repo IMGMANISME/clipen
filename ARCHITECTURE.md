@@ -279,7 +279,11 @@ Codex 的候選方向是受控非互動 `codex exec`，但正式參數、sandbox
 各 provider 只負責啟動自己的 CLI 與解讀輸出：
 
 - Codex：`codex exec`，以 permission profile 限制檔案與網路，`--ignore-user-config`、
-  `--ignore-rules` 排除使用者設定。
+  `--ignore-rules` 排除使用者設定。唯一例外是 `config.toml` 的 `model` 與
+  `model_reasoning_effort`（含 `profile`）：帳號支援時才以 `-c` 帶入，帳號不能用的模型
+  改用預設模型，不會讓製作失敗。
+- 右上角顯示 AI、模型與額度。Codex 透過 `codex app-server` 即時查詢，不呼叫模型；
+  Claude Code 沒有額度查詢，顯示最近一次製作回報的模型與額度狀態。
 - Claude：`claude --print`，關閉所有內建工具（`--tools ""`）、只允許 Clipen MCP 工具、
   以 `--strict-mcp-config` 排除其他 MCP server、不載入使用者設定；單次 Attempt 另以
   `--safe-mode` 排除 CLAUDE.md、skills 與 hooks，並以 `--json-schema` 約束輸出，

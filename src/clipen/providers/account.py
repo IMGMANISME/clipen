@@ -83,15 +83,55 @@ def _window(value: object) -> dict | None:
             "used_percent": max(0, min(100, round(used))), "resets_at": resets if isinstance(resets, int) else None}
 
 
+_MODELS: dict[str, tuple[float, list[dict]]] = {}
+_MODELS_LOCK = threading.Lock()
+
+
+def _models(data: object) -> list[dict]:
+    if not isinstance(data, list):
+        return []
+    return [{"model": m.get("model") or m.get("id"), "name": m.get("displayName") or m.get("model"),
+             "default": bool(m.get("isDefault")), "default_effort": m.get("defaultReasoningEffort"),
+             "efforts": [e.get("reasoningEffort") for e in m.get("supportedReasoningEfforts") or [] if isinstance(e, dict)]}
+            for m in data if isinstance(m, dict) and isinstance(m.get("model") or m.get("id"), str)]
+
+
+def available_models(binary: str | Path, environment: Mapping[str, str], ttl: float = 600.) -> list[dict]:
+    """Models this Codex account can run, cached for a few minutes."""
+    key = str(binary)
+    with _MODELS_LOCK:
+        cached = _MODELS.get(key)
+        if cached and time.monotonic() - cached[0] < ttl:
+            return cached[1]
+    models = _models((_rpc(key, environment, [("model/list", {})], 10.).get(1) or {}).get("data"))
+    with _MODELS_LOCK:
+        # An empty answer is kept briefly too, so a slow app server delays one run, not each one.
+        _MODELS[key] = (time.monotonic() - (ttl - 60 if not models else 0), models)
+    return models
+
+
+def resolve_codex_model(preferences: tuple[str | None, str | None], models: list[dict]) -> dict | None:
+    """The model and effort a run will use: the user's choice when the account offers it, else the default."""
+    if not models:
+        return None
+    wanted, effort = preferences
+    default = next((m for m in models if m["default"]), models[0])
+    chosen = next((m for m in models if m["model"] == wanted), None)
+    model = chosen or default
+    applied_effort = effort if effort and effort in model["efforts"] else None
+    return {"id": model["model"], "name": model["name"], "effort": applied_effort or model["default_effort"],
+            "apply_model": chosen is not None, "apply_effort": applied_effort is not None,
+            "source": "codex_config" if chosen is not None or applied_effort else "default",
+            "unavailable": wanted if wanted and chosen is None else None}
+
+
 def codex_account(binary: str | Path, environment: Mapping[str, str], timeout: float = 10.) -> dict:
-    """The default Codex model (Clipen ignores the user's Codex config) and live usage limits."""
+    """The model Clipen runs (see resolve_codex_model) and live usage limits."""
+    from .codex import codex_preferences
     answers = _rpc(str(binary), environment, [("account/rateLimits/read", None), ("model/list", {})], timeout)
     limits = (answers.get(1) or {}).get("rateLimits")
-    models = (answers.get(2) or {}).get("data")
-    default = next((m for m in models if isinstance(m, dict) and m.get("isDefault")), None) if isinstance(models, list) else None
-    model = None if default is None else {"id": default.get("model") or default.get("id"),
-                                          "name": default.get("displayName") or default.get("model"),
-                                          "effort": default.get("defaultReasoningEffort")}
+    resolved = resolve_codex_model(codex_preferences(environment), _models((answers.get(2) or {}).get("data")))
+    model = None if resolved is None else {key: resolved[key] for key in ("id", "name", "effort", "source", "unavailable")}
     quota = None
     if isinstance(limits, dict):
         windows = [w for w in (_window(limits.get("primary")), _window(limits.get("secondary"))) if w]
