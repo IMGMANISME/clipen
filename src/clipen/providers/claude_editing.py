@@ -76,6 +76,12 @@ class ClaudeEditingAgent(BoundedEditingAgent):
         events = _stream_events(stdout, _MAX_CAPTURE_BYTES)
         return stream_event_types(events), stream_usage(events)
 
+    def closing_message(self, stdout: bytes, final_message: Path) -> str | None:
+        # Claude reports its last message in the stream's result event.
+        result = next((e for e in reversed(_stream_events(stdout, _MAX_CAPTURE_BYTES)) if e.get("type") == "result"), None)
+        value = None if result is None else result.get("result")
+        return value if isinstance(value, str) else None
+
     def raise_for_failure(self, stdout: bytes, stderr: bytes, returncode: int) -> None:
         events = _stream_events(stdout, _MAX_CAPTURE_BYTES)
         diagnostic = _decode_capture(stderr, "stderr", _MAX_CAPTURE_BYTES)
