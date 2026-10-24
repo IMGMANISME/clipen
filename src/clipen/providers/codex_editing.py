@@ -12,6 +12,7 @@ from .codex import (
     _permission_config,
     _provider_environment,
     _toml_string,
+    model_config,
 )
 from .editing_agent import (
     _MAX_CAPTURE_BYTES,
@@ -75,6 +76,7 @@ class CodexEditingAgent(BoundedEditingAgent):
             "mcp_servers.clipen.default_tools_approval_mode=\"approve\"",
             "-c",
             f"mcp_servers.clipen.enabled_tools={json.dumps(_MCP_TOOLS)}",
+            *model_config(self.binary, self.environment),
             "--cd",
             str(workspace),
             "-",

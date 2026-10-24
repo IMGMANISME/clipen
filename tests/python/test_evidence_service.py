@@ -384,7 +384,8 @@ class EvidenceServiceTests(unittest.TestCase):
         binary.chmod(0o700)
         class ReceiptProvider(CodexExecAdapter):
             def __init__(adapter, root):
-                super().__init__(root, binary)
+                # A private HOME keeps the developer's Codex config out of the command.
+                super().__init__(root, binary, environment={'PATH': os.environ.get('PATH', ''), 'HOME': str(self.root)})
             def probe(adapter):
                 return SimpleNamespace(available=True, version='fake-receipt')
         self.service.adapter_factory = ReceiptProvider
