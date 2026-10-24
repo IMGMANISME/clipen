@@ -1209,6 +1209,22 @@ input:focus, textarea:focus { border-color: #6c8b73; box-shadow: 0 0 0 3px rgba(
 .production-status-panel .production-status-note, .production-status-footer, .production-activity p { color: var(--muted); font-size: 13px; }
 .production-current-work, .production-recovery { display: grid; gap: 10px; }
 .production-recovery .button { justify-self: start; }
+.production-elapsed { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.production-stages { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.production-stages li { position: relative; display: grid; justify-items: center; gap: 6px; text-align: center; font-size: 12px; line-height: 1.35; color: var(--muted); }
+.production-stages li::before { content: ''; position: absolute; top: 6px; right: 50%; width: 100%; height: 2px; background: var(--line); }
+.production-stages li:first-child::before { display: none; }
+.production-stages li.is-done::before, .production-stages li.is-current::before, .production-stages li.is-stopped::before { background: var(--green); }
+.production-stage-dot { position: relative; width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--line); background: #fff; box-sizing: border-box; }
+.production-stages li.is-done .production-stage-dot { background: var(--green); border-color: var(--green); }
+.production-stages li.is-current .production-stage-dot { border-color: var(--green); box-shadow: 0 0 0 4px var(--green-soft); animation: production-stage-pulse 1.6s ease-in-out infinite; }
+.production-stages li.is-stopped .production-stage-dot { border-color: #c58a68; background: #f6e3d6; }
+.production-stages li.is-done, .production-stages li.is-current, .production-stages li.is-stopped { color: var(--ink, inherit); }
+.production-stages li.is-current { font-weight: 650; }
+.production-stage-short { display: none; }
+@media (max-width: 520px) { .production-stage-name { display: none; } .production-stage-short { display: inline; } }
+@keyframes production-stage-pulse { 50% { box-shadow: 0 0 0 7px var(--green-soft); } }
+@media (prefers-reduced-motion: reduce) { .production-stages li.is-current .production-stage-dot { animation: none; } }
 .production-job { display: grid; gap: 7px; padding: 14px 16px; border-radius: 10px; background: var(--green-soft); }
 .production-job progress { width: 100%; accent-color: var(--green); }
 .production-job span { font-size: 13px; color: #465d4d; }

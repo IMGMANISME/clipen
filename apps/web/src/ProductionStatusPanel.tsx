@@ -1,9 +1,39 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { EditAgentStatus } from './api'
 import { productionIssue, productionProblem } from './productionMessages'
 import { useProvider } from './providerContext'
 
 type Props = { status: EditAgentStatus; busy: boolean; onResume: () => void; onCancel: () => void; onRefresh: () => void; onEdit: () => void; onView?: () => void; onRefine?: () => void }
+const STAGE_NAMES: Record<string, string> = { understand: '理解需求', sources: '選素材', edit: '剪輯', graphics: '字幕與畫面',
+  music: '配樂', render: '輸出影片', review: '檢查' }
+// Narrow screens fit seven steps only with two-character names.
+const SHORT_NAMES: Record<string, string> = { understand: '理解', sources: '選材', edit: '剪輯', graphics: '字幕',
+  music: '配樂', render: '輸出', review: '檢查' }
+
+function elapsedLabel(started: string | null | undefined, now: number): string | null {
+  const start = started ? new Date(started).getTime() : NaN
+  if (Number.isNaN(start)) return null
+  const minutes = Math.max(0, Math.floor((now - start) / 60000))
+  if (minutes < 1) return '剛開始'
+  return minutes < 60 ? `已進行 ${minutes} 分鐘` : `已進行 ${Math.floor(minutes / 60)} 小時 ${minutes % 60} 分鐘`
+}
+
+/** How far the AI has observably got; an agent has no fixed number of steps, so there is no percentage. */
+function StageBar({ stages, reached, active }: { stages: string[]; reached: number; active: boolean }) {
+  const current = Math.max(0, Math.min(reached, stages.length - 1))
+  return <ol className="production-stages" aria-label="製作階段">
+    {stages.map((stage, index) => {
+      const state = reached >= stages.length || index < current ? 'done' : index === current && active ? 'current' : index === current ? 'stopped' : 'pending'
+      const name = STAGE_NAMES[stage] ?? stage
+      return <li key={stage} className={`is-${state}`} aria-current={state === 'current' ? 'step' : undefined}
+        aria-label={state === 'done' ? `${name}，已完成` : name}>
+        <span className="production-stage-dot" aria-hidden="true" /><span className="production-stage-name" aria-hidden="true">{name}</span>
+        <span className="production-stage-short" aria-hidden="true">{SHORT_NAMES[stage] ?? name}</span>
+      </li>
+    })}
+  </ol>
+}
+
 function timeLabel(value: string): string {
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? '' : date.toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit' })
@@ -12,6 +42,13 @@ function timeLabel(value: string): string {
 export function ProductionStatusPanel({ status, busy, onResume, onCancel, onRefresh, onEdit, onView, onRefine }: Props) {
   const provider = useProvider()
   const [copied, setCopied] = useState(false)
+  const [now, setNow] = useState(() => Date.now())
+  const running = status.latest_run && ['queued', 'running'].includes(status.latest_run.state)
+  useEffect(() => {
+    if (!running) return
+    const timer = window.setInterval(() => setNow(Date.now()), 30000)
+    return () => window.clearInterval(timer)
+  }, [running])
   const production = status.production
   const run = production ? status.latest_run : null
   if (!production || !run) return null
@@ -34,6 +71,7 @@ export function ProductionStatusPanel({ status, busy, onResume, onCancel, onRefr
     : previewRunning ? '正在輸出影片。' : activity.at(-1)?.label ?? '正在準備製作。'
   const download = job?.kind === 'setup' && job.total_bytes && job.total_bytes > 0
     ? Math.max(0, Math.min(100, Math.round((job.completed_bytes ?? 0) / job.total_bytes * 100))) : null
+  const elapsed = elapsedLabel(progress?.started_at, now)
   const issues = [...new Map((production.validation?.issues ?? []).map((issue) => [issue.code, issue])).values()]
   // When the AI stopped on its own, its last message is the clearest explanation; show it up front.
   const messageUpFront = failed && message !== null
@@ -46,8 +84,11 @@ export function ProductionStatusPanel({ status, busy, onResume, onCancel, onRefr
   }
 
   return <section className={`production-status-panel ${failed ? 'has-problem' : ''} ${active ? 'is-active' : ''}`} aria-labelledby="production-status-heading">
-    <div className="production-status-heading" role="status" aria-live="polite"><h3 id="production-status-heading">{title}</h3></div>
+    <div className="production-status-heading" role="status" aria-live="polite"><h3 id="production-status-heading">{title}</h3>
+      {active && elapsed && <span className="production-elapsed">{elapsed}</span>}</div>
+    {(active || failed) && progress?.stages && <StageBar stages={progress.stages} reached={progress.reached ?? -1} active={active} />}
     <p>{failed ? problem.next : active ? current : run.state === 'cancelled' ? '草稿已保留，可以先看看目前的結果。' : '播放下方影片，看看是否符合你的期待。'}</p>
+    {active && previewRunning && <div className="production-job"><progress aria-label="輸出影片進度" value={production.preview?.progress ?? 0} max={1} /><span>輸出影片 {Math.round((production.preview?.progress ?? 0) * 100)}%</span></div>}
     {active && download !== null && <div className="production-job"><progress aria-label="準備語音功能" value={download} max={100} /><span>語音功能準備進度 {download}%</span></div>}
     {messageUpFront && <blockquote className="production-ai-message"><strong>AI 的說明</strong><p>{message}</p></blockquote>}
     {blocked && issues.length > 0 && <ul className="production-blockers">{issues.map((issue) => <li key={issue.code}>{productionIssue(issue.code)}</li>)}</ul>}
