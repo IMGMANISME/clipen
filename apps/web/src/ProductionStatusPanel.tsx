@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { EditAgentStatus } from './api'
 import { productionIssue, productionProblem } from './productionMessages'
-import { useProvider } from './providerContext'
+import { providerName, useProvider } from './providerContext'
 
 type Props = { status: EditAgentStatus; busy: boolean; onResume: () => void; onCancel: () => void; onRefresh: () => void; onEdit: () => void; onView?: () => void; onRefine?: () => void }
 const STAGE_NAMES: Record<string, string> = { understand: '理解需求', sources: '選素材', edit: '剪輯', graphics: '字幕與畫面',
@@ -58,8 +58,13 @@ export function ProductionStatusPanel({ status, busy, onResume, onCancel, onRefr
   const canResume = run.state === 'failed' && ['provider_timed_out', 'provider_usage_limit', 'provider_stopped_early'].includes(run.error_code ?? '')
   // A draft held back by delivery checks, or an AI that stopped to ask for something, is fixed through a revision request.
   const blocked = run.state === 'failed' && run.error_code === 'delivery_blocked'
-  const canRefine = run.state === 'failed' && ['delivery_blocked', 'provider_stopped_early'].includes(run.error_code ?? '')
-  const problem = productionProblem(run.error_code, provider.name)
+  const canRefine = run.state === 'failed' && ['delivery_blocked', 'provider_stopped_early', 'provider_mismatch'].includes(run.error_code ?? '')
+  // Another AI made this draft: name both, and offer a revision that hands it over.
+  const mismatch = run.state === 'failed' && run.error_code === 'provider_mismatch'
+  const problem = mismatch ? { title: `這支片是用 ${providerName(run.provider)} 做的`,
+    reason: `Clipen 現在用的是 ${provider.name}。中斷的工作只會由原本的 AI 接續，避免花到另一個帳號的額度。`,
+    next: `到「AI 打磨」送出修改，就會改由 ${provider.name} 接手，從目前的版本繼續；想讓 ${providerName(run.provider)} 繼續，請用 clipen ${run.provider} 重新啟動 Clipen。` }
+    : productionProblem(run.error_code, provider.name)
   const progress = production.progress
   const activity = progress?.activity ?? []
   const message = progress?.ai_message?.trim() || null
@@ -86,7 +91,7 @@ export function ProductionStatusPanel({ status, busy, onResume, onCancel, onRefr
   return <section className={`production-status-panel ${failed ? 'has-problem' : ''} ${active ? 'is-active' : ''}`} aria-labelledby="production-status-heading">
     <div className="production-status-heading" role="status" aria-live="polite"><h3 id="production-status-heading">{title}</h3>
       {active && elapsed && <span className="production-elapsed">{elapsed}</span>}</div>
-    {(active || failed) && progress?.stages && <StageBar stages={progress.stages} reached={progress.reached ?? -1} active={active} />}
+    {(active || failed) && !mismatch && progress?.stages && <StageBar stages={progress.stages} reached={progress.reached ?? -1} active={active} />}
     <p>{failed ? problem.next : active ? current : run.state === 'cancelled' ? '草稿已保留，可以先看看目前的結果。' : '播放下方影片，看看是否符合你的期待。'}</p>
     {active && previewRunning && <div className="production-job"><progress aria-label="輸出影片進度" value={production.preview?.progress ?? 0} max={1} /><span>輸出影片 {Math.round((production.preview?.progress ?? 0) * 100)}%</span></div>}
     {active && download !== null && <div className="production-job"><progress aria-label="準備語音功能" value={download} max={100} /><span>語音功能準備進度 {download}%</span></div>}
@@ -94,7 +99,7 @@ export function ProductionStatusPanel({ status, busy, onResume, onCancel, onRefr
     {blocked && issues.length > 0 && <ul className="production-blockers">{issues.map((issue) => <li key={issue.code}>{productionIssue(issue.code)}</li>)}</ul>}
     <div className="production-recovery-actions">
       {failed && (production.preview?.state === 'succeeded' || production.last_successful_preview?.state === 'succeeded') && <a className="button secondary" href="#production-output" onClick={onView}>查看影片</a>}
-      {canRefine && onRefine && <button className="button primary" type="button" disabled={busy} onClick={onRefine}>用 AI 打磨修正</button>}
+      {canRefine && onRefine && <button className="button primary" type="button" disabled={busy} onClick={onRefine}>{mismatch ? `用 ${provider.name} 打磨` : '用 AI 打磨修正'}</button>}
       {canResume && <button className={`button ${canRefine && onRefine ? 'secondary' : 'primary'}`} type="button" disabled={busy} onClick={onResume}>繼續這份草稿</button>}
       {failed && <button className="button secondary" type="button" disabled={busy} onClick={onEdit}>重新製作</button>}
       {active && <button className="button ghost" type="button" disabled={busy} onClick={onCancel}>停止製作</button>}
