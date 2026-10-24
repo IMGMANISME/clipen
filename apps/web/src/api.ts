@@ -706,6 +706,18 @@ export async function connectLocalSession(): Promise<void> {
   await request<{ connected: true }>('/api/session/connect', { method: 'POST' })
 }
 
+export type QuotaWindow = { kind: 'five_hour' | 'weekly' | 'other'; minutes: number | null; used_percent: number; resets_at: number | null }
+export type ProviderAccount = {
+  provider: { id: string; name: string }
+  model: { id: string; name: string; effort: string | null; source?: 'last_run' } | null
+  quota: { source: 'live' | 'last_run'; plan: string | null; windows: QuotaWindow[]; limited: boolean; warning?: boolean;
+    resets_at?: number | null; kind?: string | null; observed_at?: number | null } | null
+}
+
+export async function getProviderAccount(): Promise<ProviderAccount> {
+  return request<ProviderAccount>('/api/provider/account')
+}
+
 export async function getStatus(): Promise<StatusPayload> {
   return request<StatusPayload>('/api/status')
 }
