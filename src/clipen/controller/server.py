@@ -181,6 +181,33 @@ class ServerPaths:
             raise ValueError("planning proposal schema is missing")
 
 
+def provider_account(provider_id: str, attempt_root: Path, ttl: float = 60.) -> Callable[[], dict]:
+    """A cached, read-only lookup of the running model and remaining quota."""
+    from clipen.providers.account import claude_account, codex_account
+    lock, cache = threading.Lock(), {}
+
+    def lookup() -> dict:
+        if provider_id == "claude":
+            return claude_account(attempt_root)
+        if provider_id != "codex":
+            return {"model": None, "quota": None}
+        try:
+            adapter = CodexExecAdapter(attempt_root)
+        except ProviderUnavailable:
+            return {"model": None, "quota": None}
+        return codex_account(adapter.binary, adapter._environment)
+
+    def cached() -> dict:
+        with lock:
+            if cache and time.monotonic() - cache["at"] < ttl:
+                return cache["value"]
+            value = lookup()
+            cache.update(at=time.monotonic(), value=value)
+            return value
+
+    return cached
+
+
 def probe_codex(attempt_root: Path) -> ProviderStatus:
     try:
         adapter = CodexExecAdapter(attempt_root)
@@ -459,6 +486,7 @@ async def _serve(
             preview_renders=preview_renders,
             edit_agents=edit_agents,
             finishing=finishing,
+            provider_account=provider_account(provider.provider_id, paths.attempt_root),
         )
         config = uvicorn.Config(
             app,

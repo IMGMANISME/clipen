@@ -356,6 +356,7 @@ class BoundedEditingAgent:
         try:
             returncode = self._run(command, workspace, events, diagnostics, timeout_seconds, cancel)
             event_types, usage = self.events_and_usage(events.read_bytes())
+            self.record_account(events.read_bytes())
             self.raise_for_failure(events.read_bytes(), diagnostics.read_bytes(), returncode)
             finished = self.repository.get(project_id, run_id)
             if finished.state != "succeeded" or finished.final_revision_id is None:
@@ -440,6 +441,9 @@ class BoundedEditingAgent:
                     process.kill()
             except OSError:
                 pass
+
+    def record_account(self, stdout: bytes) -> None:
+        """Remember account details the provider reported, for the status bar."""
 
     def closing_message(self, stdout: bytes, final_message: Path) -> str | None:
         """The provider's own last message to the user, written beside its events."""
