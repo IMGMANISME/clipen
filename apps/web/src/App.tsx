@@ -1,3 +1,4 @@
+import { ProviderBadge } from './ProviderBadge'
 import { useEffect, useMemo, useState } from 'react'
 import { EvidenceSection } from './EvidenceSection'
 import { TranscriptResults } from './TranscriptResults'
@@ -1342,12 +1343,9 @@ function App() {
     <div className="app-shell">
       <header className="topbar">
         <button className="brand" onClick={() => navigate(null)} aria-label="Clipen 作品首頁"><span className="brand-mark"><StudioIcon name="film" size={21} /></span>clipen<span className="brand-studio">STUDIO</span></button>
-        <div className={`connection-badge ${providerReady ? 'is-ready' : ''}`} aria-live="polite">
-          <span aria-hidden="true" />
-          {application.kind === 'connecting' && '正在連接'}
-          {application.kind === 'failed' && '連線中斷'}
-          {ready && (providerReady ? 'AI 已連接' : 'AI 需要處理')}
-        </div>
+        <ProviderBadge ready={ready} providerReady={providerReady}
+          providerName={ready ? application.status.provider.name : ''}
+          label={application.kind === 'connecting' ? '正在連接' : '連線中斷'} />
       </header>
 
       {application.kind === 'connecting' && (

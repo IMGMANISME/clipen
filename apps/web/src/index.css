@@ -1877,3 +1877,18 @@ legend { color: #5a5f6b; font-size: 12px; font-weight: 600; padding-inline: 8px;
 .skill-picker-basic { margin: 14px 0 0; color: var(--muted); font-size: 13px; }
 .link-button { padding: 0; border: 0; color: var(--green); background: none; font: inherit; text-decoration: underline; cursor: pointer; }
 .link-button:disabled { opacity: .5; cursor: default; }
+
+.provider-badge { position: relative; }
+.provider-badge > summary { list-style: none; cursor: pointer; }
+.provider-badge > summary::-webkit-details-marker { display: none; }
+.provider-quota-pill { font-style: normal; font-weight: 600; padding: 1px 7px; border-radius: 999px; background: rgba(61, 118, 85, .12); font-variant-numeric: tabular-nums; }
+.connection-badge.is-low { border-color: #e2b9a3; color: #9a4a25; background: #fff6f1; }
+.connection-badge.is-low .provider-quota-pill { background: rgba(200, 78, 43, .14); }
+.provider-popover { position: absolute; right: 0; top: calc(100% + 8px); z-index: 40; width: min(320px, calc(100vw - 32px)); padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: #fff; box-shadow: 0 12px 32px rgba(20, 22, 26, .12); display: grid; gap: 10px; }
+.provider-popover dl { margin: 0; display: grid; gap: 10px; }
+.provider-popover dl > div { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 10px; font-size: 13px; }
+.provider-popover dt { color: var(--muted); }
+.provider-popover dd { margin: 0; display: grid; gap: 4px; overflow-wrap: anywhere; }
+.provider-popover meter { width: 100%; height: 8px; }
+.provider-popover p { margin: 0; font-size: 12px; color: var(--muted); line-height: 1.6; }
+@media (max-width: 520px) { .provider-quota-pill { display: none; } }
