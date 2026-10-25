@@ -5,7 +5,7 @@ const problems: Record<string, ProductionProblem> = {
   delivery_blocked: { title: '影片還沒通過交付檢查', reason: 'AI 做出了草稿，但下方列出的項目還沒通過 Clipen 的檢查，所以不算完成。', next: '草稿已保留，可以先看影片。到「AI 打磨」說明要怎麼處理尚待完成的項目，例如快剪段落改用配樂、對話段落保留完整句子。' },
   provider_stopped_early: { title: 'AI 先停下來了', reason: 'AI 在完成前結束了這次工作，通常是需要你提供檔案、做決定，或遇到做不到的要求。', next: '先看下方 AI 的說明。照說明處理後，到「AI 打磨」再送出一次修改；如果只是中途停下，也可以按「繼續這份草稿」。' },
   provider_usage_limit: { title: '{provider} 額度暫時不足', reason: '這次 AI 工作因用量限制而停止。', next: '草稿已保留。待 {provider} 額度恢復後按「繼續這份草稿」接續製作；額度還沒恢復時會再次停止，草稿不受影響。' },
-  provider_authentication_required: { title: '{provider} 需要重新登入', reason: 'AI 連線的登入狀態已失效。', next: '完成 {provider} 登入並重啟 Clipen，再重新製作。' },
+  provider_authentication_required: { title: '{provider} 需要重新登入', reason: '{provider} 的登入在製作途中過期了，這次工作因此停下。', next: '在終端機執行 {login} 完成登入，再按「繼續這份草稿」接著做；不用重新啟動 Clipen，草稿不受影響。' },
   provider_network_error: { title: '與 AI 的連線中斷', reason: '這次工作未能維持與 {provider} 的網路連線。', next: '確認網路恢復，再重新製作。' },
   provider_timed_out: { title: 'AI 工作逾時', reason: '這次工作超過執行時間限制，尚未完成交付。', next: '草稿已保留，按「繼續這份草稿」接續製作。' },
   tool_budget_exhausted: { title: '這次製作尚未完成', reason: 'AI 已達這次工作允許的操作上限，並非影片已經完成。', next: '先查看保留的結果，試著縮小製作範圍後重新製作。' },
@@ -22,7 +22,8 @@ const problems: Record<string, ProductionProblem> = {
 }
 export function productionProblem(code?: string | null, provider = 'Codex'): ProductionProblem {
   const problem = problems[code ?? ''] ?? { title: '這次製作尚未完成', reason: '目前資料不足以確認中斷原因。', next: '可以先查看保留的結果，或稍後重新製作。' }
-  const named = (text: string) => text.replaceAll('{provider}', provider)
+  const login = provider === 'Claude' ? 'claude auth login' : 'codex login'
+  const named = (text: string) => text.replaceAll('{provider}', provider).replaceAll('{login}', login)
   return { title: named(problem.title), reason: named(problem.reason), next: named(problem.next) }
 }
 
