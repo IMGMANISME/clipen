@@ -96,6 +96,7 @@ export function ProductionStatusPanel({ status, busy, onResume, onCancel, onRefr
     {(active || failed) && !mismatch && progress?.stages && <StageBar stages={progress.stages} reached={progress.reached ?? -1} active={active} />}
     <p>{failed ? problem.next : active ? current : run.state === 'cancelled' ? '草稿已保留，可以先看看目前的結果。' : '播放下方影片，看看是否符合你的期待。'}</p>
     {active && previewRunning && <div className="production-job"><progress aria-label="輸出影片進度" value={production.preview?.progress ?? 0} max={1} /><span>輸出影片 {Math.round((production.preview?.progress ?? 0) * 100)}%</span></div>}
+    {active && /Mac/.test(navigator.platform) && <p className="production-status-note">製作期間 Mac 不會自動睡眠；只用電池時闔上螢幕仍會睡著，製作也會跟著暫停。</p>}
     {active && download !== null && <div className="production-job"><progress aria-label="準備語音功能" value={download} max={100} /><span>語音功能準備進度 {download}%</span></div>}
     {messageUpFront && <blockquote className="production-ai-message"><strong>AI 的說明</strong><p>{message}</p></blockquote>}
     {blocked && issues.length > 0 && <ul className="production-blockers">{issues.map((issue) => <li key={issue.code}>{productionIssue(issue.code)}</li>)}</ul>}
