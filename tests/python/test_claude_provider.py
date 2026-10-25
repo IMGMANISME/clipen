@@ -128,6 +128,10 @@ class ClaudeEditingAgentTests(unittest.TestCase):
         cases = [
             (stream(INIT, {**SUCCESS, "subtype": "error_during_execution", "is_error": True,
                            "result": "Invalid API key · Please run /login"}), 1, ProviderAuthenticationError, "provider_authentication_required"),
+            # Recorded from a real run whose OAuth login expired mid-production.
+            (stream(INIT, {**SUCCESS, "is_error": True, "terminal_reason": "api_error",
+                           "result": "Failed to authenticate: OAuth session expired and could not be refreshed"}), 0,
+             ProviderAuthenticationError, "provider_authentication_required"),
             (stream(INIT, {**SUCCESS, "is_error": True, "result": "API Error", "api_error_status": 429}), 1,
              ProviderUsageLimitError, "provider_usage_limit"),
             (stream({**INIT, "mcp_servers": [{"name": "clipen", "status": "failed"}]}, SUCCESS), 0,

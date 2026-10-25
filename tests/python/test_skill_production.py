@@ -498,6 +498,13 @@ class SkillProductionTests(unittest.TestCase):
         self.repository.record_provider_outcome(self.project.project_id,self.run.run_id,'blocked',usage=None,error_code='delivery_blocked')
         with self.assertRaises(ProjectError):self.repository.resume_stopped(self.project.project_id,self.run.run_id)
 
+    def test_an_expired_login_can_continue_the_same_draft_after_signing_in(self):
+        self.cut()
+        before=self.repository.get(self.project.project_id,self.run.run_id)
+        self.repository.record_provider_outcome(self.project.project_id,self.run.run_id,'login',usage=None,error_code='provider_authentication_required')
+        resumed=self.repository.resume_stopped(self.project.project_id,self.run.run_id)
+        self.assertEqual((resumed.state,resumed.current_revision_id),('queued',before.current_revision_id))
+
     def test_an_early_stop_can_continue_the_same_draft(self):
         self.cut()
         before=self.repository.get(self.project.project_id,self.run.run_id)

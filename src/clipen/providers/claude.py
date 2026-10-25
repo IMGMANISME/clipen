@@ -107,7 +107,8 @@ def claude_environment(source: Mapping[str, str] | None = None) -> dict[str, str
 def raise_for_claude_failure(returncode: int, diagnostic: str, status: object = None) -> None:
     text = diagnostic.lower()
     if status == 401 or any(marker in text for marker in (
-            "not logged in", "invalid api key", "/login", "authentication_error", "oauth token")):
+            "not logged in", "invalid api key", "/login", "authentication_error", "authentication_failed",
+            "failed to authenticate", "oauth token", "oauth session")):
         raise ProviderAuthenticationError("Claude login is missing or no longer valid")
     if status == 429 or any(marker in text for marker in (
             "usage limit", "rate limit", "rate_limit", "quota", "credit balance", "limit reached")):
