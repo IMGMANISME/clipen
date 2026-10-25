@@ -269,6 +269,27 @@ def mcp_server_arguments(
     return args
 
 
+_CAFFEINATE = "/usr/bin/caffeinate"
+
+
+def keep_awake(pid: int) -> subprocess.Popen[bytes] | None:
+    """Keep the Mac awake while an AI attempt runs.
+
+    A real production stalled for six hours when the lid closed a minute in,
+    and the provider login expired before it woke. `-i` blocks idle sleep;
+    `-s` also blocks sleep with the lid closed while on AC power (macOS still
+    sleeps on battery). `-w` drops the assertion when the attempt exits, even
+    if Clipen itself is killed.
+    """
+    if sys.platform != "darwin" or not os.access(_CAFFEINATE, os.X_OK):
+        return None
+    try:
+        return subprocess.Popen([_CAFFEINATE, "-i", "-s", "-w", str(pid)], stdin=subprocess.DEVNULL,
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError:
+        return None
+
+
 class BoundedEditingAgent:
     """Launch one ephemeral provider turn and reconcile it with the edit run."""
 
@@ -416,18 +437,27 @@ class BoundedEditingAgent:
                     stderr=stderr,
                     start_new_session=os.name == "posix",
                 )
-                while process.poll() is None:
-                    if cancel is not None and cancel.is_set():
-                        self._terminate(process)
-                        raise ProviderCancelled(f"{name} editing attempt was cancelled")
-                    if time.monotonic() >= deadline:
-                        self._terminate(process)
-                        raise ProviderTimedOut(f"{name} editing attempt timed out")
-                    if stdout.tell() > _MAX_CAPTURE_BYTES or stderr.tell() > _MAX_CAPTURE_BYTES:
-                        self._terminate(process)
-                        raise ProviderProtocolError(f"{name} editing output exceeded its bound")
-                    time.sleep(0.05)
-                return process.returncode
+                awake = keep_awake(process.pid)
+                try:
+                    while process.poll() is None:
+                        if cancel is not None and cancel.is_set():
+                            self._terminate(process)
+                            raise ProviderCancelled(f"{name} editing attempt was cancelled")
+                        if time.monotonic() >= deadline:
+                            self._terminate(process)
+                            raise ProviderTimedOut(f"{name} editing attempt timed out")
+                        if stdout.tell() > _MAX_CAPTURE_BYTES or stderr.tell() > _MAX_CAPTURE_BYTES:
+                            self._terminate(process)
+                            raise ProviderProtocolError(f"{name} editing output exceeded its bound")
+                        time.sleep(0.05)
+                    return process.returncode
+                finally:
+                    if awake is not None:
+                        awake.terminate()
+                        try:
+                            awake.wait(timeout=2)
+                        except subprocess.TimeoutExpired:
+                            awake.kill()
 
     @staticmethod
     def _terminate(process: subprocess.Popen[bytes]) -> None:
