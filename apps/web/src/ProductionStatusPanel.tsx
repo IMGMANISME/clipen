@@ -55,7 +55,7 @@ export function ProductionStatusPanel({ status, busy, onResume, onCancel, onRefr
   const active = ['queued', 'running'].includes(run.state)
   const failed = ['failed', 'interrupted'].includes(run.state)
   // Timeouts, account usage limits and early stops leave a valid draft that can continue later.
-  const canResume = run.state === 'failed' && ['provider_timed_out', 'provider_usage_limit', 'provider_stopped_early'].includes(run.error_code ?? '')
+  const canResume = run.state === 'failed' && ['provider_timed_out', 'provider_usage_limit', 'provider_stopped_early', 'provider_authentication_required'].includes(run.error_code ?? '')
   // A draft held back by delivery checks, or an AI that stopped to ask for something, is fixed through a revision request.
   const blocked = run.state === 'failed' && run.error_code === 'delivery_blocked'
   const canRefine = run.state === 'failed' && ['delivery_blocked', 'provider_stopped_early', 'provider_mismatch'].includes(run.error_code ?? '')
@@ -67,7 +67,9 @@ export function ProductionStatusPanel({ status, busy, onResume, onCancel, onRefr
     : productionProblem(run.error_code, provider.name)
   const progress = production.progress
   const activity = progress?.activity ?? []
-  const message = progress?.ai_message?.trim() || null
+  // Show the AI's last words only when they are its own explanation, not a login or network error it relayed.
+  const explains = !failed || ['provider_stopped_early', 'delivery_blocked'].includes(run.error_code ?? '')
+  const message = explains ? progress?.ai_message?.trim() || null : null
   const job = production.local_jobs.find((entry) => entry.state === 'running')
   const previewRunning = production.preview && ['queued', 'running'].includes(production.preview.state)
   const title = failed ? problem.title : run.state === 'cancelled' ? '已停止製作'
