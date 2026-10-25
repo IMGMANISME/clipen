@@ -284,7 +284,9 @@ class EditAgentRepository:
     # provider ended its turn early. Resuming continues the same revision and
     # budget once the user asks again. A draft blocked by delivery checks needs
     # a revision request instead, since the same instructions hit the same checks.
-    RESUMABLE_ERRORS = frozenset({'provider_timed_out', 'provider_usage_limit', 'provider_stopped_early'})
+    # A login that expired mid-run is the same: sign in again, then continue.
+    RESUMABLE_ERRORS = frozenset({'provider_timed_out', 'provider_usage_limit', 'provider_stopped_early',
+                                  'provider_authentication_required'})
 
     def resume_stopped(self, project_id: str, run_id: object) -> AgentRun:
         normalized = self._validate_run_id(run_id)
@@ -297,7 +299,7 @@ class EditAgentRepository:
             if db.execute("SELECT 1 FROM edit_agent_runs WHERE state IN ('queued','running')").fetchone():
                 raise ProjectError('edit_agent_busy', '目前已有 AI 製作工作。', status_code=409)
             if run.state != 'failed' or run.error_code not in self.RESUMABLE_ERRORS:
-                raise ProjectError('edit_agent_resume_invalid', '只能接續因 AI 逾時、額度不足或提早結束而停止的工作。', status_code=409)
+                raise ProjectError('edit_agent_resume_invalid', '只能接續因 AI 逾時、額度不足、登入過期或提早結束而停止的工作。', status_code=409)
             if not db.execute('SELECT 1 FROM production_sessions WHERE run_id=?', (normalized,)).fetchone():
                 raise ProjectError('edit_agent_resume_invalid', '這份工作不支援接續製作。', status_code=409)
             if run.tool_calls >= run.max_tool_calls or run.preview_renders >= run.max_preview_renders:
