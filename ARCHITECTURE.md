@@ -290,6 +290,9 @@ Codex 的候選方向是受控非互動 `codex exec`，但正式參數、sandbox
   縮圖以 stdin 的影像區塊傳入。唯一例外是 Claude Code `settings.json` 的 `model` 與
   `effortLevel`，以 `--model`、`--effort` 帶入。
 
+AI 製作執行期間，Clipen 在 macOS 以 `caffeinate -i -s -w <pid>` 防止閒置睡眠；接電源時
+闔上螢幕也不會睡（只用電池時 macOS 仍會睡眠）。AI 程序結束即自動解除。
+
 中斷後「繼續這份草稿」只由原本的 provider 接續；縮圖觀察的中斷恢復也使用原本
 provider 的 adapter 核對，不會花另一個帳號的額度。使用者主動送出 AI 打磨時，則由
 目前啟動的 provider 接手同一份草稿（例如 Codex 完成初剪、Claude 精修）：介面先說明

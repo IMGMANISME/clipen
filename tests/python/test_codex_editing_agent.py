@@ -81,6 +81,26 @@ class CodexEditingAgentTests(unittest.TestCase):
                 self.assertEqual(outcomes[0]['error_code'],code)
                 if blockers:self.assertIn('subtitle_source_range_unresolved',str(raised.exception))
 
+    def test_the_mac_stays_awake_only_while_an_attempt_runs(self):
+        import subprocess, sys
+        from clipen.providers import editing_agent
+        with patch.object(editing_agent.sys, 'platform', 'linux'):
+            self.assertIsNone(editing_agent.keep_awake(1))
+        with patch.object(editing_agent.sys, 'platform', 'darwin'), patch.object(editing_agent.os, 'access', return_value=True), \
+                patch.object(editing_agent.subprocess, 'Popen') as popen:
+            editing_agent.keep_awake(4321)
+        self.assertEqual(popen.call_args.args[0], ['/usr/bin/caffeinate', '-i', '-s', '-w', '4321'])
+        # The assertion is released when the attempt ends, whatever the outcome.
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);projects=root/'projects';projects.mkdir();attempts=root/'attempts';attempts.mkdir()
+            repository=SimpleNamespace(production_session=lambda *args:None)
+            agent=CodexEditingAgent(projects,attempts,repository,binary='/bin/echo',python='/usr/bin/python3',environment={'PATH':'/usr/bin','HOME':str(root)})
+            awake=SimpleNamespace(terminated=False)
+            awake.terminate=lambda:setattr(awake,'terminated',True);awake.wait=lambda timeout=None:0
+            with patch('clipen.providers.editing_agent.keep_awake',return_value=awake) as keep:
+                code=agent._run((sys.executable,'-c','print(1)'),root,root/'events.jsonl',root/'diagnostics.log',30,None)
+            self.assertEqual(code,0);keep.assert_called_once();self.assertTrue(awake.terminated)
+
     def test_prompt_gives_model_tool_choice_and_requires_observed_final_output(self):
         self.assertIn('list_editing_tools',_PROMPT)
         self.assertIn('Do not add decoration to satisfy a quota',_PROMPT)
