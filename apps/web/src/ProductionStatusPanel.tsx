@@ -79,6 +79,9 @@ export function ProductionStatusPanel({ status, busy, onResume, onCancel, onRefr
   const download = job?.kind === 'setup' && job.total_bytes && job.total_bytes > 0
     ? Math.max(0, Math.min(100, Math.round((job.completed_bytes ?? 0) / job.total_bytes * 100))) : null
   const elapsed = elapsedLabel(progress?.started_at, now)
+  const slept = progress?.slept_seconds ?? 0
+  const sleptMinutes = Math.max(1, Math.round(slept / 60))
+  const sleptLabel = sleptMinutes < 60 ? `${sleptMinutes} 分鐘` : `${Math.floor(sleptMinutes / 60)} 小時 ${sleptMinutes % 60} 分鐘`
   const issues = [...new Map((production.validation?.issues ?? []).map((issue) => [issue.code, issue])).values()]
   // When the AI stopped on its own, its last message is the clearest explanation; show it up front.
   const messageUpFront = failed && message !== null
@@ -96,6 +99,7 @@ export function ProductionStatusPanel({ status, busy, onResume, onCancel, onRefr
     {(active || failed) && !mismatch && progress?.stages && <StageBar stages={progress.stages} reached={progress.reached ?? -1} active={active} />}
     <p>{failed ? problem.next : active ? current : run.state === 'cancelled' ? '草稿已保留，可以先看看目前的結果。' : '播放下方影片，看看是否符合你的期待。'}</p>
     {active && previewRunning && <div className="production-job"><progress aria-label="輸出影片進度" value={production.preview?.progress ?? 0} max={1} /><span>輸出影片 {Math.round((production.preview?.progress ?? 0) * 100)}%</span></div>}
+    {slept >= 60 && <p className="production-slept" role="note">這次製作期間 Mac 睡眠了約 {sleptLabel}，製作在這段時間暫停{failed ? '，這可能是沒有完成的原因' : ''}。製作時請接上電源，或不要闔上螢幕。</p>}
     {active && /Mac/.test(navigator.platform) && <p className="production-status-note">製作期間 Mac 不會自動睡眠；只用電池時闔上螢幕仍會睡著，製作也會跟著暫停。</p>}
     {active && download !== null && <div className="production-job"><progress aria-label="準備語音功能" value={download} max={100} /><span>語音功能準備進度 {download}%</span></div>}
     {messageUpFront && <blockquote className="production-ai-message"><strong>AI 的說明</strong><p>{message}</p></blockquote>}
