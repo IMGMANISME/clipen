@@ -26,8 +26,10 @@ def tools_for(repository, project_id, run_id):
 
 def state(repository, project_id, run_id):
     revision=repository.current_revision(project_id,run_id)
+    from .versions import versions
     with repository.projects.connect(project_id) as db:
-        history=[dict(r) for r in db.execute('SELECT revision_id,ordinal,summary,created_at FROM edit_agent_revisions WHERE run_id=? ORDER BY ordinal DESC LIMIT 100',(run_id,))]
+        # One entry per complete edit; the AI's per-step revisions stay internal.
+        history=versions(db,run_id,repository.get(project_id,run_id).provider)
     styles=load_text_styles(repository.projects,project_id)
     used={i.style_id for t in revision.timeline.tracks for i in t.items if hasattr(i,'style_id')}
     return {'revision':revision.to_public(include_timeline=True),'styles':{k:v for k,v in styles.items() if k in used},'history':history,'visual_styles':public_styles((repository.production_session(project_id,run_id) or {}).get('skill',{})),'references':public_state((repository.production_session(project_id,run_id) or {}).get('intent',{}),revision.timeline),'audio_assets':AgentAudioStore(repository.projects,project_id).public_assets(),'tools':[t for t in EXTRA_TOOLS if t['name'] in EDIT_TOOLS]}

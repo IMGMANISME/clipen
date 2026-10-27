@@ -129,7 +129,9 @@ class ProductionWorkbenchTests(unittest.TestCase):
         replay=edit(self.repository,self.project,self.run,'edit_text',args,before.revision_id,'user-text')
         self.assertTrue(replay.get('replayed'))
         with self.assertRaises(ProjectError):edit(self.repository,self.project,self.run,'remove_item',{'item_id':'header','summary':'stale'},before.revision_id,'stale')
-        info=state(self.repository,self.project,self.run);self.assertIn(item.style_id,info['styles']);self.assertGreaterEqual(len(info['history']),3)
+        info=state(self.repository,self.project,self.run);self.assertIn(item.style_id,info['styles'])
+        # The manual edit is one version, newest first; AI steps are not listed one by one.
+        self.assertEqual((info['history'][0]['revision_id'],info['history'][0]['label']),(current.revision_id,'手動修改：文字與時間'))
         from clipen.editing.workbench import tools_for
         exported=tools_for(self.repository,self.project,self.run).production_call('export_edit',{}).payload
         path=self.f.root/'projects'/self.project/'agent-production'/self.run/'exports'/(exported['revision_id']+'.json')
