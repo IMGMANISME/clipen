@@ -29,6 +29,7 @@ export function ProductionSection({ projectId, csrf, brief, sourceReady }: Props
   const [consent, setConsent] = useState(false)
   const [briefOpen, setBriefOpen] = useState(false)
   const [view, setView] = useState<'overview' | 'edit' | 'ai' | 'new'>('overview')
+  const [showDraft, setShowDraft] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -104,8 +105,14 @@ export function ProductionSection({ projectId, csrf, brief, sourceReady }: Props
   const production = status?.production
   const run = production ? status?.latest_run : null
   const latestPreview = production?.preview
-  const preview = latestPreview?.state === 'succeeded' ? latestPreview : production?.last_successful_preview ?? latestPreview
-  const showingPreviousPreview = preview?.state === 'succeeded' && preview.render_id !== latestPreview?.render_id
+  // Show the last finished film by default; a newer, unfinished draft is opt-in and labelled.
+  const finished = production?.finished_preview ?? null
+  const draft = production?.draft_preview ?? null
+  const viewingDraft = Boolean(draft && (showDraft || !finished))
+  const fallback = latestPreview?.state === 'succeeded' ? latestPreview : production?.last_successful_preview ?? latestPreview
+  const preview = viewingDraft ? draft : finished ?? fallback
+  const shownVersion = viewingDraft ? draft?.version : preview === finished ? finished?.version : null
+  const showingPreviousPreview = !viewingDraft && preview?.state === 'succeeded' && preview.render_id !== latestPreview?.render_id && !draft
   const timeline = production?.draft.timeline
   const components = timeline?.tracks.filter((track) => track.track_id === 'program-components' || track.track_id.startsWith('program-components-')).reduce((total, track) => total + track.items.length, 0) ?? 0
   const captions = timeline?.tracks.find((track) => track.track_id === 'agent-subtitles')?.items.length ?? 0
@@ -134,16 +141,21 @@ export function ProductionSection({ projectId, csrf, brief, sourceReady }: Props
         window.requestAnimationFrame(() => document.getElementById('production-intent')?.focus())
       }} />}
     {production && <div className="production-output studio-screen" id="production-output" tabIndex={-1} hidden={view !== 'overview'}>
-      <div className="screen-heading"><div><span className="studio-section-number">01 / PREVIEW</span><h3>你的影片</h3></div><span className="studio-version">版本 {production.draft.ordinal} · {Math.floor(duration / 60)}:{String(Math.round(duration % 60)).padStart(2, '0')}</span></div>
+      <div className="screen-heading"><div><span className="studio-section-number">01 / PREVIEW</span><h3>你的影片</h3></div><span className="studio-version">{shownVersion ? `版本 ${shownVersion.number}` : viewingDraft ? '未完成的草稿' : '目前草稿'} · {Math.floor(duration / 60)}:{String(Math.round(duration % 60)).padStart(2, '0')}</span></div>
       {preview?.state === 'succeeded' ? <>
+        {viewingDraft && <div className="film-draft-notice" role="status"><strong>未完成的草稿{draft?.version?.kind === 'ai_partial' ? `：${draft.version.label}` : ''}</strong>
+          <p>{active ? 'AI 還在製作，這是製作途中的畫面，還沒做完交付檢查。' : 'AI 還沒做完這一輪的交付檢查，畫面可能只改了一部分。'}</p>
+          {finished && <button type="button" className="button secondary" onClick={() => setShowDraft(false)}>回到完成的版本</button>}</div>}
+        {!viewingDraft && draft && <div className="film-draft-offer"><span>{active ? 'AI 製作中，有一份還沒完成的草稿。' : `有一份比這版新、但還沒完成的草稿${draft.version?.kind === 'ai_partial' ? `（${draft.version.label}）` : ''}。`}</span>
+          <button type="button" className="button ghost" onClick={() => setShowDraft(true)}>看未完成的草稿</button></div>}
         {showingPreviousPreview && <p className="inline-message" role="status">{latestPreview && ['queued', 'running'].includes(latestPreview.state) ? '新預覽正在輸出，先保留上一份成功影片。' : '這次預覽未完成，上一份成功影片仍可播放與下載。'}</p>}
         {preview.stale && <p className="inline-message">這是先前修訂的預覽，目前草稿尚有更新。</p>}
         <video key={preview.render_id} controls preload="metadata" src={preview.media_url} aria-label="影片預覽" />
-        <div className="screen-actions"><span><span className="screen-ready-dot" />{preview.stale || showingPreviousPreview ? '先前版本' : '目前預覽'}</span><a className="button secondary" href={preview.media_url} download><StudioIcon name="download" />下載這版影片</a><button type="button" className="button primary" onClick={() => setView('edit')}><StudioIcon name="edit" />繼續剪輯</button></div>
+        <div className="screen-actions"><span><span className="screen-ready-dot" />{viewingDraft ? '未完成的草稿' : preview.stale || showingPreviousPreview ? '先前版本' : finished ? `完成的版本${finished.version ? `：${finished.version.label}` : ''}` : '目前預覽'}</span><a className="button secondary" href={preview.media_url} download><StudioIcon name="download" />下載這版影片</a><button type="button" className="button primary" onClick={() => setView('edit')}><StudioIcon name="edit" />繼續剪輯</button></div>
       </> : <p>{preview && ['queued', 'running'].includes(preview.state) ? '正在合成預覽…' : preview?.state === 'failed' ? '這次預覽輸出失敗，草稿仍保留。' : 'AI 尚未產生可觀看預覽。'}</p>}
       <details className="production-film-info"><summary>影片資訊與配樂來源</summary>
         <p>{production.skill.name} · {production.skill.version}</p>
-        <p>版本 {production.draft.ordinal} · {duration.toFixed(1)} 秒 · {captions} 段字幕 · {components} 個畫面元件</p>
+        <p>{duration.toFixed(1)} 秒 · {captions} 段字幕 · {components} 個畫面元件</p>
         <p>{production.draft.summary}</p>
       {production.production_contents?.music.map((music, index) => <div className="finishing-music-credit" key={`${music.name}-${index}`}>
         <strong>{music.role === 'music' ? '配樂' : '聲音素材'}：{music.name}</strong>

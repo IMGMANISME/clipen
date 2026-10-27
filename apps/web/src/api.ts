@@ -366,6 +366,9 @@ export type PreviewRender = {
   playback_url: string | null
 }
 
+export type FilmVersion = { revision_id: string; number: number; kind: 'ai_complete' | 'ai_partial' | 'manual' | 'restore'; label: string; detail: string | null; created_at: string }
+export type FilmPreview = PreviewRender & { stale: boolean; revision_id: string; media_url: string; version?: FilmVersion | null }
+
 export type PreviewRenderStatus = {
   render: PreviewRender | null
   can_start: boolean
@@ -491,6 +494,8 @@ export type EditAgentStatus = {
     draft: { revision_id: string; ordinal: number; summary: string; timeline: EditAgentTimeline }
     preview: (PreviewRender & { stale: boolean; revision_id: string; media_url: string }) | null
     last_successful_preview?: (PreviewRender & { stale: boolean; revision_id: string; media_url: string }) | null
+    finished_preview?: FilmPreview | null
+    draft_preview?: FilmPreview | null
     validation: { revision_id: string; valid: boolean; issues: Array<{ code: string; message?: string }> } | null
     progress?: { updated_at: string | null; ai_message?: string | null; request?: string | null; started_at?: string | null; stages?: string[]; reached?: number; activity: Array<{ sequence: number; kind: string; label: string; tool: string | null; created_at: string; count?: number }> }
     local_jobs: Array<{ job_id: string; kind: string; state: string; error_code: string | null; phase?: string; completed_bytes?: number; total_bytes?: number }>
@@ -1342,7 +1347,7 @@ export type ProductionWorkbenchState = {
   styles: Record<string, Record<string, unknown>>
   references?: ReferenceState
   visual_styles?: VisualStyle[]
-  history: Array<{ revision_id: string; ordinal: number; summary: string; created_at: string }>
+  history: FilmVersion[]
   audio_assets: MusicAsset[]
   tools: Array<{ name: string; description: string; inputSchema: { properties: Record<string, unknown>; required: string[] } }>
 }

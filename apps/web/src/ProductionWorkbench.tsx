@@ -161,7 +161,17 @@ export function ProductionWorkbench({ projectId, csrf, runId, revisionId, active
       </details>
       <div className="workbench-tabs"><button type="button" className="button primary" onClick={() => void action(() => renderProduction(csrf, projectId, runId, data!.revision.revision_id), '已開始輸出目前版本，完成後會更新上方預覽。')}>更新影片預覽</button><button type="button" className="button secondary" onClick={() => void action(async () => { const result = await exportProduction(csrf, projectId, runId); setExportUrl(result.download_url) }, '剪輯資料已準備好。')}>匯出所有可編輯圖層</button></div>
       {exportUrl && <a href={exportUrl} download>下載原生剪輯資料（含文字、效果、時間軸及來源）</a>}
-      <details><summary>版本紀錄與還原</summary><label>選擇版本<select value={historyId} onChange={(e) => setHistoryId(e.target.value)}><option value="">選擇版本</option>{data?.history.map((revision) => <option key={revision.revision_id} value={revision.revision_id}>版本 {revision.ordinal} · {revision.summary}</option>)}</select></label><button type="button" className="button secondary" disabled={!historyId} onClick={() => void action(() => edit('restore_revision', { revision_id: historyId, summary: '使用者還原影片版本' }), '已還原，請更新預覽。')}>還原選定版本</button></details>
+      <details><summary>版本紀錄與還原</summary>
+        <p className="workbench-versions-note">每次 AI 製作或打磨結束、每次手動修改與還原，各算一個版本。</p>
+        {data?.history.length ? <ol className="workbench-versions">{data.history.map((version) => {
+          const current = version.revision_id === data.revision.revision_id
+          return <li key={version.revision_id} className={`is-${version.kind} ${current ? 'is-current' : ''}`}>
+            <label><input type="radio" name="workbench-version" value={version.revision_id} checked={historyId === version.revision_id} disabled={current} onChange={() => setHistoryId(version.revision_id)} />
+              <span><strong>版本 {version.number}　{version.label}</strong>{current && <em>目前</em>}
+                <small>{new Date(version.created_at).toLocaleString('zh-TW', { hour12: false, month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}{version.detail ? `　「${version.detail.length > 40 ? `${version.detail.slice(0, 40)}…` : version.detail}」` : ''}</small></span></label>
+          </li>
+        })}</ol> : <p>還沒有完成的版本。</p>}
+        <button type="button" className="button secondary" disabled={!historyId} onClick={() => void action(() => edit('restore_revision', { revision_id: historyId, summary: '使用者還原影片版本' }), '已還原，請更新預覽。')}>還原選定版本</button></details>
     </fieldset>
     <fieldset hidden={mode === 'manual'} disabled={busy || active || !data}>
       <legend>請 AI 繼續打磨</legend>
