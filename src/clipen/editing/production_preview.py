@@ -50,7 +50,9 @@ def render_preview(tools):
                 return ToolResult({'render':saved,'revision_id':revision.revision_id,'reused':True})
     current=store.current(tools.project_id)
     if current and current['state'] in {'queued','running','cancelling'}:
-        raise ProjectError('preview_busy','目前有預覽正在合成，請先等待完成。',status_code=409)
+        mine=current['render_id'] in {json.loads(r['payload_json'])['render_id'] for r in prior}
+        raise ProjectError('preview_busy',f"目前有預覽正在合成（{current['render_id']}，進度 {round(current.get('progress',0)*100)}%）。"
+                           +('這是本次製作的輸出：用 inspect_preview 等它完成，或用 cancel_preview 取消後再輸出。' if mine else '這是使用者或其他工作的輸出，請稍後再試。'),status_code=409)
     with tools.repository.projects.connect(tools.project_id) as db:
         db.execute('BEGIN IMMEDIATE')
         run=tools.repository._read_run(db,tools.run_id)

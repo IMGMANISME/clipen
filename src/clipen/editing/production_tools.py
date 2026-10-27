@@ -543,10 +543,22 @@ class ProductionTools:
         return ToolResult(validation)
 
     def _production_get_edit_history(self,args):
+        # A long run holds thousands of events; return versions and one page of
+        # recent events so the result always fits a single tool response.
+        from .versions import versions
+        limit=args.get('limit',40);before=args.get('before_sequence')
         with self.repository.projects.connect(self.project_id) as db:
-            revisions=[dict(r) for r in db.execute('SELECT revision_id,ordinal,parent_revision_id,summary FROM edit_agent_revisions WHERE run_id=? ORDER BY ordinal',(self.run_id,))]
-            events=[dict(r) for r in db.execute('SELECT sequence,event_type,payload_json FROM edit_agent_events WHERE run_id=? ORDER BY sequence',(self.run_id,))]
-        return ToolResult({'revisions':revisions,'events':events})
+            film=versions(db,self.run_id,self.repository.get(self.project_id,self.run_id).provider)
+            rows=db.execute('SELECT sequence,event_type,payload_json,created_at FROM edit_agent_events WHERE run_id=? AND sequence<? ORDER BY sequence DESC LIMIT ?',
+                            (self.run_id,before if before is not None else 2**62,limit+1)).fetchall()
+            revisions=db.execute('SELECT COUNT(*) FROM edit_agent_revisions WHERE run_id=?',(self.run_id,)).fetchone()[0]
+        page=rows[:limit]
+        events=[{'sequence':r['sequence'],'event_type':r['event_type'],'created_at':r['created_at'],
+                 'payload':r['payload_json'] if len(r['payload_json'])<=400 else r['payload_json'][:400]+'…'} for r in page]
+        return ToolResult({'current_revision_id':self.repository.current_revision(self.project_id,self.run_id).revision_id,
+            'versions':film,'revision_count':revisions,'events':events,
+            'next_before_sequence':page[-1]['sequence'] if len(rows)>limit else None,
+            'note':'Versions are complete edits a person can restore; events are newest first and payloads over 400 characters are shortened.'})
 
     def _production_read_mutation_receipt(self,args):
         with self.repository.projects.connect(self.project_id) as db:

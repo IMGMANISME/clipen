@@ -325,6 +325,13 @@ class EditAgentCoordinator:
         for project_id in self._projects:
             self.repository.interrupt_incomplete(project_id)
 
+    def _end_attempt_renders(self, key) -> None:
+        from clipen.rendering import PreviewRenderRepository
+        try:
+            PreviewRenderRepository(self.repository.projects).interrupt_attempt_renders(*key)
+        except ProjectError:
+            pass
+
     def _loop(self) -> None:
         while True:
             key = self._queue.get()
@@ -348,6 +355,7 @@ class EditAgentCoordinator:
                     self.repository,
                     **({'local_runtime':self.local_runtime} if self.local_runtime else {}),
                 )
+                self._end_attempt_renders(key)
                 adapter.execute(*key, cancel=cancel)
             except (ProjectError, ProviderCancelled):
                 pass
@@ -371,6 +379,7 @@ class EditAgentCoordinator:
                             db.execute("UPDATE production_evidence_jobs SET state='interrupted',error_code='provider_ended' WHERE run_id=? AND state='running'",(key[1],))
                     except ProjectError:
                         pass
+                    self._end_attempt_renders(key)
                     with self._lock:
                         self._cancel.pop(key, None)
                 self._queue.task_done()

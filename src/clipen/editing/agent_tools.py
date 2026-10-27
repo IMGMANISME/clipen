@@ -246,10 +246,50 @@ class EditAgentTools(SkillTools, EvidenceTools, ProductionTools):
             images,
         )
 
+    # Claude Code saves tool output above about 25k tokens to a file the model
+    # cannot open; keep every read well under that and say how to read the rest.
+    _SEQUENCE_CHARACTERS = 40_000
+
     def _inspect_sequence(self, arguments: Mapping[str, object]) -> ToolResult:
-        self._require_keys(arguments, set())
+        self._require_keys(arguments, set(), optional={"track", "from_seconds", "to_seconds"})
+        track_kind = arguments.get("track")
+        if track_kind is not None and track_kind not in {"video", "title", "audio"}:
+            raise ProjectError("agent_input_invalid", "track 只能是 video、title 或 audio。", status_code=422)
+        bounds = [arguments.get(key) for key in ("from_seconds", "to_seconds")]
+        if any(v is not None and (isinstance(v, bool) or not isinstance(v, (int, float)) or v < 0) for v in bounds):
+            raise ProjectError("agent_input_invalid", "from_seconds／to_seconds 必須是非負數。", status_code=422)
         revision = self.repository.current_revision(self.project_id, self.run_id)
         payload = revision.to_public(include_timeline=True)
+        timeline = payload["timeline"]
+        fps = revision.timeline.frame_rate.numerator / revision.timeline.frame_rate.denominator
+        start = round((bounds[0] or 0) * fps)
+        end = round(bounds[1] * fps) if bounds[1] is not None else timeline["duration_frames"]
+        filtered = track_kind is not None or any(v is not None for v in bounds)
+        if filtered:
+            timeline["tracks"] = [
+                {**track, "items": [item for item in track["items"]
+                                    if item["start_frame"] < end and start < item["start_frame"] + item["duration_frames"]]}
+                for track in timeline["tracks"] if track_kind is None or track["kind"] == track_kind]
+            payload["window"] = {"track": track_kind, "from_frame": start, "to_frame": end}
+        if len(json.dumps(payload, ensure_ascii=False)) <= self._SEQUENCE_CHARACTERS:
+            return ToolResult(payload)
+        # Too large for one read: return an outline and how to read it in parts.
+        seconds = timeline["duration_frames"] / fps
+        outline = [{"track_id": track["track_id"], "kind": track["kind"], "item_count": len(track["items"]),
+                    "items": [{"item_id": item["item_id"], "start_frame": item["start_frame"],
+                               "duration_frames": item["duration_frames"],
+                               **({"text": item["text"][:40]} if "text" in item else {})} for item in track["items"]][:200]}
+                   for track in timeline["tracks"]]
+        span = max(10, round(seconds * self._SEQUENCE_CHARACTERS / max(1, len(json.dumps(payload, ensure_ascii=False))) / 2))
+        payload["timeline"] = {key: value for key, value in timeline.items() if key != "tracks"}
+        payload["outline"] = outline
+        payload["read_in_parts"] = (f"The full timeline is too large for one read. Call inspect_sequence with track "
+                                    f"(video, title or audio) and/or from_seconds/to_seconds; windows of about {span} "
+                                    f"seconds fit. The outline lists every item with its timing.")
+        if len(json.dumps(payload, ensure_ascii=False)) > self._SEQUENCE_CHARACTERS:
+            for track in outline:
+                track["items"] = [{"item_id": i["item_id"], "start_frame": i["start_frame"], "duration_frames": i["duration_frames"]}
+                                  for i in track["items"]]
         return ToolResult(payload)
 
     def _replace_sequence(self, arguments: Mapping[str, object]) -> ToolResult:

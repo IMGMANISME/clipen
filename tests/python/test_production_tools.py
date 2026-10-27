@@ -153,6 +153,37 @@ class ProductionToolsTests(unittest.TestCase):
         self.assertEqual(set(status['missing_shots']),{clips[1].item_id,clips[-1].item_id})
         self.assertEqual(set(status['carried_shots'])|set(status['missing_shots']),set(coverage_targets(second.timeline)))
 
+    def test_previews_left_running_by_an_ended_attempt_are_cleared(self):
+        from clipen.rendering import PreviewRenderRepository
+        store=PreviewRenderRepository(self.projects)
+        revision=self.fixture.repository.current_revision(self.project.project_id,self.run.run_id)
+        stuck=store.create(self.project.project_id,'agent-preview-'+self.run.run_id+'-'+revision.revision_id+'-1',revision.revision_id)
+        store.mark_running(self.project.project_id,stuck['render_id'])
+        with self.assertRaises(ProjectError) as busy:self.call('render_preview')
+        # The busy error names the render so the AI can wait for it or cancel it.
+        self.assertIn(stuck['render_id'],busy.exception.message)
+        other=store.create(self.project.project_id,'agent-preview-editrun_'+'f'*32+'-x-1',revision.revision_id)
+        self.assertEqual(store.interrupt_attempt_renders(self.project.project_id,self.run.run_id),1)
+        self.assertEqual(store.get(self.project.project_id,stuck['render_id'])['state'],'interrupted')
+        self.assertEqual(store.get(self.project.project_id,other['render_id'])['state'],'queued')
+
+    def test_long_timelines_and_history_are_read_in_parts(self):
+        full=self.call('inspect_sequence').payload
+        self.assertIn('tracks',full['timeline'])
+        video=self.call('inspect_sequence',track='video',from_seconds=0,to_seconds=1).payload
+        self.assertEqual([t['kind'] for t in video['timeline']['tracks']],['video'])
+        self.assertTrue(all(i['start_frame']<30 for i in video['timeline']['tracks'][0]['items']))
+        with patch.object(type(self.tools),'_SEQUENCE_CHARACTERS',500):
+            outline=self.call('inspect_sequence').payload
+        self.assertNotIn('tracks',outline['timeline'])
+        self.assertIn('read_in_parts',outline)
+        self.assertEqual(sum(t['item_count'] for t in outline['outline']),sum(len(t['items']) for t in full['timeline']['tracks']))
+        for _ in range(5):self.call('list_editing_tools')
+        first=self.call('get_edit_history',limit=3).payload
+        self.assertEqual(len(first['events']),3);self.assertIsNotNone(first['next_before_sequence'])
+        older=self.call('get_edit_history',limit=3,before_sequence=first['next_before_sequence']).payload
+        self.assertLess(older['events'][0]['sequence'],first['events'][-1]['sequence'])
+
     def test_background_and_foreground_events_cannot_allocate_the_same_sequence(self):
         from concurrent.futures import ThreadPoolExecutor
         from clipen.projects.storage import utc_now
@@ -383,8 +414,12 @@ class ProductionToolsTests(unittest.TestCase):
         dense=replace(current,duration_frames=120,tracks=(Track('video',TrackKind.VIDEO,(clip,)),
                     Track('captions',TrackKind.TITLE,tuple(TextClip('cap-'+str(n),n*3,2,'字'+str(n),'title.caption') for n in range(33)))))
         dense_output=root/'dense.mp4'
-        self.tools.preview_renderer.render(self.project.project_id,dense,dense_output,threading.Event(),lambda _:None)
+        reported=[]
+        self.tools.preview_renderer.render(self.project.project_id,dense,dense_output,threading.Event(),reported.append)
         verify_output(dense_output,dense,threading.Event())
+        # Drawing titles reports progress past the 82% media stage instead of sitting still until done.
+        self.assertTrue(any(.82<value<1 for value in reported));self.assertEqual(reported[-1],1.)
+        self.assertEqual(reported,sorted(reported))
 
 
 class ProductionTranscriptTests(unittest.TestCase):

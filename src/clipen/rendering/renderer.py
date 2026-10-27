@@ -85,7 +85,8 @@ class FfmpegPreviewRenderer:
                 styles=load_text_styles(getattr(self.media,'projects',None),project_id)
                 if sum(len(t.items) for t in timeline.tracks if t.kind is TrackKind.TITLE)>32 or any(styles.get(i.style_id,{}).get('kind') in {'program_subtitle','program_component'} for t in timeline.tracks if t.kind is TrackKind.TITLE for i in t.items):
                     from .titles import compose_dense_titles
-                    compose_dense_titles(self.executable,media_output,timeline,directory,output,cancel,styles)
+                    compose_dense_titles(self.executable,media_output,timeline,directory,output,cancel,styles,
+                                         progress=lambda value: progress(0.82 + value * 0.18))
                     progress(1.)
                     return
                 titles = TitleCardRenderer(styles).render(timeline, directory)
