@@ -356,6 +356,14 @@ def create_app(
         details = await run_in_threadpool(provider_account) if provider_account is not None else {"model": None, "quota": None}
         return JSONResponse({"provider": {"id": provider.provider_id, "name": provider.name}, **details})
 
+    async def power(request: Request) -> Response:
+        # Lets the UI warn before production: on battery a closed lid still sleeps the Mac.
+        if authority.authenticate(_cookie_value(request.headers, _SESSION_COOKIE)) is None:
+            return JSONResponse({"error": {"code": "session_required", "message": "請從 Clipen Terminal 重新開啟工作台。"}},
+                                status_code=401)
+        from clipen.power import power_status
+        return JSONResponse(await run_in_threadpool(power_status))
+
     async def reopen_instance(request: Request) -> Response:
         supplied = request.headers.get(_INSTANCE_HEADER)
         expected = config.instance_secret
@@ -1617,6 +1625,7 @@ def create_app(
             Route("/api/instance/reopen", reopen_instance, methods=["POST"]),
             Route("/api/status", status, methods=["GET"]),
             Route("/api/provider/account", account, methods=["GET"]),
+            Route("/api/system/power", power, methods=["GET"]),
             Route(
                 "/api/system/commands/remove-asr",
                 remove_asr,

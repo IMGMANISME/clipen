@@ -274,6 +274,8 @@ def mcp_server_arguments(
 
 
 _CAFFEINATE = "/usr/bin/caffeinate"
+_SLEEP_GAP_SECONDS = 60
+_wall = time.time  # wall clock keeps running while the Mac sleeps
 
 
 def keep_awake(pid: int) -> subprocess.Popen[bytes] | None:
@@ -379,8 +381,14 @@ class BoundedEditingAgent:
         command = self.command(project_id, run_id, workspace, final_message)
         started = time.monotonic()
         returncode: int | None = None
+        self._slept = []
         try:
-            returncode = self._run(command, workspace, events, diagnostics, timeout_seconds, cancel)
+            try:
+                returncode = self._run(command, workspace, events, diagnostics, timeout_seconds, cancel)
+            finally:
+                record = getattr(self.repository, "record_machine_sleep", None)
+                if self._slept and record is not None:
+                    record(project_id, run_id, self._slept)
             # Read the (possibly large) event log once for every check.
             stdout = events.read_bytes()
             event_types, usage = self.events_and_usage(stdout)
@@ -442,8 +450,15 @@ class BoundedEditingAgent:
                     start_new_session=os.name == "posix",
                 )
                 awake = keep_awake(process.pid)
+                # The loop wakes every 50 ms; a long jump in wall-clock time means the
+                # whole Mac was asleep (a closed lid on battery), not that the AI was slow.
+                last = _wall()
                 try:
                     while process.poll() is None:
+                        now = _wall()
+                        if now - last >= _SLEEP_GAP_SECONDS:
+                            self._slept.append((last, now))
+                        last = now
                         if cancel is not None and cancel.is_set():
                             self._terminate(process)
                             raise ProviderCancelled(f"{name} editing attempt was cancelled")

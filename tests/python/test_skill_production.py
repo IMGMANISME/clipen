@@ -507,6 +507,14 @@ class SkillProductionTests(unittest.TestCase):
         resumed=self.repository.resume_stopped(self.project.project_id,self.run.run_id)
         self.assertEqual((resumed.state,resumed.current_revision_id),('queued',before.current_revision_id))
 
+    def test_sleep_during_a_run_shows_in_the_status(self):
+        from clipen.editing import EditAgentCoordinator
+        self.cut()
+        self.repository.record_machine_sleep(self.project.project_id,self.run.run_id,[(1792800000.,1792807200.)])
+        progress=EditAgentCoordinator(self.repository,self.root).status(self.project.project_id)['production']['progress']
+        self.assertEqual(progress['slept_seconds'],7200)
+        self.assertEqual(progress['activity'][-1]['label'],'Mac 睡眠約 2 小時 0 分鐘，製作暫停')
+
     def test_an_early_stop_can_continue_the_same_draft(self):
         self.cut()
         before=self.repository.get(self.project.project_id,self.run.run_id)
