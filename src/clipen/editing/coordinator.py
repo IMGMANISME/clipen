@@ -132,6 +132,15 @@ class EditAgentCoordinator:
                     from .production_progress import production_activity
                     progress = production_activity(db, latest.run_id)
                 validation=next((value for row in checks if (value:=json.loads(row['payload_json']))['revision_id']==draft.revision_id),None)
+                from .versions import versions
+                with self.repository.projects.connect(project_id) as db:
+                    film_versions=versions(db,latest.run_id,latest.provider)
+                    succeeded=db.execute("SELECT e.payload_json FROM edit_agent_events e JOIN preview_renders p ON p.render_id=json_extract(e.payload_json,'$.render_id') AND p.project_id=? WHERE e.run_id=? AND e.event_type='production_preview' AND p.state='succeeded' ORDER BY e.sequence DESC LIMIT 200",(project_id,latest.run_id)).fetchall()
+                # A finished film is a preview of a version people chose to keep (an AI request that
+                # finished, a manual edit or a restore); a newer preview of anything else is a draft.
+                complete={v['revision_id']:v for v in film_versions if v['kind']!='ai_partial'}
+                finished_row=next((row for row in succeeded if json.loads(row['payload_json'])['revision_id'] in complete),None)
+                draft_row=succeeded[0] if succeeded and succeeded[0] is not finished_row else None
                 local_jobs=[]
                 for row in jobs:
                     value=json.loads(row['result_json']) if row['result_json'] else {}
@@ -147,8 +156,13 @@ class EditAgentCoordinator:
                                'media_url': f"/api/projects/{project_id}/preview/{entry['render_id']}/media"}
                 preview=preview_value(previews)
                 last_successful_preview=preview_value(successful_preview)
+                finished_preview=preview_value(finished_row)
+                draft_preview=preview_value(draft_row)
+                by_revision={v['revision_id']:v for v in film_versions}
+                if finished_preview:finished_preview['version']=by_revision.get(finished_preview['revision_id'])
+                if draft_preview:draft_preview['version']=by_revision.get(draft_preview['revision_id'])
                 production = {'intent': session['intent'], 'skill': {k: session['skill'][k] for k in ('skill_id','name','version','content_hash','limitations','selected_visual_style_id','selected_font_style_id') if k in session['skill']},
-                              'draft': draft.to_public(include_timeline=True), 'preview': preview,'last_successful_preview':last_successful_preview,'validation':validation,'local_jobs':local_jobs,
+                              'draft': draft.to_public(include_timeline=True), 'preview': preview,'last_successful_preview':last_successful_preview,'finished_preview':finished_preview,'draft_preview':draft_preview,'validation':validation,'local_jobs':local_jobs,
                               'production_contents':production_contents(self.repository.projects,project_id,draft.timeline),
                               'export_url':self._export_url(project_id,latest.run_id,draft.revision_id), 'progress':progress}
         return {
