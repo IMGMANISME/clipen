@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import os
+import re
 from pathlib import Path
 import subprocess
 import tempfile
@@ -296,8 +297,13 @@ class FfmpegTitleCompositor:
         progress(1.0)
 
 
-def compose_dense_titles(executable,source,timeline,directory,output,cancel,custom_styles=None):
-    """One event-based RGBA stream avoids opening dozens of full-HD inputs."""
+def compose_dense_titles(executable,source,timeline,directory,output,cancel,custom_styles=None,progress=None):
+    """One event-based RGBA stream avoids opening dozens of full-HD inputs.
+
+    Reports progress while drawing (first 40%) and while FFmpeg overlays the
+    stream (the rest), so a long film never looks stuck at the same number.
+    """
+    report=progress or (lambda _value:None)
     from PIL import Image,ImageDraw,ImageFont
     from clipen.finishing.audio import run_process
     items=[i for t in timeline.tracks if t.kind is TrackKind.TITLE for i in t.items]
@@ -311,9 +317,10 @@ def compose_dense_titles(executable,source,timeline,directory,output,cancel,cust
     from .program_components import animation_boundaries as component_boundaries
     boundaries=sorted(set(boundaries)|{b for i in items if (custom_styles or {}).get(i.style_id,{}).get('kind')=='program_component'
                                       for b in component_boundaries(i,custom_styles[i.style_id])})
-    lines=['ffconcat version 1.0']
+    lines=['ffconcat version 1.0'];events=max(1,len(boundaries)-1)
     for index,(start,end) in enumerate(zip(boundaries,boundaries[1:])):
         if cancel.is_set():raise TitleRenderError('cancelled')
+        if index%20==0:report(.4*index/events)
         image=Image.new('RGBA',(timeline.width,timeline.height),(0,0,0,0));draw=ImageDraw.Draw(image)
         for item in items:
             if item.start_frame<=start<item.start_frame+item.duration_frames:renderer._draw_card(draw,ImageFont,font,timeline,item,start-item.start_frame)
@@ -321,7 +328,22 @@ def compose_dense_titles(executable,source,timeline,directory,output,cancel,cust
         lines.extend((f"file '{name}'",f'option framerate {timeline.frame_rate.numerator}/{timeline.frame_rate.denominator}',f'duration {(end-start)/fps:.9f}'))
     lines.extend((f"file 'text-event-{len(boundaries)-2}.png'",f'option framerate {timeline.frame_rate.numerator}/{timeline.frame_rate.denominator}'))
     manifest=directory/'text-events.ffconcat';manifest.write_text('\n'.join(lines)+'\n')
-    run_process([executable,'-v','error','-nostdin','-y','-filter_complex_threads','2','-i',str(source),'-f','concat','-safe','0','-i',str(manifest),
-                 '-filter_complex','[0:v][1:v]overlay=eof_action=repeat:format=auto,format=yuv420p[v]',
-                 '-map','[v]','-map','0:a?','-t',str(timeline.duration_frames/fps),'-r',f'{timeline.frame_rate.numerator}/{timeline.frame_rate.denominator}',
-                 '-c:v','libx264','-preset','veryfast','-crf','21','-c:a','copy','-movflags','+faststart',str(output)],cancel,timeout=max(300,round(timeline.duration_frames/fps*3)))
+    report(.4)
+    seconds=timeline.duration_frames/fps;progress_file=directory/'overlay-progress.txt'
+    done=threading.Event()
+    def watch():
+        # FFmpeg rewrites out_time_us in its progress file about twice a second.
+        while not done.wait(.5):
+            try:text=progress_file.read_text()
+            except OSError:continue
+            times=[int(v) for v in re.findall(r'out_time_us=(\d+)',text)]
+            if times and seconds>0:report(.4+.6*min(1.,times[-1]/1e6/seconds))
+    watcher=threading.Thread(target=watch,daemon=True);watcher.start()
+    try:
+        run_process([executable,'-v','error','-nostdin','-y','-progress',str(progress_file),'-filter_complex_threads','2','-i',str(source),'-f','concat','-safe','0','-i',str(manifest),
+                     '-filter_complex','[0:v][1:v]overlay=eof_action=repeat:format=auto,format=yuv420p[v]',
+                     '-map','[v]','-map','0:a?','-t',str(timeline.duration_frames/fps),'-r',f'{timeline.frame_rate.numerator}/{timeline.frame_rate.denominator}',
+                     '-c:v','libx264','-preset','veryfast','-crf','21','-c:a','copy','-movflags','+faststart',str(output)],cancel,timeout=max(300,round(timeline.duration_frames/fps*3)))
+    finally:
+        done.set();watcher.join(timeout=2)
+    report(1.)

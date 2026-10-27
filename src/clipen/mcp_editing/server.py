@@ -59,7 +59,16 @@ _TOOLS = (
         {"candidate_id": {"type": "string"}},
         ("candidate_id",),
     ),
-    _tool("inspect_sequence", "Read the current immutable timeline revision.", {}),
+    _tool(
+        "inspect_sequence",
+        "Read the current immutable timeline revision. Long films return an outline; then read parts with "
+        "track (video, title or audio) and/or from_seconds/to_seconds.",
+        {
+            "track": {"type": "string", "enum": ["video", "title", "audio"]},
+            "from_seconds": {"type": "number", "minimum": 0},
+            "to_seconds": {"type": "number", "minimum": 0},
+        },
+    ),
     _tool(
         "replace_sequence",
         "Build the short style proof from precise in/out ranges inside approved candidates.",

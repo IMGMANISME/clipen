@@ -104,7 +104,8 @@ EXTRA_TOOLS=(
         {'render_id':ID,'offsets_seconds':{'type':'array','items':{'type':'number','minimum':0},'maxItems':8},'wait_seconds':{'type':'number','minimum':0,'maximum':30}},['render_id','offsets_seconds']),
  schema('cancel_preview','Cancel a preview started in this run; preserves the timeline.',{'render_id':ID}),
  schema('validate_sequence','Check executable timing, effects, audio references and render freshness. Returns actionable issues; never aesthetic approval.'),
- schema('get_edit_history','Read saved revisions and tool events for this run.'),
+ schema('get_edit_history','Read this run\'s versions (one per complete edit) and its most recent tool events, newest first. Page back with before_sequence.',
+        {'before_sequence':{'type':'integer','minimum':1},'limit':{'type':'integer','minimum':1,'maximum':80}},required=[]),
  schema('restore_revision','Restore a run-owned immutable revision as a new current selection.',{'revision_id':ID,**SUMMARY}),
  schema('export_edit','Save native editable timeline JSON and source/license credits for the current revision. This is not a Resolve project.'),
 )

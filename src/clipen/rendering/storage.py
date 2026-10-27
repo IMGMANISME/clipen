@@ -179,6 +179,22 @@ class PreviewRenderRepository:
                 (utc_now(),),
             )
 
+    def interrupt_attempt_renders(self, project_id: str, run_id: str) -> int:
+        """End this run's AI previews still marked in progress.
+
+        Agent previews render inside the AI's tool process, so they cannot
+        outlive an attempt; a row left running (the Mac slept, the process was
+        killed) would otherwise block every later preview as busy.
+        """
+        with self.projects.connect(project_id) as database:
+            cursor = database.execute(
+                "UPDATE preview_renders SET state='interrupted',error_code='attempt_ended',completed_at=? "
+                "WHERE state IN ('queued','running','cancelling') AND request_id LIKE ? ESCAPE '\\'",
+                (utc_now(), 'agent-preview-' + run_id.replace('_', '\\_') + '-%'),
+            )
+            database.commit()
+            return cursor.rowcount
+
     def cleanup_partial_outputs(self, project_id: str) -> None:
         directory = self.projects.root / project_id / "previews"
         if not directory.exists():
