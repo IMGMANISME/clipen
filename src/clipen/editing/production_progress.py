@@ -71,6 +71,11 @@ _STARTS = ('run_created', 'refinement_requested', 'run_resumed')
 _SHOWN = 10
 
 
+def _duration(seconds):
+    minutes = max(1, round(seconds / 60))
+    return f'{minutes} 分鐘' if minutes < 60 else f'{minutes // 60} 小時 {minutes % 60} 分鐘'
+
+
 def _provider_name(provider_id):
     from clipen.provider_registry import get_provider
     try:
@@ -89,14 +94,14 @@ def production_activity(database, run_id):
     boundary = _latest_start(database, run_id, _STARTS)
     # Resuming continues the same request, so its stages carry on from before.
     request_boundary = _latest_start(database, run_id, ('run_created', 'refinement_requested'))
-    kinds = ('tool_called', 'provider_finished', *_EVENT_LABELS)
+    kinds = ('tool_called', 'provider_finished', 'machine_slept', *_EVENT_LABELS)
     placeholders = ','.join('?' for _ in kinds)
     rows = database.execute(
         f'SELECT sequence,event_type,payload_json,created_at FROM edit_agent_events '
         f'WHERE run_id=? AND sequence>=? AND event_type IN ({placeholders}) ORDER BY sequence',
         (run_id, request_boundary, *kinds),
     ).fetchall()
-    activity, message, request, labels, finished = [], None, None, [], False
+    activity, message, request, labels, finished, slept = [], None, None, [], False, 0
     started_at = next((row['created_at'] for row in rows if row['sequence'] >= boundary), None)
     for row in rows:
         payload = json.loads(row['payload_json'])
@@ -113,6 +118,10 @@ def production_activity(database, run_id):
             label = _TOOL_LABELS.get(tool, 'AI 正在操作剪輯工具')
         elif kind == 'provider_failed':
             label = _FAILURE_LABELS.get(payload.get('error_code'), _EVENT_LABELS[kind])
+        elif kind == 'machine_slept':
+            if row['sequence'] >= boundary:
+                slept += payload.get('seconds', 0)
+            label = f"Mac 睡眠約 {_duration(payload.get('seconds', 0))}，製作暫停"
         elif kind == 'provider_switched':
             label = f"改由 {_provider_name(payload.get('to'))} 接手修改"
         else:
@@ -128,4 +137,5 @@ def production_activity(database, run_id):
                          'created_at': row['created_at'], 'count': 1})
     activity = activity[-_SHOWN:]
     return {'activity': activity, 'updated_at': activity[-1]['created_at'] if activity else None,
-            'ai_message': message, 'request': request, 'started_at': started_at, **_stages(labels, finished)}
+            'ai_message': message, 'request': request, 'started_at': started_at, 'slept_seconds': slept,
+            **_stages(labels, finished)}

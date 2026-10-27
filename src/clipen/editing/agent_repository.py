@@ -317,6 +317,17 @@ class EditAgentRepository:
 
     resume_timed_out = resume_stopped
 
+    def record_machine_sleep(self, project_id: str, run_id: object, periods) -> None:
+        """Note each time the Mac slept during an attempt, so a stall is not blamed on the AI."""
+        from datetime import datetime, timezone
+        normalized = self._validate_run_id(run_id)
+        with self.projects.connect(project_id) as db:
+            for start, end in periods:
+                stamp = lambda value: datetime.fromtimestamp(value, timezone.utc).isoformat()
+                self._append_event(db, normalized, 'machine_slept',
+                                   {'from': stamp(start), 'to': stamp(end), 'seconds': round(end - start)}, stamp(end))
+            db.commit()
+
     def delivery_blockers(self, project_id: str, run_id: object) -> tuple[str, ...] | None:
         """Issue codes from the latest delivery check of the current revision; None when it was never checked."""
         normalized = self._validate_run_id(run_id)

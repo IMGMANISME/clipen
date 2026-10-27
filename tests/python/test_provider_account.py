@@ -99,5 +99,18 @@ class ProviderAccountTests(unittest.TestCase):
             self.assertEqual(claude_account(root, {'HOME': '/nonexistent'}), {'model': None, 'quota': None})
 
 
+class PowerStatusTests(unittest.TestCase):
+    def test_battery_and_ac_power_are_read_from_pmset(self):
+        import subprocess
+        from clipen import power
+        with patch.object(power.sys, 'platform', 'darwin'), patch.object(power.subprocess, 'run') as run:
+            run.return_value = subprocess.CompletedProcess([], 0, "Now drawing from 'Battery Power'\n -InternalBattery-0\t77%; discharging\n")
+            self.assertEqual(power.power_status(), {'on_battery': True, 'percent': 77})
+            run.return_value = subprocess.CompletedProcess([], 0, "Now drawing from 'AC Power'\n -InternalBattery-0\t100%; charged\n")
+            self.assertEqual(power.power_status()['on_battery'], False)
+        with patch.object(power.sys, 'platform', 'linux'):
+            self.assertEqual(power.power_status(), {'on_battery': None, 'percent': None})
+
+
 if __name__ == '__main__':
     unittest.main()

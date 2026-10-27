@@ -101,6 +101,24 @@ class CodexEditingAgentTests(unittest.TestCase):
                 code=agent._run((sys.executable,'-c','print(1)'),root,root/'events.jsonl',root/'diagnostics.log',30,None)
             self.assertEqual(code,0);keep.assert_called_once();self.assertTrue(awake.terminated)
 
+    def test_a_sleeping_mac_is_recorded_instead_of_blamed_on_the_ai(self):
+        import itertools, sys
+        from clipen.providers import editing_agent
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);projects=root/'projects';projects.mkdir();attempts=root/'attempts';attempts.mkdir()
+            slept=[]
+            finished=SimpleNamespace(provider='codex',state='succeeded',final_revision_id='editrev_'+'c'*32)
+            repository=SimpleNamespace(production_session=lambda *args:None,get=lambda *args:finished,
+                                       record_provider_outcome=lambda *args,**kwargs:finished,
+                                       record_machine_sleep=lambda project,run,periods:slept.extend(periods))
+            agent=CodexEditingAgent(projects,attempts,repository,binary='/bin/echo',python='/usr/bin/python3',environment={'PATH':'/usr/bin','HOME':str(root)})
+            # Wall-clock time jumps by two hours between two 50 ms checks: the Mac was asleep.
+            clock=itertools.chain([1000.,1000.05,8200.],(8200.+n*.05 for n in itertools.count(1)))
+            command=(sys.executable,'-c','import time,json;time.sleep(.4);print(json.dumps({"type":"turn.completed"}))')
+            with patch.object(editing_agent,'_wall',side_effect=lambda:next(clock)),patch.object(agent,'command',return_value=command):
+                agent.execute('prj_'+'a'*32,'editrun_'+'b'*32)
+        self.assertEqual(slept,[(1000.05,8200.)])
+
     def test_prompt_gives_model_tool_choice_and_requires_observed_final_output(self):
         self.assertIn('list_editing_tools',_PROMPT)
         self.assertIn('Do not add decoration to satisfy a quota',_PROMPT)
