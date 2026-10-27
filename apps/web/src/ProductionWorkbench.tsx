@@ -1,3 +1,4 @@
+import { PowerNotice } from './PowerNotice'
 import { useEffect, useId, useState } from 'react'
 import { editProduction, exportProduction, getProductionWorkbench, refineProduction, renderProduction } from './api'
 import type { EditAgentStatus, EditAgentTimelineItem, ProductionWorkbenchState } from './api'
@@ -181,6 +182,7 @@ export function ProductionWorkbench({ projectId, csrf, runId, revisionId, active
       <ProductionMusicPicker projectId={projectId} csrf={csrf} value={musicId} onChange={onMusicChange} disabled={busy || active} defaultLabel="沿用目前配樂" />
       {referenceDirty && <p role="status">還有尚未儲存的參考註記，請先儲存或取消這筆編輯。</p>}
       {switching && <p className="workbench-provider-switch" role="note">這支片原本由 {providerName(runProvider)} 製作。這次修改會改由 {provider.name} 接手，從目前的版本繼續，使用 {provider.name} 的額度。</p>}
+      <PowerNotice />
       <label className="consent-check"><input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />同意使用 {provider.name} 額度修改目前影片。</label>
       <button type="button" className="button primary" disabled={!consent || referenceDirty || (!instruction.trim() && !data?.references?.items.length)} onClick={() => void action(async () => { await refineProduction(csrf, projectId, runId, data!.revision.revision_id, instruction.trim() || '請依已儲存的片段參考註記修訂目前影片，保留其他內容。', musicId || undefined, data!.references?.version ?? 0); setInstruction(''); setConsent(false) }, 'AI 已開始依目前版本修改。')}>修改目前影片</button>
     </fieldset>

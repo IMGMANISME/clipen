@@ -497,7 +497,7 @@ export type EditAgentStatus = {
     finished_preview?: FilmPreview | null
     draft_preview?: FilmPreview | null
     validation: { revision_id: string; valid: boolean; issues: Array<{ code: string; message?: string }> } | null
-    progress?: { updated_at: string | null; ai_message?: string | null; request?: string | null; started_at?: string | null; stages?: string[]; reached?: number; activity: Array<{ sequence: number; kind: string; label: string; tool: string | null; created_at: string; count?: number }> }
+    progress?: { updated_at: string | null; slept_seconds?: number; ai_message?: string | null; request?: string | null; started_at?: string | null; stages?: string[]; reached?: number; activity: Array<{ sequence: number; kind: string; label: string; tool: string | null; created_at: string; count?: number }> }
     local_jobs: Array<{ job_id: string; kind: string; state: string; error_code: string | null; phase?: string; completed_bytes?: number; total_bytes?: number }>
     production_contents: EditAgentResult['production_contents']
     export_url: string | null
@@ -717,6 +717,12 @@ export type ProviderAccount = {
   model: { id: string; name: string; effort: string | null; source?: 'last_run' | 'codex_config' | 'claude_config' | 'default'; unavailable?: string | null } | null
   quota: { source: 'live' | 'last_run'; plan: string | null; windows: QuotaWindow[]; limited: boolean; warning?: boolean;
     resets_at?: number | null; kind?: string | null; observed_at?: number | null } | null
+}
+
+export type PowerStatus = { on_battery: boolean | null; percent: number | null }
+
+export async function getPowerStatus(): Promise<PowerStatus> {
+  return request<PowerStatus>('/api/system/power')
 }
 
 export async function getProviderAccount(): Promise<ProviderAccount> {
