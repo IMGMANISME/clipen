@@ -120,6 +120,8 @@ class SkillProductionTests(unittest.TestCase):
         self.assertEqual(progress['updated_at'],progress['activity'][-1]['created_at'])
         self.assertNotIn('percent',progress)
         self.assertIsNone(progress['ai_message'])
+        # Without a rendered film there is neither a finished film nor a draft to label.
+        self.assertIsNone(status['production']['finished_preview']);self.assertIsNone(status['production']['draft_preview'])
         # Stages only move forward to the furthest real step; no percentage is invented.
         from clipen.editing.production_progress import STAGES
         self.assertEqual(list(progress['stages']),list(STAGES))
