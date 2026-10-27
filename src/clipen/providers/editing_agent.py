@@ -225,9 +225,13 @@ Inspect actual rendered frames at your chosen timestamps, especially boundaries,
 text, masks and effects. Do not infer continuous motion from single images.
 A successful technical check is not aesthetic approval. Before finish_edit, call
 validate_sequence, produce and inspect a preview of the exact final revision.
-Use inspect_cut with render_id for every shot, including text. validate_sequence
-reports missing review timestamps. Then review_cut records a specific observation
-and keep/revise decision for EVERY shot and evidence/match for EVERY text item.
+Use inspect_cut with render_id for every shot and text that still needs review.
+validate_sequence reports missing review timestamps; shots and texts accepted in
+an earlier review of this run and unchanged since are listed as carried and need
+no new stills. Then review_cut records a specific observation and keep/revise
+decision for EVERY changed shot and evidence/match for EVERY changed text item;
+carried ones may be left out. Each still stays in your context for the rest of
+the run, so do not re-inspect carried or already reviewed shots.
 Report problems as unresolved; recut or remove unsupported labels, then render
 and inspect the changed version. Never mark a wrong label acceptable merely to
 pass a gate. The model review is not human approval or full-motion/audio review.

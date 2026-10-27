@@ -148,14 +148,19 @@ def finish_review_status(tools):
         if saved['state']=='succeeded' and not path.is_symlink() and path.is_file() and path.stat().st_size==saved['size_bytes']:offsets.extend(entry['offsets_seconds'])
     fps=revision.timeline.frame_rate.numerator/revision.timeline.frame_rate.denominator
     def seen(target):return any(abs(o-target)<.45/fps for o in offsets)
-    missing_shots={identifier:[o for o in samples if not seen(o)] for identifier,samples in coverage_targets(revision.timeline).items()}
+    # Shots and texts accepted in an earlier review and unchanged since need no new stills.
+    from .editorial_review import carried_reviews
+    carried_shots,carried_texts=carried_reviews(tools,revision,recipe_id)
+    missing_shots={identifier:[o for o in samples if not seen(o)] for identifier,samples in coverage_targets(revision.timeline).items() if identifier not in carried_shots}
     missing_shots={k:v for k,v in missing_shots.items() if v}
-    missing_texts={k:v for k,v in text_targets(revision.timeline).items() if not seen(v)}
+    missing_texts={k:v for k,v in text_targets(revision.timeline).items() if k not in carried_texts and not seen(v)}
     complete=not missing_shots and not missing_texts
     report=next((r for r in reversed(reports) if r['revision_id']==revision.revision_id and r.get('recipe_id')==recipe_id),None)
     unresolved=[] if report is None else [s['item_id'] for s in report['shots'] if s['decision']=='revise']+[c['item_id'] for c in report['text_checks'] if not c['matches']]
     return {'reviewed_revision':complete and report is not None and not unresolved,'render_coverage_complete':complete,
         'missing_shots':missing_shots,'missing_texts':missing_texts,'editorial_assessment_recorded':report is not None,'unresolved':unresolved,
+        'carried_shots':sorted(carried_shots),'carried_texts':sorted(carried_texts),
+        'carried_note':'Unchanged shots and texts accepted in an earlier review of this run; review_cut may omit them.',
         'coverage':'start/middle/end rendered stills and text samples; continuous motion and audio not reviewed',
         'assessment_authority':'model_authored','human_review':'pending'}
 

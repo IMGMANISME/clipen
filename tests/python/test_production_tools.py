@@ -133,6 +133,26 @@ class ProductionToolsTests(unittest.TestCase):
             with self.assertRaises(ProjectError) as error:self.call('review_cut',shots=shots,text_checks=[],story_assessment='只是改評語沒有改影片',audio_limitations='未聆聽')
         self.assertEqual(error.exception.code,'agent_revision_required')
 
+    def test_only_changed_shots_need_new_stills_after_an_accepted_review(self):
+        from clipen.editing.editorial_review import carried_reviews, coverage_targets
+        from clipen.editing.production_preview import _event, finish_review_status, render_recipe_id
+        recipe=render_recipe_id()
+        first=self.fixture.repository.current_revision(self.project.project_id,self.run.run_id)
+        clips=list(self.tools._video().items)
+        _event(self.tools,'editorial_review',{'revision_id':first.revision_id,'recipe_id':recipe,'authority':'model_authored',
+            'shots':[{'item_id':c.item_id,'observation':'ok','decision':'revise' if c is clips[-1] else 'keep'} for c in clips],'text_checks':[]})
+        # Shorten the second shot: every later shot moves, but only the trimmed one changed on screen.
+        self.call('trim_clip',item_id=clips[1].item_id,start_offset_frames=0,duration_frames=clips[1].duration_frames-6,summary='縮短第二鏡')
+        second=self.fixture.repository.current_revision(self.project.project_id,self.run.run_id)
+        carried,_=carried_reviews(self.tools,second,recipe)
+        self.assertNotIn(clips[1].item_id,carried)
+        # A shot left as "revise" is never carried, even when unchanged.
+        self.assertNotIn(clips[-1].item_id,carried)
+        self.assertEqual(set(carried),{c.item_id for c in clips}-{clips[1].item_id,clips[-1].item_id})
+        status=finish_review_status(self.tools)
+        self.assertEqual(set(status['missing_shots']),{clips[1].item_id,clips[-1].item_id})
+        self.assertEqual(set(status['carried_shots'])|set(status['missing_shots']),set(coverage_targets(second.timeline)))
+
     def test_background_and_foreground_events_cannot_allocate_the_same_sequence(self):
         from concurrent.futures import ThreadPoolExecutor
         from clipen.projects.storage import utc_now
