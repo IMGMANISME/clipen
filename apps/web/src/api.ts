@@ -1352,6 +1352,7 @@ export type ProductionWorkbenchState = {
   revision: { revision_id: string; ordinal: number; summary: string; timeline: EditAgentTimeline }
   styles: Record<string, Record<string, unknown>>
   references?: ReferenceState
+  sent_notes?: { instruction: string | null; created_at: string | null; items: RefinementReference[] } | null
   visual_styles?: VisualStyle[]
   history: FilmVersion[]
   audio_assets: MusicAsset[]
@@ -1394,10 +1395,11 @@ export function getEditingFrame(csrf: string, projectId: string, runId: string, 
 }
 
 export type RefinementReference = {
-  reference_id: string; kind: 'location' | 'highlight' | 'audio' | 'note'; item_id: string
+  reference_id: string; kind: 'change' | 'remove' | 'keep' | 'highlight' | 'location' | 'audio' | 'note'; item_id: string
   start_offset_frames: number; duration_frames: number; note: string
+  at_offset_frames?: number; explicit_range?: boolean; element_id?: string; element_track?: string; element_text?: string | null
   source_gain_db?: number; fill_music?: boolean; audio_layer_id?: string
-  current_range?: { item_id: string; start_frame: number; duration_frames: number } | null
+  current_range?: { item_id: string; start_frame: number; duration_frames: number; at_frame?: number; element_present?: boolean } | null
 }
 export type ReferenceState = { version: number; items: RefinementReference[] }
 export function updateProductionReference(csrf: string, projectId: string, runId: string, revisionId: string, version: number, change: { reference: RefinementReference } | { delete_id: string }): Promise<ReferenceState> {
