@@ -63,7 +63,7 @@ export function ProductionStatusPanel({ status, busy, onResume, onCancel, onRefr
   const mismatch = run.state === 'failed' && run.error_code === 'provider_mismatch'
   const problem = mismatch ? { title: `這支片是用 ${providerName(run.provider)} 做的`,
     reason: `Clipen 現在用的是 ${provider.name}。中斷的工作只會由原本的 AI 接續，避免花到另一個帳號的額度。`,
-    next: `到「AI 打磨」送出修改，就會改由 ${provider.name} 接手，從目前的版本繼續；想讓 ${providerName(run.provider)} 繼續，請用 clipen ${run.provider} 重新啟動 Clipen。` }
+    next: `到「審片修改」送出修改，就會改由 ${provider.name} 接手，從目前的版本繼續；想讓 ${providerName(run.provider)} 繼續，請用 clipen ${run.provider} 重新啟動 Clipen。` }
     : productionProblem(run.error_code, provider.name)
   const progress = production.progress
   const activity = progress?.activity ?? []
@@ -106,7 +106,7 @@ export function ProductionStatusPanel({ status, busy, onResume, onCancel, onRefr
     {blocked && issues.length > 0 && <ul className="production-blockers">{issues.map((issue) => <li key={issue.code}>{productionIssue(issue.code)}</li>)}</ul>}
     <div className="production-recovery-actions">
       {failed && (production.preview?.state === 'succeeded' || production.last_successful_preview?.state === 'succeeded') && <a className="button secondary" href="#production-output" onClick={onView}>查看影片</a>}
-      {canRefine && onRefine && <button className="button primary" type="button" disabled={busy} onClick={onRefine}>{mismatch ? `用 ${provider.name} 打磨` : '用 AI 打磨修正'}</button>}
+      {canRefine && onRefine && <button className="button primary" type="button" disabled={busy} onClick={onRefine}>{mismatch ? `審片後用 ${provider.name} 修改` : '審片並交給 AI 修改'}</button>}
       {canResume && <button className={`button ${canRefine && onRefine ? 'secondary' : 'primary'}`} type="button" disabled={busy} onClick={onResume}>繼續這份草稿</button>}
       {failed && <button className="button secondary" type="button" disabled={busy} onClick={onEdit}>重新製作</button>}
       {active && <button className="button ghost" type="button" disabled={busy} onClick={onCancel}>停止製作</button>}

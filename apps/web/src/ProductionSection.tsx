@@ -29,7 +29,7 @@ export function ProductionSection({ projectId, csrf, brief, sourceReady }: Props
   const [status, setStatus] = useState<EditAgentStatus | null>(null)
   const [consent, setConsent] = useState(false)
   const [briefOpen, setBriefOpen] = useState(false)
-  const [view, setView] = useState<'overview' | 'edit' | 'ai' | 'new'>('overview')
+  const [view, setView] = useState<'overview' | 'edit' | 'new'>('overview')
   const [showDraft, setShowDraft] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -127,7 +127,7 @@ export function ProductionSection({ projectId, csrf, brief, sourceReady }: Props
   return <section className="production-workspace" aria-labelledby="production-heading">
     <div className="studio-heading"><div><p className="eyebrow">CLIPEN STUDIO</p><h2 id="production-heading">把故事，剪成作品。</h2><p>從第一個鏡頭，到每一個值得留下的細節。</p></div><span className="studio-local"><span />本機工作室</span></div>
     {production && <nav className="studio-view-nav" aria-label="製作工作區">{([
-      ['overview', '影片總覽', 'play'], ['edit', '手動剪輯', 'edit'], ['ai', 'AI 打磨', 'sparkle'], ['new', '新片設定', 'plus'],
+      ['overview', '影片總覽', 'play'], ['edit', '審片修改', 'edit'], ['new', '新片設定', 'plus'],
     ] as const).map(([id, label, icon]) => <button key={id} type="button" aria-pressed={view === id} onClick={() => { setView(id); if (id === 'new') setBriefOpen(true) }}><StudioIcon name={icon as StudioIconName} />{label}</button>)}</nav>}
     {error && <p className="inline-message error" role="alert">{error}</p>}
     {loading && <p role="status">正在讀取製作工作…</p>}
@@ -136,7 +136,7 @@ export function ProductionSection({ projectId, csrf, brief, sourceReady }: Props
       <button type="button" className="button secondary" onClick={() => setRefreshKey((value) => value + 1)}>立即重試連線</button>
     </div>}
     {status?.production && (view === 'overview' || active || ['failed', 'interrupted'].includes(run?.state ?? '')) && <ProductionStatusPanel status={status} busy={busy}
-      onView={() => setView('overview')} onRefine={timeline && timeline.duration_frames > 0 ? () => setView('ai') : undefined} onResume={() => void resume()} onCancel={() => void cancel()} onRefresh={() => setRefreshKey((value) => value + 1)}
+      onView={() => setView('overview')} onRefine={timeline && timeline.duration_frames > 0 ? () => setView('edit') : undefined} onResume={() => void resume()} onCancel={() => void cancel()} onRefresh={() => setRefreshKey((value) => value + 1)}
       onEdit={() => {
         setConsent(false); setBriefOpen(true); setView('new')
         window.requestAnimationFrame(() => document.getElementById('production-intent')?.focus())
@@ -152,7 +152,7 @@ export function ProductionSection({ projectId, csrf, brief, sourceReady }: Props
         {showingPreviousPreview && <p className="inline-message" role="status">{latestPreview && ['queued', 'running'].includes(latestPreview.state) ? '新預覽正在輸出，先保留上一份成功影片。' : '這次預覽未完成，上一份成功影片仍可播放與下載。'}</p>}
         {preview.stale && <p className="inline-message">這是先前修訂的預覽，目前草稿尚有更新。</p>}
         <video key={preview.render_id} controls preload="metadata" src={preview.media_url} aria-label="影片預覽" />
-        <div className="screen-actions"><span><span className="screen-ready-dot" />{viewingDraft ? '未完成的草稿' : preview.stale || showingPreviousPreview ? '先前版本' : finished ? `完成的版本${finished.version ? `：${finished.version.label}` : ''}` : '目前預覽'}</span><a className="button secondary" href={preview.media_url} download><StudioIcon name="download" />下載這版影片</a><button type="button" className="button primary" onClick={() => setView('edit')}><StudioIcon name="edit" />繼續剪輯</button></div>
+        <div className="screen-actions"><span><span className="screen-ready-dot" />{viewingDraft ? '未完成的草稿' : preview.stale || showingPreviousPreview ? '先前版本' : finished ? `完成的版本${finished.version ? `：${finished.version.label}` : ''}` : '目前預覽'}</span><a className="button secondary" href={preview.media_url} download><StudioIcon name="download" />下載這版影片</a><button type="button" className="button primary" onClick={() => setView('edit')}><StudioIcon name="edit" />審片並記下修改</button></div>
       </> : <p>{preview && ['queued', 'running'].includes(preview.state) ? '正在合成預覽…' : preview?.state === 'failed' ? '這次預覽輸出失敗，草稿仍保留。' : 'AI 尚未產生可觀看預覽。'}</p>}
       <details className="production-film-info"><summary>影片資訊與配樂來源</summary>
         <p>{production.skill.name} · {production.skill.version}</p>
@@ -171,7 +171,7 @@ export function ProductionSection({ projectId, csrf, brief, sourceReady }: Props
       {run && !run.usage && <p>實際 AI 用量尚未取得，不代表零用量。</p>}
       </details>
     </div>}
-    {production && run && timeline && timeline.duration_frames > 0 && <div hidden={view !== 'edit' && view !== 'ai'}><ProductionWorkbench key={run.run_id} runProvider={run.provider} mode={view === 'ai' ? 'ai' : 'manual'} onRefine={() => setView('ai')} projectId={projectId} csrf={csrf} runId={run.run_id} revisionId={production.draft.revision_id} preview={preview ?? null} active={active} onChanged={() => setRefreshKey((value) => value + 1)} musicId={musicId} onMusicChange={setMusicId} /></div>}
+    {production && run && timeline && timeline.duration_frames > 0 && <div hidden={view !== 'edit'}><ProductionWorkbench key={run.run_id} runProvider={run.provider} projectId={projectId} csrf={csrf} runId={run.run_id} revisionId={production.draft.revision_id} previews={[latestPreview, draft, finished, production.last_successful_preview]} active={active} onChanged={() => setRefreshKey((value) => value + 1)} musicId={musicId} onMusicChange={setMusicId} /></div>}
     {!loading && <details className="production-editor" hidden={Boolean(production) && view !== 'new'} open={!production || briefOpen}
       onToggle={(event) => setBriefOpen(event.currentTarget.open)}>
       <summary>{production ? active ? '本次製作需求' : '製作下一支影片' : '設定你的影片'}</summary>
