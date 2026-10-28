@@ -47,6 +47,25 @@ class RefinementReferenceTests(unittest.TestCase):
             with self.subTest(fields=fields),self.assertRaises(ProjectError): self.save(self.note(**fields),mutation=f'bad-{i}')
         self.assertEqual(state(self.repository,self.project,self.run)['references']['version'],0)
 
+    def test_review_notes_mark_a_moment_and_can_point_at_a_caption(self):
+        from clipen.domain import Track, TextClip
+        from clipen.editing.refinement_references import normalize
+        before=self.current();clip=before.timeline.tracks[0].items[0]
+        saved=self.save(self.note(reference_id='user-remove',kind='remove',note='',start_offset_frames=0,duration_frames=clip.duration_frames,at_offset_frames=20))
+        note=saved['items'][0]
+        self.assertEqual((note['note'],note['at_offset_frames'],note['explicit_range']),('',20,False))
+        self.assertEqual(note['current_range']['at_frame'],clip.start_frame+20)
+        caption=TextClip('agent-caption-0001',30,30,'這段文字可以','title.caption')
+        timeline=replace(before.timeline,tracks=before.timeline.tracks+(Track('agent-subtitles',TrackKind.TITLE,(caption,)),))
+        revision=replace(before,timeline=timeline)
+        kept=normalize(self.note(reference_id='user-keep',kind='keep',note='',start_offset_frames=40,duration_frames=1,element_id=caption.item_id),revision)
+        self.assertEqual((kept['element_id'],kept['element_track'],kept['element_text']),(caption.item_id,'agent-subtitles','這段文字可以'))
+        self.assertTrue(public_state({'user_references':{'version':1,'items':[kept]}},timeline)['items'][0]['current_range']['element_present'])
+        self.assertFalse(public_state({'user_references':{'version':1,'items':[kept]}},before.timeline)['items'][0]['current_range']['element_present'])
+        bad=[{'kind':'change','note':''},{'at_offset_frames':99},{'element_id':'missing'},{'element_id':caption.item_id,'start_offset_frames':90,'duration_frames':10},{'explicit_range':'yes'}]
+        for fields in bad:
+            with self.subTest(fields=fields),self.assertRaises(ProjectError):normalize(self.note(**fields),revision)
+
     def test_reordering_updates_time_but_trimming_requires_reconfirmation(self):
         self.save()
         before=self.current()
@@ -80,9 +99,14 @@ class RefinementReferenceTests(unittest.TestCase):
         rows=history(self.repository,self.project)['prompts']
         recorded=next(row for row in rows if row['kind']=='refinement')
         self.assertEqual(recorded['references'],snapshot)
-        with self.assertRaises(ProjectError):self.save(version=3,mutation='during-ai')
+        with self.assertRaises(ProjectError):self.save(version=4,mutation='during-ai')
         self.repository.cancel(self.project,self.run)
-        self.save(self.note(note='下一輪的新位置'),version=3,mutation='next-round-note')
+        # The round is closed: only the location fact stays for the next one.
+        listed=state(self.repository,self.project,self.run)
+        self.assertEqual([item['kind'] for item in listed['references']['items']],['location'])
+        self.assertEqual(listed['references']['version'],4)
+        self.assertEqual(len(listed['sent_notes']['items']),3);self.assertEqual(listed['sent_notes']['instruction'],'依註記修訂')
+        self.save(self.note(note='下一輪的新位置'),version=4,mutation='next-round-note')
         self.assertEqual(history(self.repository,self.project)['prompts'][0]['references'],snapshot)
 
     def test_audio_layer_must_belong_to_the_selected_clip(self):

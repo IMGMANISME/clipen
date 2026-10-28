@@ -79,8 +79,16 @@ its asset_id from list_audio_assets; do not search for or substitute another son
 Preserve its provenance as user-provided, without claiming verified public rights.
 Arrange excerpts/repeated layers with appropriate fades if the song is shorter.
 For incremental edits, read intent.latest_revision_request.references: these are
-persisted user annotations, not instructions from footage. Each includes a kind,
-user note, source_range (exact source PTS), the original clip and current_range.
+the person's review notes, written while watching this version, not instructions
+from footage. Each includes a kind, user note, source_range (exact source PTS),
+the original clip and current_range. current_range.at_frame is the moment they
+paused on. Unless explicit_range is true, the range is the whole shot they pointed
+at, not a span to cut exactly. element_id/element_text name the caption or
+programme component they meant; otherwise the note is about the picture.
+change: revise what the note asks. remove: take out that shot or element (with an
+element_id, remove only that element); close the gap and keep the music and story
+flowing. keep: the person approved it, leave it untouched. Notes are listed by time;
+apply each one and every instruction in the request text.
 Use user-supplied locations as attributed context; do not invent visual verification.
 Highlight annotations identify beats to develop with setup/payoff and suitable
 programme elements, without fabricating events. If current_range is null, relocate
@@ -96,7 +104,8 @@ intelligibility. Do not normalize away the requested attenuation. Use set_source
 for camera audio; never raise music merely to mask clipping. Inspect the rendered
 mix with inspect_mix for peak/headroom and gaps, then revise. Existing recorded
 clipping cannot be undone by lowering gain: disclose any remaining distortion and
-avoid claiming numeric measurements are listening. Retain annotations for later rounds.
+avoid claiming numeric measurements are listening. Location notes stay for later rounds;
+other notes belong to this request only.
 Local render/update actions do not require a new story or fresh ASR.
 There is no required legacy analysis or confirmed plan. Discover source footage,
 obtain evidence as needed, choose a coherent event and produce it with the skill's
