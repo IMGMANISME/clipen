@@ -1851,6 +1851,7 @@ legend { color: #5a5f6b; font-size: 12px; font-weight: 600; padding-inline: 8px;
 .review-frame label { font-size: 12px; font-variant-numeric: tabular-nums; }
 .review-mark-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
 .review-mark-bar .button { font-variant-numeric: tabular-nums; }
+.review-step { display: inline-flex; gap: 6px; }
 .review-note-form { border: 1px solid #dfad97 !important; background: #fffaf7; }
 .review-note-form legend { font-weight: 600; font-variant-numeric: tabular-nums; padding: 0 6px; }
 .review-chips { display: flex; flex-wrap: wrap; gap: 6px; }

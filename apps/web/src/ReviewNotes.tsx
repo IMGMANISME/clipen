@@ -86,11 +86,25 @@ export function ReviewNotes({ projectId, csrf, runId, data, video, disabled, onC
     setNow(at); setError(''); setMessage('')
     setForm({ referenceId: '', at, end: '', kind: 'change', target: '', note: '', gain: -12, fill: true, layer: '' })
   }
+  function step(seconds: number) {
+    // Stepping pauses so the mark lands where the user stopped; an open note follows the playhead.
+    player.current?.pause()
+    const last = (timeline.duration_frames - 1) / fps
+    const base = player.current ? player.current.currentTime : now
+    const next = Math.max(0, Math.min(last, Math.round((base + seconds) * fps) / fps))
+    seek(next)
+    if (form) setForm({ ...form, at: next })
+  }
   useEffect(() => {
-    // "M" marks the current moment, like a marker key in an editing app.
+    // "M" marks the current moment and the arrows nudge the playhead, like an editing app.
     function key(event: KeyboardEvent) {
       const field = (event.target as HTMLElement | null)?.closest('input, textarea, select, [contenteditable="true"]')
-      if (event.key.toLowerCase() === 'm' && !event.metaKey && !event.ctrlKey && !event.altKey && !field && !form && !disabled) { event.preventDefault(); mark() }
+      if (field || disabled || busy || event.metaKey || event.ctrlKey || event.altKey) return
+      if (event.key.toLowerCase() === 'm' && !form) { event.preventDefault(); mark() }
+      else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+        event.preventDefault()
+        step((event.key === 'ArrowLeft' ? -1 : 1) * (event.shiftKey ? 1 / fps : 1))
+      }
     }
     window.addEventListener('keydown', key)
     return () => window.removeEventListener('keydown', key)
@@ -145,12 +159,16 @@ export function ReviewNotes({ projectId, csrf, runId, data, video, disabled, onC
         : <FrameViewer projectId={projectId} csrf={csrf} runId={runId} revisionId={data.revision.revision_id} timeline={timeline} frame={frame} onSeek={(value) => setNow(value / fps)} />}
       <div className="review-mark-bar">
         <button type="button" className="button primary" disabled={disabled || busy || Boolean(form)} onClick={mark}>在 {clock(now)} 記一筆</button>
-        <span className="prompt-draft-hint">看到要改的地方就按，或按鍵盤 M。影片會先暫停。</span>
+        <span className="review-step" role="group" aria-label="微調時間">
+          <button type="button" className="button ghost" disabled={disabled || busy} onClick={() => step(-1)} aria-label="上一秒">‹ 1 秒</button>
+          <button type="button" className="button ghost" disabled={disabled || busy} onClick={() => step(1)} aria-label="下一秒">1 秒 ›</button>
+        </span>
+        <span className="prompt-draft-hint">看到要改的地方就按，或按鍵盤 M，影片會先暫停。← → 前後一秒，Shift + ← → 前後一格。</span>
       </div>
     </div>
     {error && <p role="alert" className="inline-message error">{error}</p>}{message && <p role="status">{message}</p>}
     {form && <fieldset className="review-note-form" disabled={disabled || busy}>
-      <legend>{form.referenceId ? '修改注記' : `${clock(form.at, true)} 的注記`}</legend>
+      <legend>{`${form.referenceId ? '修改 ' : ''}${clock(form.at, true)} 的注記`}</legend>
       <div className="review-chips" role="radiogroup" aria-label="要怎麼處理">{noteKinds.map(([value, label]) => <button type="button" role="radio" aria-checked={form.kind === value} key={value} className={`review-chip is-${value}`} onClick={() => setForm({ ...form, kind: value })}>{label}</button>)}</div>
       {targets.length > 1 && <div className="review-chips" role="radiogroup" aria-label="指的是">{targets.map((entry, index) => <button type="button" role="radio" key={entry.id} aria-checked={index === 0 ? !target?.text : form.target === entry.id} className="review-chip" onClick={() => setForm({ ...form, target: index === 0 ? '' : entry.id })}>{entry.label}</button>)}</div>}
       {targets.length === 1 && <p className="review-target">指的是：{shot.label}</p>}
