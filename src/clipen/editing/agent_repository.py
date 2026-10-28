@@ -235,7 +235,7 @@ class EditAgentRepository:
         return {} if row is None else json.loads(row['payload_json']).get('creative_direction',{})
 
     def request_refinement(self, project_id, run_id, request_id, expected_revision_id, instruction, music_asset_id=None, expected_references_version=None, provider=None):
-        from .refinement_references import public_state, references
+        from .refinement_references import hand_over, public_state, references
         from .workbench import music_choice
         normalized=self._validate_run_id(run_id)
         request=validate_request_id(request_id)
@@ -266,6 +266,8 @@ class EditAgentRepository:
                 raise ProjectError('reference_conflict','參考註記已更新，請重新讀取並確認後再送出。',status_code=409)
             reference_snapshot=public_state(intent,self._read_revision(db,run.current_revision_id).timeline)
             intent['latest_revision_request']={'authority':'user','instruction':instruction,'base_revision_id':expected_revision_id,'created_at':utc_now(),'references':reference_snapshot}
+            # The AI gets this round's notes; only lasting facts stay listed.
+            hand_over(intent)
             if choice is not None:intent['music_choice']=choice
             db.execute('UPDATE production_sessions SET intent_json=? WHERE run_id=?',(encoded(intent),normalized))
             self._append_event(db,normalized,'refinement_requested',{'instruction':instruction,'references':reference_snapshot,'base_revision_id':expected_revision_id,'previous_budget':run.to_public()['budget'],'previous_attempt_id':run.provider_attempt_id,'music_choice':intent.get('music_choice')},utc_now())
