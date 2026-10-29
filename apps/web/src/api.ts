@@ -1349,7 +1349,7 @@ export async function resumeProduction(csrf: string, projectId: string, runId: s
     { consent: true })).run
 }
 
-export type MusicAsset = { asset_id: string; name: string; role: string; duration_seconds: number; provenance?: { source?: string } }
+export type MusicAsset = { asset_id: string; name: string; role: string; duration_seconds: number; duplicate_group?: string; provenance?: { source?: string } }
 export type ProductionWorkbenchState = {
   revision: { revision_id: string; ordinal: number; summary: string; timeline: EditAgentTimeline }
   styles: Record<string, Record<string, unknown>>
