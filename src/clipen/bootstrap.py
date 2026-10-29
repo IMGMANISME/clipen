@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import shutil
 import shlex
 import stat
@@ -82,7 +83,55 @@ def clipen_data_root() -> Path:
     return Path(xdg_data) / "clipen" if xdg_data else Path.home() / ".local" / "share" / "clipen"
 
 
+def _toml_multiline_string(line: bytes, quote: bytes | None) -> bytes | None:
+    """Track quoted strings so table-looking text inside TOML strings stays opaque."""
+    index = 0
+    while index < len(line):
+        if quote is not None:
+            if quote.startswith(b'"') and line[index:index + 1] == b"\\":
+                index += 2
+            elif line.startswith(quote, index):
+                index += len(quote)
+                quote = None
+            else:
+                index += 1
+        elif line[index:index + 1] == b"#":
+            break
+        elif line[index:index + 1] in (b'"', b"'"):
+            character = line[index:index + 1]
+            quote = character * 3 if line.startswith(character * 3, index) else character
+            index += len(quote)
+        else:
+            index += 1
+    return quote if quote is not None and len(quote) == 3 else None
+
+
+def _replace_project_version(contents: bytes, version: bytes) -> bytes:
+    """Normalize only a literal [project].version, without requiring TOML packages."""
+    in_project = False
+    multiline = None
+    result = []
+    for line in contents.splitlines(keepends=True):
+        if multiline is None and re.match(rb"^[ \t]*\[", line):
+            in_project = bool(re.fullmatch(rb"[ \t]*\[project\][ \t]*(?:#[^\r\n]*)?(?:\r?\n)?", line))
+        if multiline is None and in_project:
+            match = re.fullmatch(
+                rb"[ \t]*version[ \t]*=[ \t]*(['\"])([A-Za-z0-9.!+_-]+)\1[ \t]*(?:#[^\r\n]*)?(?:\r?\n)?",
+                line,
+            )
+            if match:
+                line = line[:match.start(2)] + version + line[match.end(2):]
+        multiline = _toml_multiline_string(line, multiline)
+        result.append(line)
+    return b"".join(result)
+
+
 def runtime_fingerprint(repo_root: Path) -> str:
+    # Retain the original development-version hash so existing runtimes remain valid.
+    return _runtime_fingerprint(repo_root, project_version=b"0.0.0")
+
+
+def _runtime_fingerprint(repo_root: Path, *, project_version: bytes | None) -> str:
     digest = hashlib.sha256()
     digest.update(f"schema={_RUNTIME_SCHEMA}\n".encode())
     digest.update(f"python={sys.version_info.major}.{sys.version_info.minor}\n".encode())
@@ -100,7 +149,10 @@ def runtime_fingerprint(repo_root: Path) -> str:
         if not path.is_file() or path.is_symlink():
             raise BootstrapError(f"缺少必要的 runtime 定義：{relative}")
         digest.update(relative.encode())
-        digest.update(path.read_bytes())
+        contents = path.read_bytes()
+        if relative == "pyproject.toml" and project_version is not None:
+            contents = _replace_project_version(contents, project_version)
+        digest.update(contents)
     return digest.hexdigest()[:16]
 
 
@@ -131,6 +183,35 @@ def runtime_is_ready(runtime: Path, fingerprint: str, repo_root: Path) -> bool:
         and receipt.get("fingerprint") == fingerprint
         and receipt.get("repo_root") == str(repo_root.resolve(strict=True))
     )
+
+
+def _ready_runtime(root: Path, fingerprint: str, repo_root: Path) -> Path | None:
+    if root.is_symlink():
+        return None
+    runtime = root / fingerprint
+    if runtime_is_ready(runtime, fingerprint, repo_root):
+        return runtime
+    if runtime.exists() or runtime.is_symlink():
+        return None
+    # Older receipts used the unnormalized project version. Reconstruct their
+    # exact hash using installed package metadata; all other inputs must match.
+    for candidate in sorted(root.glob("[0-9a-f]" * 16)):
+        if not runtime_is_ready(candidate, candidate.name, repo_root):
+            continue
+        library = candidate / "lib"
+        python_library = library / f"python{sys.version_info.major}.{sys.version_info.minor}"
+        packages = python_library / "site-packages"
+        if any(path.is_symlink() for path in (library, python_library, packages)):
+            continue
+        for metadata in sorted(packages.glob("clipen-*.dist-info")):
+            if metadata.is_symlink() or not metadata.is_dir():
+                continue
+            version = metadata.name[len("clipen-"):-len(".dist-info")].encode()
+            if re.fullmatch(rb"[A-Za-z0-9.!+_-]+", version) and _runtime_fingerprint(
+                repo_root, project_version=version
+            ) == candidate.name:
+                return candidate
+    return None
 
 
 def _confirm_setup(
@@ -513,8 +594,9 @@ def ensure_runtime(
     runtime = root / fingerprint
 
     with _bootstrap_lock(root):
-        if runtime_is_ready(runtime, fingerprint, repo_root):
-            return runtime
+        ready = _ready_runtime(root, fingerprint, repo_root)
+        if ready is not None:
+            return ready
         if runtime.exists():
             raise BootstrapError(
                 f"Clipen runtime 不完整，請先保留此目錄並回報問題：{runtime}"
@@ -556,9 +638,10 @@ def ensure_installation(
     if platform.system() != "Darwin" or platform.machine() != "arm64":
         raise BootstrapError("目前完整設定只支援 Apple 晶片的 macOS")
     fingerprint = runtime_fingerprint(repo_root)
-    runtime = selected_data_root / "runtimes" / fingerprint
+    ready = _ready_runtime(selected_data_root / "runtimes", fingerprint, repo_root)
+    runtime = ready or selected_data_root / "runtimes" / fingerprint
     asr_requirements = repo_root / "requirements" / "asr-runtime.txt"
-    runtime_ready = runtime_is_ready(runtime, fingerprint, repo_root)
+    runtime_ready = ready is not None
     asr_ready = quick_release_is_ready(selected_data_root, asr_requirements)
     command_ready = _command_is_ready(
         repo_root, selected_data_root, selected_home, selected_environment
@@ -644,9 +727,9 @@ def completed_runtime(repo_root: Path, *, data_root: Path | None = None) -> Path
     if platform.system() != "Darwin" or platform.machine() != "arm64":
         raise BootstrapError("目前只支援 Apple 晶片的 macOS")
     fingerprint = runtime_fingerprint(repo_root)
-    runtime = selected_data_root / "runtimes" / fingerprint
+    runtime = _ready_runtime(selected_data_root / "runtimes", fingerprint, repo_root)
     requirements = repo_root / "requirements" / "asr-runtime.txt"
-    if not runtime_is_ready(runtime, fingerprint, repo_root) or not quick_release_is_ready(
+    if runtime is None or not quick_release_is_ready(
         selected_data_root, requirements
     ):
         raise BootstrapError(

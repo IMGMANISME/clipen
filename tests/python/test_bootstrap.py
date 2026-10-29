@@ -74,6 +74,137 @@ class BootstrapTests(unittest.TestCase):
         second = bootstrap.runtime_fingerprint(self.repo)
         self.assertNotEqual(first, second)
 
+    def project_version(self, version: str) -> None:
+        (self.repo / "pyproject.toml").write_text(
+            f"[project]\nname='clipen'\nversion='{version}'\n", encoding="utf-8"
+        )
+
+    def ready_runtime(self, fingerprint: str, version: str | None = None) -> Path:
+        runtime = self.data / "runtimes" / fingerprint
+        python = bootstrap.runtime_python(runtime)
+        python.parent.mkdir(parents=True)
+        python.write_text("#!/bin/sh\n", encoding="utf-8")
+        python.chmod(0o700)
+        (runtime / "clipen-runtime.json").write_text(json.dumps({
+            "schema": 1, "fingerprint": fingerprint, "repo_root": str(self.repo.resolve()),
+        }), encoding="utf-8")
+        if version is not None:
+            packages = runtime / "lib" / f"python{bootstrap.sys.version_info.major}.{bootstrap.sys.version_info.minor}" / "site-packages"
+            (packages / f"clipen-{version}.dist-info").mkdir(parents=True)
+        return runtime
+
+    def test_fingerprint_ignores_only_the_project_version(self) -> None:
+        self.project_version("0.0.0")
+        old = bootstrap._runtime_fingerprint(self.repo, project_version=None)
+        self.project_version("1.0.0")
+        self.assertEqual(bootstrap.runtime_fingerprint(self.repo), old)
+        for change in (
+            "dependencies=['other==2.0.0']\n", "requires-python='>=3.11'\n",
+            "[build-system]\nrequires=['setuptools==85.0.0']\n",
+            "[tool.setuptools]\npackages=['different']\n",
+            "[tool.other]\nversion='2.0.0'\n",
+        ):
+            with self.subTest(change=change):
+                self.project_version("1.0.0")
+                with (self.repo / "pyproject.toml").open("a") as output:
+                    output.write(change)
+                self.assertNotEqual(bootstrap.runtime_fingerprint(self.repo), old)
+
+    def test_fingerprint_still_tracks_asr_requirements_and_bootstrap_tools(self) -> None:
+        first = bootstrap.runtime_fingerprint(self.repo)
+        with mock.patch("clipen.bootstrap._PIP_VERSION", "different"):
+            self.assertNotEqual(bootstrap.runtime_fingerprint(self.repo), first)
+        (self.repo / "requirements" / "asr-runtime.txt").write_text("different==1.0.0\n")
+        self.assertNotEqual(bootstrap.runtime_fingerprint(self.repo), first)
+
+    def test_version_normalization_preserves_quotes_comments_and_multiline_values(self) -> None:
+        for quote in (b"'", b'"'):
+            with self.subTest(quote=quote):
+                contents = b"[project]\r\n  version = " + quote + b"1.0.0" + quote + b" # release\r\n"
+                self.assertEqual(bootstrap._replace_project_version(contents, b"0.0.0"), contents.replace(b"1.0.0", b"0.0.0"))
+        for quote in (b"'''", b'"""'):
+            with self.subTest(multiline=quote):
+                contents = b"[project]\nversion='1.0.0'\ndescription=" + quote + b"\nversion='inside'\n[tool.other]\n" + quote + b"\n[tool.other]\nversion='real-tool'\n"
+                expected = contents.replace(b"version='1.0.0'", b"version='0.0.0'")
+                self.assertEqual(bootstrap._replace_project_version(contents, b"0.0.0"), expected)
+                # A fake project table inside a tool string must not be normalized.
+                contents = b"[tool.other]\nvalue=" + quote + b"\n[project]\nversion='inside'\n" + quote + b"\n"
+                self.assertEqual(bootstrap._replace_project_version(contents, b"0.0.0"), contents)
+
+    def test_development_runtime_survives_release_bump_in_all_entry_points(self) -> None:
+        self.project_version("0.0.0")
+        fingerprint = bootstrap._runtime_fingerprint(self.repo, project_version=None)
+        runtime = self.ready_runtime(fingerprint)
+        self.project_version("1.0.0")
+        with (
+            mock.patch("clipen.bootstrap.quick_release_is_ready", return_value=True),
+            mock.patch("clipen.bootstrap._command_is_ready", return_value=True),
+            mock.patch("clipen.bootstrap._confirm_setup") as confirm,
+            mock.patch("clipen.bootstrap._install_runtime") as install,
+            mock.patch("clipen.bootstrap._install_asr_bundle") as asr,
+        ):
+            self.assertEqual(bootstrap.completed_runtime(self.repo, data_root=self.data), runtime)
+            self.assertEqual(bootstrap.ensure_runtime(self.repo, data_root=self.data, stdin=io.StringIO()), runtime)
+            self.assertEqual(bootstrap.ensure_installation(self.repo, data_root=self.data, stdin=io.StringIO()), runtime)
+        confirm.assert_not_called()
+        install.assert_not_called()
+        asr.assert_not_called()
+
+    def test_legacy_nonzero_version_runtime_is_reused_without_rewriting_receipt(self) -> None:
+        self.project_version("0.9.0")
+        fingerprint = bootstrap._runtime_fingerprint(self.repo, project_version=None)
+        runtime = self.ready_runtime(fingerprint, "0.9.0")
+        receipt = (runtime / "clipen-runtime.json").read_bytes()
+        self.project_version("1.0.0")
+        with (
+            mock.patch("clipen.bootstrap.quick_release_is_ready", return_value=True),
+            mock.patch("clipen.bootstrap._command_is_ready", return_value=True),
+            mock.patch("clipen.bootstrap._confirm_setup") as confirm,
+            mock.patch("clipen.bootstrap._install_runtime") as install,
+        ):
+            self.assertEqual(bootstrap.completed_runtime(self.repo, data_root=self.data), runtime)
+            self.assertEqual(bootstrap.ensure_runtime(self.repo, data_root=self.data, stdin=io.StringIO()), runtime)
+            self.assertEqual(bootstrap.ensure_installation(self.repo, data_root=self.data, stdin=io.StringIO()), runtime)
+        confirm.assert_not_called()
+        install.assert_not_called()
+        self.assertEqual((runtime / "clipen-runtime.json").read_bytes(), receipt)
+        self.assertFalse((self.data / "runtimes" / bootstrap.runtime_fingerprint(self.repo)).exists())
+
+    def test_legacy_runtime_with_different_dependencies_is_not_reused(self) -> None:
+        self.project_version("0.9.0")
+        fingerprint = bootstrap._runtime_fingerprint(self.repo, project_version=None)
+        self.ready_runtime(fingerprint, "0.9.0")
+        self.project_version("1.0.0")
+        (self.repo / "requirements" / "runtime.txt").write_text("starlette==different\n")
+        with self.assertRaisesRegex(bootstrap.BootstrapError, "尚未完成安裝"):
+            bootstrap.completed_runtime(self.repo, data_root=self.data)
+
+    def test_legacy_runtime_rejects_foreign_receipt_and_symlinked_metadata(self) -> None:
+        self.project_version("0.9.0")
+        fingerprint = bootstrap._runtime_fingerprint(self.repo, project_version=None)
+        runtime = self.ready_runtime(fingerprint, "0.9.0")
+        self.project_version("1.0.0")
+        receipt = runtime / "clipen-runtime.json"
+        value = json.loads(receipt.read_text())
+        receipt.write_text(json.dumps({**value, "repo_root": str(self.root / "other")}))
+        self.assertIsNone(bootstrap._ready_runtime(runtime.parent, bootstrap.runtime_fingerprint(self.repo), self.repo))
+        receipt.write_text(json.dumps(value))
+        metadata = next(runtime.glob("lib/python*/site-packages/clipen-*.dist-info"))
+        metadata.rmdir()
+        metadata.symlink_to(self.repo, target_is_directory=True)
+        self.assertIsNone(bootstrap._ready_runtime(runtime.parent, bootstrap.runtime_fingerprint(self.repo), self.repo))
+
+    def test_missing_asr_still_requires_setup_even_when_core_runtime_can_be_reused(self) -> None:
+        self.project_version("0.0.0")
+        fingerprint = bootstrap._runtime_fingerprint(self.repo, project_version=None)
+        self.ready_runtime(fingerprint)
+        self.project_version("1.0.0")
+        with (
+            mock.patch("clipen.bootstrap.quick_release_is_ready", return_value=False),
+            self.assertRaisesRegex(bootstrap.BootstrapError, "尚未完成安裝"),
+        ):
+            bootstrap.completed_runtime(self.repo, data_root=self.data)
+
     def test_declining_first_setup_leaves_no_runtime(self) -> None:
         output = io.StringIO()
         runtime = bootstrap.ensure_runtime(
