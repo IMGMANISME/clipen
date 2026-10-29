@@ -437,9 +437,10 @@ class EditAgentTools(SkillTools, EvidenceTools, ProductionTools):
         ).timeline
         issues=self._production_validate_sequence({}).payload['issues']
         if issues:
-            raise ProjectError('agent_sequence_invalid','時間軸仍有技術問題，請先呼叫 validate_sequence 修正。',status_code=422)
-        from .production_limits import valid_production
-        if not (valid_production(self,timeline,complete=True) if self._session_value() else is_style_proof(timeline)):
+            raise ProjectError('agent_sequence_invalid','時間軸或交付條件尚未通過，請先呼叫 validate_sequence 查看實際範圍與待修項目。',status_code=422)
+        # Production bounds, including minimum delivery duration, are reported
+        # by validate_sequence. Only legacy style proofs have a separate policy.
+        if self._session_value() is None and not is_style_proof(timeline):
             raise ProjectError(
                 "style_proof_invalid",
                 "剪輯方向樣片尚未符合片長或鏡頭範圍限制。",

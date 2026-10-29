@@ -234,6 +234,37 @@ class EditAgentRepository:
             row=db.execute("SELECT payload_json FROM edit_agent_events WHERE run_id=? AND event_type='run_created' ORDER BY sequence LIMIT 1",(run_id,)).fetchone()
         return {} if row is None else json.loads(row['payload_json']).get('creative_direction',{})
 
+    def set_target_duration(self, project_id, run_id, expected_revision_id, *, target_duration_seconds, request_excerpt, summary):
+        """Reconcile a later user duration request without rewriting the film."""
+        normalized=self._validate_run_id(run_id)
+        if isinstance(target_duration_seconds,bool) or not isinstance(target_duration_seconds,int) or not 30<=target_duration_seconds<=1200:
+            raise ProjectError('production_input_invalid','預計片長必須為 30 到 1200 秒。',status_code=422)
+        excerpt=bounded_text(request_excerpt,'使用者要求引文',500)
+        summary=bounded_text(summary,'修改說明',500)
+        with self.projects.connect(project_id) as db:
+            db.execute('BEGIN IMMEDIATE')
+            run=self._read_run(db,normalized)
+            if run.current_revision_id!=expected_revision_id:
+                raise ProjectError('revision_conflict','影片已更新，請重新讀取後修改。',status_code=409)
+            if run.state!='running':
+                raise ProjectError('edit_agent_not_running','AI 製作目前未在執行。',status_code=409)
+            row=db.execute('SELECT intent_json FROM production_sessions WHERE run_id=?',(normalized,)).fetchone()
+            if row is None:raise ProjectError('production_required','這個版本不支援持續修訂。',status_code=422)
+            intent=json.loads(row['intent_json'])
+            request=intent.get('latest_revision_request',{})
+            if request.get('authority')!='user' or excerpt not in request.get('instruction',''):
+                raise ProjectError('duration_request_required','請引用使用者本輪修改片長的原文；不能自行降低交付目標。',status_code=422)
+            previous=intent.get('target_duration_seconds',60)
+            intent['target_duration_seconds']=target_duration_seconds
+            db.execute('UPDATE production_sessions SET intent_json=? WHERE run_id=?',(encoded(intent),normalized))
+            result={'revision_id':run.current_revision_id,'previous_target_duration_seconds':previous,
+                    'target_duration_seconds':target_duration_seconds,'request_excerpt':excerpt}
+            self._append_event(db,normalized,'production_duration_updated',{
+                **result,'authority':'model','instruction':request['instruction'],
+                'request_created_at':request.get('created_at'),'summary':summary},utc_now())
+            db.commit()
+            return result
+
     def request_refinement(self, project_id, run_id, request_id, expected_revision_id, instruction, music_asset_id=None, expected_references_version=None, provider=None):
         from .refinement_references import hand_over, public_state, references
         from .workbench import music_choice

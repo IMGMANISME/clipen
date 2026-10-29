@@ -540,6 +540,70 @@ class SkillProductionTests(unittest.TestCase):
         self.repository.record_provider_outcome(self.project.project_id,self.run.run_id,'quota-again',usage=None,error_code='provider_usage_limit')
         self.assertEqual(self.repository.resume_stopped(self.project.project_id,self.run.run_id).current_revision_id,before.current_revision_id)
 
+    def test_duration_revision_reconciles_music_length_without_changing_the_film(self):
+        from clipen.editing.production_limits import limits_for,valid_production
+        self.repository.cancel(self.project.project_id,self.run.run_id)
+        run,_=self.repository.create_run(self.project.project_id,'music-length',production={
+            'skill_id':'travel-program','intent':'五分鐘旅遊精華','target_duration_seconds':300})
+        tools=EditAgentTools(self.repository,self.project.project_id,run.run_id);tools.activate()
+        try:
+            source=tools.call('list_source_media',{}).payload['sources'][0]
+            candidate=tools.call('register_source_range',{'version_id':source['version_id'],'stream_index':0,
+                'start_offset_seconds':0,'duration_seconds':8,'description':'合成來源，測試交付片長政策'}).payload['candidate']['candidate_id']
+            clips=[{'candidate_id':candidate,'start_offset_seconds':0,'duration_seconds':2}]*99
+            clips += [{'candidate_id':candidate,'start_offset_seconds':0,'duration_seconds':1}]*16
+            revision=self.repository.current_revision(self.project.project_id,run.run_id).revision_id
+            tools.call('replace_sequence',{'clips':clips,'reprise_reason':'合成來源的政策測試，不代表剪輯建議',
+                'summary':'重現214秒115鏡','expected_revision_id':revision,'mutation_id':'duration-cut'})
+            film=tools._timeline();revision=self.repository.current_revision(self.project.project_id,run.run_id).revision_id
+            self.assertEqual(film.duration_frames,6420)
+            self.assertEqual(len(tools._video().items),115)
+            self.assertTrue(valid_production(tools,film))
+            self.assertFalse(valid_production(tools,film,complete=True))
+            validation=tools.call('validate_sequence',{}).payload
+            issue=next(i for i in validation['delivery_issues'] if i['code']=='production_duration_below_target')
+            self.assertEqual((issue['actual'],issue['minimum']),(214,270))
+            self.assertNotIn(issue,validation['render_issues'])
+            self.assertIn('production_duration_below_target',self.repository.delivery_blockers(self.project.project_id,run.run_id))
+            args={'target_duration_seconds':214,'request_excerpt':'跟我的音樂差不多的時間','summary':'依使用者新要求配合歌曲量測214秒',
+                  'expected_revision_id':revision,'mutation_id':'duration-update'}
+            with self.assertRaises(ProjectError) as error:tools.call('set_target_duration',args)
+            self.assertEqual(error.exception.code,'duration_request_required')
+            self.repository.cancel(self.project.project_id,run.run_id)
+            self.repository.request_refinement(self.project.project_id,run.run_id,'shorten-to-music',revision,
+                                               '幫我把整部片壓在跟我的音樂差不多的時間')
+            tools.close_production()
+            tools=EditAgentTools(self.repository,self.project.project_id,run.run_id);tools.activate()
+            args['mutation_id']='duration-update-authorized'
+            updated=tools.call('set_target_duration',args).payload
+            self.assertEqual(updated['previous_target_duration_seconds'],300)
+            self.assertEqual(updated['limits']['delivery_min_seconds'],193)
+            self.assertEqual(updated['limits']['clips'],180)
+            self.assertEqual(tools.call('get_edit_status',{}).payload['intent']['target_duration_seconds'],214)
+            self.assertTrue(valid_production(tools,film,complete=True))
+            self.assertFalse(any(i['code']=='production_duration_below_target' for i in tools.call('validate_sequence',{}).payload['issues']))
+            self.assertEqual(tools._timeline(),film)
+            self.assertEqual(self.repository.current_revision(self.project.project_id,run.run_id).revision_id,revision)
+            replay=tools.call('set_target_duration',args).payload
+            self.assertTrue(replay['replayed'])
+            reloaded=EditAgentTools(self.repository,self.project.project_id,run.run_id)
+            self.assertEqual(limits_for(reloaded),limits_for(tools))
+            with self.projects.connect(self.project.project_id) as db:
+                events=db.execute("SELECT payload_json FROM edit_agent_events WHERE run_id=? AND event_type='production_duration_updated'",(run.run_id,)).fetchall()
+            self.assertEqual(len(events),1)
+            self.assertEqual(json.loads(events[0][0])['request_excerpt'],args['request_excerpt'])
+            self.assertEqual(json.loads(events[0][0])['authority'],'model')
+            for target in (True,0,1201,214.1):
+                with self.assertRaises(ProjectError):self.repository.set_target_duration(self.project.project_id,run.run_id,revision,
+                    target_duration_seconds=target,request_excerpt=args['request_excerpt'],summary='錯誤片長')
+            with self.assertRaises(ProjectError) as error:self.repository.set_target_duration(self.project.project_id,run.run_id,'stale',
+                target_duration_seconds=214,request_excerpt=args['request_excerpt'],summary='過期版本')
+            self.assertEqual(error.exception.code,'revision_conflict')
+            with self.assertRaises(ProjectError) as error:self.repository.set_target_duration(self.project.project_id,run.run_id,revision,
+                target_duration_seconds=214,request_excerpt='使用者沒有這樣說',summary='不可捏造要求')
+            self.assertEqual(error.exception.code,'duration_request_required')
+        finally:tools.close_production()
+
     def test_explicit_long_form_session_accepts_ten_minutes_without_relaxing_default(self):
         from clipen.editing.production_limits import limits_for
         self.cut()
