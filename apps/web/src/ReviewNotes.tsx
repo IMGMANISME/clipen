@@ -74,6 +74,7 @@ export function ReviewNotes({ visible, projectId, csrf, runId, data, video, disa
     return () => window.removeEventListener('keydown', key)
   })
   function edit(item: RefinementReference) {
+    if (draft) return
     const range = item.current_range
     if (!range) { setError('這筆注記的畫面已被改動，請刪除後在新的位置重新記一筆。'); return }
     const at = (range.at_frame ?? range.start_frame) / fps
@@ -131,7 +132,7 @@ export function ReviewNotes({ visible, projectId, csrf, runId, data, video, disa
       </div>
     </div>
     {error && <p role="alert" className="inline-message error">{error}</p>}{message && <p role="status">{message}</p>}
-    {outdated && <div role="status" className="inline-message"><p>上一版有尚未記下的注記，文字已保留。請找到對應畫面，按「記一筆」重新定位。</p><p>{outdated.note}</p><button type="button" className="button ghost" onClick={() => setForm(null)}>放棄這份草稿</button></div>}
+    {outdated && <div role="status" className="inline-message"><p>上一版有尚未記下的注記，文字已保留。請找到對應畫面，按「記一筆」重新定位。若要修改其他注記，請先記下或放棄這份草稿。</p><p>{outdated.note}</p><button type="button" className="button ghost" onClick={() => setForm(null)}>放棄這份草稿</button></div>}
     {form && <fieldset className="review-note-form" disabled={disabled || busy}>
       <legend>{`${form.referenceId ? '修改 ' : ''}${clock(form.at, true)} 的注記`}</legend>
       <div className="review-chips" role="radiogroup" aria-label="要怎麼處理">{noteKinds.map(([value, label]) => <button type="button" role="radio" aria-checked={form.kind === value} key={value} className={`review-chip is-${value}`} onClick={() => setForm({ ...form, kind: value })}>{label}</button>)}</div>
@@ -159,7 +160,7 @@ export function ReviewNotes({ visible, projectId, csrf, runId, data, video, disa
         {item.current_range?.element_present === false && <small>這個字幕或元件已不在影片中。</small>}
         {!item.current_range && <small>這段畫面已被改動，AI 會依原始素材找回位置。</small>}
         {item.kind === 'location' && <small>地點補充會一直保留，之後的修改也會參考。</small>}</div>
-      <div className="review-note-actions"><button type="button" className="button ghost" disabled={disabled || busy || Boolean(form)} onClick={() => edit(item)}>修改</button><button type="button" className="button ghost" disabled={disabled || busy} onClick={() => void mutate({ delete_id: item.reference_id })}>刪除</button></div>
+      <div className="review-note-actions"><button type="button" className="button ghost" disabled={disabled || busy || Boolean(draft)} onClick={() => edit(item)}>修改</button><button type="button" className="button ghost" disabled={disabled || busy} onClick={() => void mutate({ delete_id: item.reference_id })}>刪除</button></div>
     </li>)}</ol>}
     <p className="prompt-draft-hint">注記只存在 Clipen，不使用 AI 額度。送出修改後，這輪注記會交給 AI 並清空；地點補充會保留。</p>
   </section>

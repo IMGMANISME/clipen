@@ -90,7 +90,7 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
       {data.sent_notes.instruction && <pre>{data.sent_notes.instruction}</pre>}
       {!data.sent_notes.instruction?.includes('審片注記') && data.sent_notes.items.length > 0 && <ol>{data.sent_notes.items.map((item) => <li key={item.reference_id}>{describeNote(item, data.revision.timeline).line}</li>)}</ol>}
     </details>}
-    <details className="workbench-versions-panel"><summary>版本紀錄與還原</summary>
+    <details className="workbench-versions-panel" onToggle={(event) => { if (!event.currentTarget.open) versionPlayer.current?.pause() }}><summary>版本紀錄與還原</summary>
       <p className="workbench-versions-note">每次 AI 製作或修改結束、每次還原，各算一個版本。</p>
       {data?.history.length ? <ol className="workbench-versions">{data.history.map((version) => {
         const current = version.revision_id === data.revision.revision_id

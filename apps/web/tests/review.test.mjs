@@ -1,22 +1,8 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
-import { resolve, dirname } from 'node:path'
 import test from 'node:test'
-import ts from 'typescript'
+import { createSourceLoader } from './sourceLoader.mjs'
 
-const require = createRequire(import.meta.url)
-const cache = new Map()
-function load(name) {
-  const file = resolve(import.meta.dirname, '../src', name + '.ts')
-  if (cache.has(file)) return cache.get(file)
-  const module = { exports: {} }
-  cache.set(file, module.exports)
-  const { outputText } = ts.transpileModule(readFileSync(file, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } })
-  const localRequire = (specifier) => specifier.startsWith('.') ? load(resolve(dirname(file), specifier).replace(/\.ts$/, '')) : require(specifier)
-  new Function('require', 'module', 'exports', outputText)(localRequire, module, module.exports)
-  return module.exports
-}
+const load = createSourceLoader()
 const { readNoteDraft, recoverUnsentDraft, overallInstruction } = load('reviewDraft')
 const { composePrompt } = load('reviewModel')
 const { musicChoices } = load('musicChoices')
