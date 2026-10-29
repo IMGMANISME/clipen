@@ -1129,6 +1129,7 @@ def create_app(
 
     async def production_music(request: Request) -> Response:
         from clipen.editing.production_media import AgentAudioStore
+        from clipen.editing.music_choices import music_choices
         from clipen.editing.workbench import import_music
         coordinator=require_edit_agents();project=request.path_params['project_id']
         directory=None
@@ -1136,7 +1137,7 @@ def create_app(
             # Resolve and authorize the project before creating any upload data.
             coordinator.repository.projects.get_project(project)
             store=AgentAudioStore(coordinator.repository.projects,project)
-            if request.method=='GET':return JSONResponse({'assets':[a for a in store.public_assets() if a['role']=='music']})
+            if request.method=='GET':return JSONResponse({'assets':music_choices(store)})
             latest=coordinator.repository.latest(project)
             if latest and latest.state in {'queued','running'}:raise ProjectError('edit_agent_busy','請先停止 AI 製作，再上傳配樂。',status_code=409)
             name=request.query_params.get('filename','')
