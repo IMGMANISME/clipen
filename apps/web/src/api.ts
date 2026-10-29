@@ -965,9 +965,10 @@ export async function getInventory(projectId: string): Promise<InventorySummary>
 export async function getInventoryItems(
   projectId: string,
   runId: string,
+  offset = 0,
 ): Promise<InventoryItemsPage> {
   return request<InventoryItemsPage>(
-    `/api/projects/${projectId}/inventories/${runId}?offset=0&limit=100`,
+    `/api/projects/${projectId}/inventories/${runId}?offset=${offset}&limit=100`,
   )
 }
 
