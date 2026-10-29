@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 import re
 from typing import Any, Mapping
@@ -135,6 +135,7 @@ class ProjectSnapshot:
     created_at: str
     updated_at: str
     directories: tuple[DirectoryReference, ...] = ()
+    last_activity_at: str | None = field(default=None, compare=False)
 
     def __post_init__(self) -> None:
         validate_project_id(self.project_id)
@@ -168,6 +169,7 @@ class ProjectSnapshot:
             "revision": self.revision,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
+            "last_activity_at": self.last_activity_at or self.updated_at,
             "directories": [reference.to_public() for reference in self.directories],
         }
 

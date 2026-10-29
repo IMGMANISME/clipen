@@ -305,7 +305,7 @@ function ProjectHome({
                   <span className="project-next">
                     {source ? '開啟作品工作室' : '下一步：選擇毛片資料夾'}
                   </span>
-                  <span className="project-time">{formatUpdatedAt(project.updated_at)}</span>
+                  <span className="project-time">最近活動：{formatUpdatedAt(project.last_activity_at ?? project.updated_at)}</span>
                 </button>
               )
             })}
@@ -1306,6 +1306,15 @@ function App() {
     window.addEventListener('popstate', updateRoute)
     return () => window.removeEventListener('popstate', updateRoute)
   }, [])
+
+  useEffect(() => {
+    if (selectedProjectId !== null || application.kind !== 'ready') return
+    let disposed = false
+    void listProjects().then((projects) => {
+      if (!disposed) setApplication((current) => current.kind === 'ready' ? { ...current, projects } : current)
+    }).catch(() => { /* Keep the last project list when temporarily disconnected. */ })
+    return () => { disposed = true }
+  }, [selectedProjectId, application.kind])
 
   const selectedProject = useMemo(
     () => application.kind === 'ready'

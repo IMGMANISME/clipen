@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from dataclasses import replace
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -359,8 +360,19 @@ class ProjectRepository:
                 raise ProjectError(
                     "storage_unsafe", "Clipen 偵測到不安全的作品資料。", status_code=500
                 )
-            projects.append(self.get_project(entry.name))
-        projects.sort(key=lambda project: project.updated_at, reverse=True)
+            project=self.get_project(entry.name)
+            # Activity is derived so editing never changes the metadata revision
+            # or invalidates the user's source grants and inventory.
+            with self.connect(entry.name) as db:
+                activity=db.execute("""SELECT MAX(at) FROM (
+                    SELECT MAX(created_at) AS at FROM edit_agent_events
+                    UNION ALL SELECT MAX(created_at) FROM edit_agent_revisions
+                    UNION ALL SELECT MAX(created_at) FROM operation_events
+                    UNION ALL SELECT MAX(created_at) FROM inventory_runs
+                    UNION ALL SELECT MAX(completed_at) FROM preview_renders
+                )""").fetchone()[0]
+            projects.append(replace(project,last_activity_at=max(project.updated_at,activity or project.updated_at)))
+        projects.sort(key=lambda project: project.last_activity_at or project.updated_at, reverse=True)
         return tuple(projects)
 
     def get_project(self, project_id: str) -> ProjectSnapshot:

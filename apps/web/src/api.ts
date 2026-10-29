@@ -33,6 +33,7 @@ export type Project = {
   revision: number
   created_at: string
   updated_at: string
+  last_activity_at?: string
   directories: DirectoryReference[]
 }
 

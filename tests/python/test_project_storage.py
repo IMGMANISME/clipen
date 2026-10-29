@@ -163,6 +163,18 @@ class ProjectStorageTests(unittest.TestCase):
         listed = self.repository.list_projects()
         self.assertEqual([project.project_id for project in listed], [updated_first.project_id, second.project_id])
 
+    def test_production_activity_sorts_home_without_changing_project_revision(self):
+        first=self.repository.create_project('request-activity-first','持續剪輯的作品')
+        second=self.repository.create_project('request-activity-second','較新建立的作品')
+        with self.repository.connect(first.project_id) as db:
+            db.execute('INSERT INTO operation_events(event_id,project_id,operation_id,event_type,payload_json,created_at) VALUES(?,?,?,?,?,?)',
+                       ('activity-event',first.project_id,'activity-operation','production_prompt_saved','{}','2099-01-01T00:00:00+00:00'))
+        listed=self.repository.list_projects()
+        self.assertEqual([p.project_id for p in listed],[first.project_id,second.project_id])
+        self.assertEqual(listed[0].to_public()['last_activity_at'],'2099-01-01T00:00:00+00:00')
+        self.assertEqual((listed[0].revision,listed[0].updated_at),(first.revision,first.updated_at))
+        self.assertEqual(self.repository.get_project(first.project_id),first)
+
     def test_rejects_invalid_project_id_and_symlinked_project(self) -> None:
         with self.assertRaises(ProjectError):
             self.repository.get_project("../../raw-footage")
