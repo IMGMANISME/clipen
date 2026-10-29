@@ -113,6 +113,28 @@ class ProductionWorkbenchTests(unittest.TestCase):
                 with patch('clipen.editing.production_preview.render_recipe_id',return_value='changed-recipe'):
                     self.assertTrue(coordinator.status(self.project)['production']['last_successful_preview']['stale'])
         finally:coordinator.close()
+    def test_history_preview_uses_latest_successful_output_without_restoring(self):
+        from clipen.rendering import PreviewRenderRepository
+        self.stop()
+        before = self.repository.get(self.project, self.run)
+        revision = self.repository.current_revision(self.project, self.run)
+        renders = PreviewRenderRepository(self.f.projects)
+        without_output = state(self.repository, self.project, self.run)['history'][0]
+        self.assertIsNone(without_output['preview_url'])
+        expected_duration = revision.timeline.duration_frames * revision.timeline.frame_rate.denominator / revision.timeline.frame_rate.numerator
+        self.assertEqual(without_output['duration_seconds'], expected_duration)
+        good = renders.create(self.project, 'history-success', revision.revision_id)
+        renders.mark_running(self.project, good['render_id'])
+        path = renders.output_path(self.project, good['render_id'])
+        path.write_bytes(b'isolated-output')
+        renders.complete(self.project, good['render_id'], path.name, path.stat().st_size)
+        failed = renders.create(self.project, 'history-failed', revision.revision_id)
+        renders.finish_unsuccessful(self.project, failed['render_id'], 'failed', error_code='test_failure')
+        version = state(self.repository, self.project, self.run)['history'][0]
+        self.assertEqual(version['preview_url'], f"/api/projects/{self.project}/preview/{good['render_id']}/media")
+        self.assertEqual(self.repository.get(self.project, self.run), before)
+        self.assertEqual(self.repository.current_revision(self.project, self.run), revision)
+
     def test_manual_changes_are_versioned_without_ai_budget_and_exportable(self):
         self.f.call('add_program_component',element_id='header',item_id='agent-video-0001',component_id='headline',start_offset_frames=0,duration_frames=60,text='原來的標題',x=.08,y=.25,evidence='測試畫面標註',summary='元件')
         before=self.repository.current_revision(self.project,self.run);budget=self.repository.get(self.project,self.run).tool_calls

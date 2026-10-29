@@ -1,5 +1,5 @@
 import { PowerNotice } from './PowerNotice'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { cancelEditAgent, getEditAgent, getProductionSkills, resumeProduction, startProduction } from './api'
 import type { EditAgentStatus, ProductionSkill } from './api'
 import { ProductionStatusPanel } from './ProductionStatusPanel'
@@ -11,6 +11,7 @@ import { StudioIcon } from './StudioIcon'
 import type { StudioIconName } from './StudioIcon'
 import { usePromptDraft } from './usePromptDraft'
 import { useProvider } from './providerContext'
+import { clock } from './reviewModel'
 
 type Props = { projectId: string; csrf: string; brief: string; sourceReady: boolean }
 
@@ -23,14 +24,15 @@ export function ProductionSection({ projectId, csrf, brief, sourceReady }: Props
   const [templateId, setTemplateId] = useState('travel-vlog')
   const [fontStyleId, setFontStyleId] = useState('variety-tw')
   const [targetMinutes, setTargetMinutes] = useState('10')
-  const targetDuration = Number(targetMinutes) * 60
-  const durationValid = targetMinutes.trim() !== '' && Number.isInteger(Number(targetMinutes)) && targetDuration >= 60 && targetDuration <= 1200
+  const targetDuration = Math.round(Number(targetMinutes) * 60)
+  const durationValid = targetMinutes.trim() !== '' && Number.isFinite(targetDuration) && targetDuration >= 30 && targetDuration <= 1200
   const [intent, setIntent] = usePromptDraft(projectId, 'production', brief || '以人物對話與實際體驗串起一段旅遊節目，有清楚故事、節目字幕、配樂、適合的轉場、節目主標、動態大字與有設計感的畫面內動畫。保留人物與現場，不使用獨立字卡代替敘事。')
   const [status, setStatus] = useState<EditAgentStatus | null>(null)
   const [consent, setConsent] = useState(false)
   const [briefOpen, setBriefOpen] = useState(false)
   const [view, setView] = useState<'overview' | 'edit' | 'new'>('overview')
   const [showDraft, setShowDraft] = useState(false)
+  const overviewPlayer = useRef<HTMLVideoElement>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -123,8 +125,23 @@ export function ProductionSection({ projectId, csrf, brief, sourceReady }: Props
   const selectedFont = fontStyles.find((font) => font.font_style_id === displayedFont)
   const displayedStyle = active ? production?.skill.selected_visual_style_id ?? 'variety' : visualStyleId
   const duration = timeline ? timeline.duration_frames * timeline.frame_rate.den / timeline.frame_rate.num : 0
+  useEffect(() => { if (view !== 'overview') overviewPlayer.current?.pause() }, [view])
 
-  return <section className="production-workspace" aria-labelledby="production-heading">
+  function reuseSettings() {
+    if (!production) return
+    const style = production.skill.selected_visual_style_id ?? 'tpl-travel-vlog'
+    const owner = skills.find((s) => s.skill_id === production.skill.skill_id) ?? skills.find((s) => s.visual_styles?.some((v) => v.visual_style_id === style))
+    if (!owner) { setError('目前影片的樣板已無法用於新製作，請選擇其他樣板。'); return }
+    setSkillId(owner.skill_id); setVisualStyleId(style)
+    setTemplateId(owner.templates?.find((t) => t.visual_style_id === style)?.template_id ?? '')
+    setFontStyleId(production.skill.selected_font_style_id ?? 'default')
+    setTargetMinutes(String(Number(((production.intent.target_duration_seconds ?? 60) / 60).toFixed(3))))
+    setIntent(production.intent.brief); setMusicId(production.intent.music_choice?.asset_id ?? ''); setConsent(false)
+  }
+
+  return <section className="production-workspace" aria-labelledby="production-heading" onPlayCapture={(event) => {
+    event.currentTarget.querySelectorAll('video').forEach((video) => { if (video !== event.target) video.pause() })
+  }}>
     <div className="studio-heading"><div><p className="eyebrow">CLIPEN STUDIO</p><h2 id="production-heading">把故事，剪成作品。</h2><p>從第一個鏡頭，到每一個值得留下的細節。</p></div><span className="studio-local"><span />本機工作室</span></div>
     {production && <nav className="studio-view-nav" aria-label="製作工作區">{([
       ['overview', '影片總覽', 'play'], ['edit', '審片修改', 'edit'], ['new', '新片設定', 'plus'],
@@ -151,7 +168,7 @@ export function ProductionSection({ projectId, csrf, brief, sourceReady }: Props
           <button type="button" className="button ghost" onClick={() => setShowDraft(true)}>看未完成的草稿</button></div>}
         {showingPreviousPreview && <p className="inline-message" role="status">{latestPreview && ['queued', 'running'].includes(latestPreview.state) ? '新預覽正在輸出，先保留上一份成功影片。' : '這次預覽未完成，上一份成功影片仍可播放與下載。'}</p>}
         {preview.stale && <p className="inline-message">這是先前修訂的預覽，目前草稿尚有更新。</p>}
-        <video key={preview.render_id} controls preload="metadata" src={preview.media_url} aria-label="影片預覽" />
+        <video ref={overviewPlayer} key={preview.render_id} controls preload="metadata" src={preview.media_url} aria-label="影片預覽" />
         <div className="screen-actions"><span><span className="screen-ready-dot" />{viewingDraft ? '未完成的草稿' : preview.stale || showingPreviousPreview ? '先前版本' : finished ? `完成的版本${finished.version ? `：${finished.version.label}` : ''}` : '目前預覽'}</span><a className="button secondary" href={preview.media_url} download><StudioIcon name="download" />下載這版影片</a><button type="button" className="button primary" onClick={() => setView('edit')}><StudioIcon name="edit" />審片並記下修改</button></div>
       </> : <p>{preview && ['queued', 'running'].includes(preview.state) ? '正在合成預覽…' : preview?.state === 'failed' ? '這次預覽輸出失敗，草稿仍保留。' : 'AI 尚未產生可觀看預覽。'}</p>}
       <details className="production-film-info"><summary>影片資訊與配樂來源</summary>
@@ -160,6 +177,7 @@ export function ProductionSection({ projectId, csrf, brief, sourceReady }: Props
         <p>{production.draft.summary}</p>
       {production.production_contents?.music.map((music, index) => <div className="finishing-music-credit" key={`${music.name}-${index}`}>
         <strong>{music.role === 'music' ? '配樂' : '聲音素材'}：{music.name}</strong>
+        <p>音源使用 {clock(music.source_offset_seconds ?? 0, true)}–{clock((music.source_offset_seconds ?? 0) + music.duration_seconds, true)}{music.source_duration_seconds != null ? `／原曲 ${clock(music.source_duration_seconds, true)}` : ''}</p>
         <p>{music.provenance.creator ? `作者：${music.provenance.creator} · ` : ''}{music.provenance.license === 'by' ? `CC BY ${music.provenance.license_version ?? ''}` : music.provenance.license === 'cc0' ? 'CC0' : music.provenance.license === 'user_supplied' ? '使用者提供' : music.provenance.license ?? '授權條件尚未取得'}</p>
         {music.provenance.attribution && <p>署名內容：{music.provenance.attribution}</p>}
         {music.provenance.changes && <p>使用方式：{music.provenance.changes}</p>}
@@ -171,23 +189,24 @@ export function ProductionSection({ projectId, csrf, brief, sourceReady }: Props
       {run && !run.usage && <p>實際 AI 用量尚未取得，不代表零用量。</p>}
       </details>
     </div>}
-    {production && run && timeline && timeline.duration_frames > 0 && <div hidden={view !== 'edit'}><ProductionWorkbench key={run.run_id} runProvider={run.provider} projectId={projectId} csrf={csrf} runId={run.run_id} revisionId={production.draft.revision_id} previews={[latestPreview, draft, finished, production.last_successful_preview]} active={active} onChanged={() => setRefreshKey((value) => value + 1)} musicId={musicId} onMusicChange={setMusicId} /></div>}
+    {production && run && timeline && timeline.duration_frames > 0 && <div hidden={view !== 'edit'}><ProductionWorkbench key={run.run_id} visible={view === 'edit'} runProvider={run.provider} projectId={projectId} csrf={csrf} runId={run.run_id} revisionId={production.draft.revision_id} previews={[latestPreview, draft, finished, production.last_successful_preview]} active={active} onChanged={() => setRefreshKey((value) => value + 1)} musicId={musicId} onMusicChange={setMusicId} /></div>}
     {!loading && <details className="production-editor" hidden={Boolean(production) && view !== 'new'} open={!production || briefOpen}
       onToggle={(event) => setBriefOpen(event.currentTarget.open)}>
       <summary>{production ? active ? '本次製作需求' : '製作下一支影片' : '設定你的影片'}</summary>
       <div className="production-brief">
+      {production && !active && <div className="inline-message"><p>這裡設定的是下一支新影片，請確認樣板、片長與需求。</p><button type="button" className="button secondary" disabled={busy} onClick={reuseSettings}>沿用目前影片的設定</button></div>}
       {active && production ? <p className="skill-picker-active">本次使用的剪輯樣板：<strong>{production.skill.name}</strong></p>
         : skills.length > 0 && <SkillPicker skills={skills} skillId={skillId} templateId={templateId} disabled={busy} onChoose={(choice) => {
           setSkillId(choice.skillId); setTemplateId(choice.templateId); setVisualStyleId(choice.visualStyleId); setFontStyleId(choice.fontStyleId)
           if (choice.defaultDurationSeconds && choice.defaultDurationSeconds % 60 === 0) setTargetMinutes(String(choice.defaultDurationSeconds / 60))
         }} />}
       <label htmlFor="production-duration">預計片長（分鐘）</label>
-      <input id="production-duration" type="number" min={1} max={20} step={1} inputMode="numeric"
+      <input id="production-duration" type="number" min={0.5} max={20} step="any" inputMode="decimal"
         value={active ? Number(production?.intent.target_duration_seconds ?? 60) / 60 : targetMinutes}
         disabled={active || busy} aria-describedby="production-duration-hint" aria-invalid={!active && !durationValid}
         onChange={(event) => setTargetMinutes(event.target.value)} />
-      <p id="production-duration-hint">可自訂 1–20 分鐘。AI 會依素材安排接近目標片長的影片。</p>
-      {!active && !durationValid && <p className="inline-message error" role="alert">請輸入 1–20 的整數分鐘。</p>}
+      <p id="production-duration-hint">可自訂 0.5–20 分鐘，支援小數。{durationValid ? `目標 ${clock(targetDuration)}，以秒為單位安排。` : ''}</p>
+      {!active && !durationValid && <p className="inline-message error" role="alert">請輸入 0.5–20 分鐘。</p>}
       <details className="template-customize"><summary>自訂畫面風格與字體</summary>
       {visualStyles.length > 0 && <><label htmlFor="production-visual-style">畫面風格</label><select id="production-visual-style" value={displayedStyle} disabled={active || busy} onChange={(e) => { setVisualStyleId(e.target.value); setTemplateId(skills.find((skill) => skill.skill_id === skillId)?.templates?.find((template) => template.visual_style_id === e.target.value)?.template_id ?? '') }}>{visualStyles.map((style) => <option value={style.visual_style_id} key={style.visual_style_id}>{style.name}</option>)}</select></>}
       {fontStyles.length > 0 && <div className="font-style-picker">
@@ -207,7 +226,7 @@ export function ProductionSection({ projectId, csrf, brief, sourceReady }: Props
       {!sourceReady && <p className="inline-message" role="status">目前無法使用來源素材。請回到「素材」頁確認磁碟位置與檢查結果，再開始製作。</p>}
       {!active && <>
         {production && <p>這會依下方設定製作一支新影片，目前版本會保留。</p>}
-        <p>{durationValid ? `製作約 ${Number(targetMinutes)} 分鐘的影片；片長越長，分析、字幕與輸出需要的時間和 AI 額度越多。` : '設定片長後即可開始製作。'}</p>
+        <p>{durationValid ? `製作約 ${clock(targetDuration)} 的影片；片長越長，分析、字幕與輸出需要的時間和 AI 額度越多。` : '設定片長後即可開始製作。'}</p>
         <PowerNotice />
         <label className="consent-check"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} />
           <span>同意使用 {provider.name} 額度分析縮圖與口語、依需要下載本機語音功能，並搜尋及下載有來源與授權資料的配樂。原片與音訊留在本機。</span></label>

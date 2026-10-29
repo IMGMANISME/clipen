@@ -19,6 +19,7 @@ def production_contents(projects,project_id,timeline):
                     licensed=all(provenance.get(k) for k in ('title','creator','source_url','license_url','license')) and provenance.get('license')!='unknown'
                     music.append({'asset_id':layer['asset_id'],'name':asset.get('name','未取得音訊來源'),'role':asset.get('role','unknown'),
                         'start_seconds':(item.start_frame+layer['start_frame'])/fps,'duration_seconds':layer['duration_frames']/fps,
+                        'source_offset_seconds':layer['source_offset_seconds'],'source_duration_seconds':asset.get('duration_seconds'),
                         'gain_db':layer['gain_db'],'duck':layer['duck'],'licensed':bool(licensed),'provenance':provenance})
             elif effect.effect_id=='video.transition' and n>0 and effect.parameters['kind']!='none':
                 transitions.append({'item_id':item.item_id,'at_seconds':item.start_frame/fps,**effect.parameters})
