@@ -367,7 +367,7 @@ export type PreviewRender = {
   playback_url: string | null
 }
 
-export type FilmVersion = { revision_id: string; number: number; kind: 'ai_complete' | 'ai_partial' | 'manual' | 'restore'; label: string; detail: string | null; created_at: string }
+export type FilmVersion = { revision_id: string; number: number; kind: 'ai_complete' | 'ai_partial' | 'manual' | 'restore'; label: string; detail: string | null; created_at: string; duration_seconds?: number; preview_url?: string | null }
 export type FilmPreview = PreviewRender & { stale: boolean; revision_id: string; media_url: string; version?: FilmVersion | null }
 
 export type PreviewRenderStatus = {
@@ -452,7 +452,7 @@ export type EditAgentTimeline = {
 export type EditAgentResult = {
   production_contents?: {
     cut_count: number
-    music: Array<{ name: string; role?: string; start_seconds: number; duration_seconds: number; gain_db: number; duck: boolean; provenance: { title?: string; creator?: string; source_url?: string; license?: string; license_version?: string; license_url?: string; attribution?: string; changes?: string } }>
+    music: Array<{ name: string; role?: string; start_seconds: number; duration_seconds: number; source_offset_seconds?: number; source_duration_seconds?: number | null; gain_db: number; duck: boolean; provenance: { title?: string; creator?: string; source_url?: string; license?: string; license_version?: string; license_url?: string; attribution?: string; changes?: string } }>
     transitions: Array<{ at_seconds: number; kind: string; duration_frames: number }>
     motion: Array<{ item_id: string; effect_id: string }>
   }

@@ -1,17 +1,19 @@
 import { PowerNotice } from './PowerNotice'
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { editProduction, exportProduction, getProductionWorkbench, refineProduction, renderProduction } from './api'
-import type { FilmPreview, ProductionWorkbenchState } from './api'
+import type { FilmPreview, FilmVersion, ProductionWorkbenchState } from './api'
 import { ProductionMusicPicker } from './ProductionMusicPicker'
 import { PromptHistory } from './PromptHistory'
 import { usePromptDraft } from './usePromptDraft'
-import { ReviewNotes, composePrompt, describeNote } from './ReviewNotes'
+import { ReviewNotes } from './ReviewNotes'
+import { clock, composePrompt, describeNote } from './reviewModel'
 import { providerName, useProvider } from './providerContext'
+import { overallInstruction } from './reviewDraft'
 
-type Props = { runProvider?: string; projectId: string; csrf: string; runId: string; revisionId: string; active: boolean; onChanged: () => void; musicId: string; previews: Array<FilmPreview | null | undefined>; onMusicChange: (id: string) => void }
+type Props = { visible: boolean; runProvider?: string; projectId: string; csrf: string; runId: string; revisionId: string; active: boolean; onChanged: () => void; musicId: string; previews: Array<FilmPreview | null | undefined>; onMusicChange: (id: string) => void }
 const MAX_INSTRUCTION = 8000
 /** Review the film, note what to change, and hand the notes to the AI. Fine manual editing belongs in an editing app. */
-export function ProductionWorkbench({ projectId, csrf, runId, revisionId, active, onChanged, musicId, onMusicChange, previews, runProvider }: Props) {
+export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionId, active, onChanged, musicId, onMusicChange, previews, runProvider }: Props) {
   const provider = useProvider()
   // A revision may hand the draft to the AI Clipen was started with.
   const switching = Boolean(runProvider && provider.id && runProvider !== provider.id)
@@ -20,12 +22,16 @@ export function ProductionWorkbench({ projectId, csrf, runId, revisionId, active
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
-  const [instruction, setInstruction] = usePromptDraft(projectId, 'refinement')
+  const [instruction, setInstruction] = usePromptDraft(projectId, 'refinement', '', runId)
   const [consent, setConsent] = useState(false)
   const [noteOpen, setNoteOpen] = useState(false)
   const [exportUrl, setExportUrl] = useState('')
   const [historyId, setHistoryId] = useState('')
   const [copied, setCopied] = useState(false)
+  const [versionPreview, setVersionPreview] = useState<FilmVersion | null>(null)
+  const [previewError, setPreviewError] = useState('')
+  const versionPlayer = useRef<HTMLVideoElement>(null)
+  useEffect(() => { if (!visible) versionPlayer.current?.pause() }, [visible])
   useEffect(() => {
     let disposed = false
     void getProductionWorkbench(projectId, runId).then((next) => { if (!disposed) { setData(next); setExportUrl('') } }).catch((e) => { if (!disposed) setError(String(e)) })
@@ -64,11 +70,11 @@ export function ProductionWorkbench({ projectId, csrf, runId, revisionId, active
     {message && <p role="status">{message}</p>}
     {data && !video && <div className="review-stale" role="status"><p>目前這一版還沒有可播放的影片，先用下方畫面逐格查看；也可以先輸出影片再審片。</p>
       <button type="button" className="button secondary" disabled={busy || active} onClick={() => void action(() => renderProduction(csrf, projectId, runId, data.revision.revision_id), '已開始輸出這一版影片，完成後就能播放審片。')}>輸出這一版影片</button></div>}
-    {data && <ReviewNotes projectId={projectId} csrf={csrf} runId={runId} data={data} video={video} disabled={busy || active} onChanged={(references) => setData((current) => current ? { ...current, references } : current)} onDirty={setNoteOpen} />}
+    {data && <ReviewNotes visible={visible} projectId={projectId} csrf={csrf} runId={runId} data={data} video={video} disabled={busy || active} onChanged={(references) => setData((current) => current ? { ...current, references } : current)} onDirty={setNoteOpen} />}
     <fieldset disabled={busy || active || !data}>
       <legend>交給 AI 修改</legend>
       <label>這一版要改什麼？<textarea aria-label="這一版要改什麼？" value={instruction} maxLength={MAX_INSTRUCTION} onChange={(e) => setInstruction(e.target.value)} placeholder="整體方向，例如：節奏再快一點，早餐段落縮短；其他照注記改。" rows={3} /></label>
-      <PromptHistory projectId={projectId} csrf={csrf} kind="refinement" text={instruction} onUse={setInstruction} disabled={busy || active} />
+      <PromptHistory projectId={projectId} csrf={csrf} kind="refinement" text={instruction} onUse={(value) => setInstruction(overallInstruction(value))} disabled={busy || active} />
       {prompt && <details className="review-prompt"><summary>AI 會收到的改片內容{notes.length ? `（${notes.length} 筆注記）` : ''}</summary>
         <pre>{prompt}</pre>
         {prompt.length > MAX_INSTRUCTION && <p className="prompt-draft-hint">注記太多，文字只會送出整體方向；每筆注記仍會完整交給 AI。</p>}
@@ -91,9 +97,11 @@ export function ProductionWorkbench({ projectId, csrf, runId, revisionId, active
         return <li key={version.revision_id} className={`is-${version.kind} ${current ? 'is-current' : ''}`}>
           <label><input type="radio" name="workbench-version" value={version.revision_id} checked={historyId === version.revision_id} disabled={current} onChange={() => setHistoryId(version.revision_id)} />
             <span><strong>版本 {version.number}　{version.label}</strong>{current && <em>目前</em>}
-              <small>{new Date(version.created_at).toLocaleString('zh-TW', { hour12: false, month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}{version.detail ? `　「${version.detail.length > 40 ? `${version.detail.slice(0, 40)}…` : version.detail}」` : ''}</small></span></label>
+              <small>{new Date(version.created_at).toLocaleString('zh-TW', { hour12: false, month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}{version.duration_seconds != null ? ` · ${clock(version.duration_seconds)}` : ''}{version.detail ? `　「${version.detail.length > 40 ? `${version.detail.slice(0, 40)}…` : version.detail}」` : ''}</small></span></label>
+          {version.preview_url ? <button type="button" className="button ghost" onClick={() => { setVersionPreview(version); setPreviewError('') }}>預覽版本 {version.number}</button> : <small>這版尚無可播放的輸出</small>}
         </li>
       })}</ol> : <p>還沒有完成的版本。</p>}
+      {versionPreview?.preview_url && <div className="version-preview"><p>正在比較版本 {versionPreview.number}，目前影片不會被還原。</p><video key={versionPreview.preview_url} ref={versionPlayer} controls preload="metadata" src={versionPreview.preview_url} aria-label={`版本 ${versionPreview.number} 預覽`} onError={() => setPreviewError('這版的預覽檔暫時無法讀取。')} />{previewError && <p role="status">{previewError}</p>}<button type="button" className="button ghost" onClick={() => setVersionPreview(null)}>關閉版本預覽</button></div>}
       <button type="button" className="button secondary" disabled={!historyId || busy || active} onClick={() => void action(() => editProduction(csrf, projectId, runId, data!.revision.revision_id, 'restore_revision', { revision_id: historyId, summary: '使用者還原影片版本' }), '已還原。輸出這一版影片後就能審片。')}>還原選定版本</button>
     </details>
     <details className="workbench-export"><summary>匯出剪輯資料</summary>

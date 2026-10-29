@@ -1,72 +1,33 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { getEditingFrame, getProductionWorkbench, updateProductionReference } from './api'
 import type { EditAgentTimeline, FilmPreview, ProductionWorkbenchState, RefinementReference, ReferenceState } from './api'
+import { readNoteDraft } from './reviewDraft'
+import { clips, clock, describeNote, kindLabel, noteKinds, parseClock, placeholders, selfExplained, targetsAt } from './reviewModel'
+import type { NoteDraft, NoteForm as Form } from './reviewDraft'
 
-type Kind = RefinementReference['kind']
-export const noteKinds: Array<[Kind, string]> = [['change', '要修改'], ['remove', '拿掉'], ['keep', '這樣可以'], ['highlight', '加強爆點'], ['location', '地點補充'], ['audio', '聲音'], ['note', '其他']]
-const kindLabel = Object.fromEntries(noteKinds) as Record<Kind, string>
-// Only these say enough without a sentence.
-const selfExplained: Kind[] = ['remove', 'keep']
-const placeholders: Record<Kind, string> = {
-  change: '例如：這段字幕改成「第一次吃到」，晚一秒出現。', remove: '可以不填；或補充原因，例如：直式畫面，和前後接不起來。', keep: '可以不填；例如：這段文字和時間都很好。',
-  highlight: '例如：第一口之後的反應是笑點，請留鋪陳再強調。', location: '例如：這裡是銀座的某某店，不是淺草。', audio: '例如：風聲太大，壓低原音，讓配樂接上；保留說話內容。', note: '補充只有你知道的拍攝背景或想法。',
-}
-
-type Target = { id: string; label: string; start: number; end: number; text?: boolean }
-type Form = { referenceId: string; at: number; end: string; kind: Kind; target: string; note: string; gain: number; fill: boolean; layer: string }
-
-export function clock(seconds: number, precise = false) {
-  const minutes = Math.floor(seconds / 60), rest = seconds - minutes * 60
-  return `${minutes}:${precise ? rest.toFixed(1).padStart(4, '0') : String(Math.floor(rest)).padStart(2, '0')}`
-}
-function parseClock(value: string) {
-  const parts = value.trim().split(':')
-  if (!parts.length || parts.length > 2 || parts.some((part) => !/^\d+(\.\d+)?$/.test(part))) return NaN
-  return parts.length === 2 ? Number(parts[0]) * 60 + Number(parts[1]) : Number(parts[0])
-}
-function clips(timeline: EditAgentTimeline) { return timeline.tracks.filter((track) => track.kind === 'video').flatMap((track) => track.items) }
-function trackName(trackId: string | undefined) { return trackId === 'agent-subtitles' ? '字幕' : trackId?.startsWith('program-components') ? '元件' : '文字' }
-/** Everything on screen at `frame`: the shot first, then captions and components. */
-export function targetsAt(timeline: EditAgentTimeline, frame: number): Target[] {
-  const shots = clips(timeline)
-  const shot = shots.findIndex((item) => item.start_frame <= frame && frame < item.start_frame + item.duration_frames)
-  const result: Target[] = shot < 0 ? [] : [{ id: shots[shot].item_id, label: `鏡頭 ${shot + 1}（畫面）`, start: shots[shot].start_frame, end: shots[shot].start_frame + shots[shot].duration_frames }]
-  for (const track of timeline.tracks) {
-    if (track.kind === 'video' || track.kind === 'audio') continue
-    for (const item of track.items) {
-      if (!item.text || item.start_frame > frame || frame >= item.start_frame + item.duration_frames) continue
-      const text = item.text.replace(/\s+/g, ' ')
-      result.push({ id: item.item_id, label: `${trackName(track.track_id)}「${text.length > 24 ? `${text.slice(0, 24)}…` : text}」`, start: item.start_frame, end: item.start_frame + item.duration_frames, text: true })
-    }
-  }
-  return result
-}
-/** How a note reads to a person, and to the AI in the request text. */
-export function describeNote(item: RefinementReference, timeline: EditAgentTimeline) {
-  const fps = timeline.frame_rate.num / timeline.frame_rate.den
-  const range = item.current_range
-  const shot = clips(timeline).findIndex((clip) => clip.item_id === range?.item_id)
-  const at = range ? (range.at_frame ?? range.start_frame) / fps : null
-  const time = at === null ? '位置已變動' : item.explicit_range && range ? `${clock(at)}–${clock((range.start_frame + range.duration_frames) / fps)}` : clock(at)
-  const target = item.element_id && item.element_text ? `${trackName(item.element_track)}「${item.element_text.replace(/\s+/g, ' ')}」` : shot >= 0 ? `鏡頭 ${shot + 1}` : '這個畫面'
-  return { at, time, target, line: `${time} ${kindLabel[item.kind]}：${target}。${item.note}${item.kind === 'audio' && item.source_gain_db !== undefined ? `（原音 ${item.source_gain_db} dB${item.fill_music ? '，配樂補滿' : ''}）` : ''}` }
-}
-export function composePrompt(instruction: string, items: RefinementReference[], timeline: EditAgentTimeline) {
-  const lines = [...items].map((item) => describeNote(item, timeline)).sort((a, b) => (a.at ?? Infinity) - (b.at ?? Infinity)).map((note, index) => `${index + 1}. ${note.line}`)
-  const overall = instruction.trim() || (lines.length ? '請依下面的審片注記修改目前影片，其他部分保留。' : '')
-  return lines.length ? `${overall}\n\n審片注記（時間是目前這一版影片的位置）：\n${lines.join('\n')}` : overall
-}
-
-type Props = { projectId: string; csrf: string; runId: string; data: ProductionWorkbenchState; video: FilmPreview | null; disabled: boolean; onChanged: (state: ReferenceState) => void; onDirty: (dirty: boolean) => void }
-export function ReviewNotes({ projectId, csrf, runId, data, video, disabled, onChanged, onDirty }: Props) {
+type Props = { visible: boolean; projectId: string; csrf: string; runId: string; data: ProductionWorkbenchState; video: FilmPreview | null; disabled: boolean; onChanged: (state: ReferenceState) => void; onDirty: (dirty: boolean) => void }
+export function ReviewNotes({ visible, projectId, csrf, runId, data, video, disabled, onChanged, onDirty }: Props) {
   const id = useId()
   const timeline = data.revision.timeline
   const fps = timeline.frame_rate.num / timeline.frame_rate.den
   const state = data.references ?? { version: 0, items: [] }
   const player = useRef<HTMLVideoElement>(null)
   const stage = useRef<HTMLDivElement>(null)
-  const [now, setNow] = useState(0)
-  const [form, setForm] = useState<Form | null>(null)
+  const draftKey = `clipen:review-note-draft:${projectId}:${runId}`
+  const [draft, setDraft] = useState<NoteDraft | null>(() => {
+    try { return readNoteDraft(localStorage.getItem(draftKey)) } catch { return null }
+  })
+  const form = draft?.revisionId === data.revision.revision_id ? draft.form : null
+  const outdated = draft && !form ? draft.form : null
+  const [now, setNow] = useState(form?.at ?? 0)
+  function setForm(value: Form | null) {
+    const next = value ? { revisionId: data.revision.revision_id, form: value } : null
+    setDraft(next)
+    try {
+      if (next) localStorage.setItem(draftKey, JSON.stringify(next))
+      else localStorage.removeItem(draftKey)
+    } catch { /* The mounted form remains usable when storage is unavailable. */ }
+  }
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
@@ -75,7 +36,8 @@ export function ReviewNotes({ projectId, csrf, runId, data, video, disabled, onC
   const targets = targetsAt(timeline, formFrame)
   const shot = targets[0]
   const layers = (clips(timeline).find((clip) => clip.item_id === shot?.id)?.effects ?? []).filter((effect) => effect.effect_id === 'audio.layers').flatMap((effect) => (effect.parameters.layers ?? []) as Array<Record<string, unknown>>)
-  useEffect(() => { onDirty(Boolean(busy || form)) }, [busy, form, onDirty])
+  useEffect(() => { onDirty(Boolean(busy || draft)) }, [busy, draft, onDirty])
+  useEffect(() => { if (!visible) player.current?.pause() }, [visible])
   function seek(seconds: number) {
     setNow(seconds)
     if (player.current) player.current.currentTime = seconds
@@ -84,7 +46,7 @@ export function ReviewNotes({ projectId, csrf, runId, data, video, disabled, onC
     player.current?.pause()
     const at = player.current ? player.current.currentTime : now
     setNow(at); setError(''); setMessage('')
-    setForm({ referenceId: '', at, end: '', kind: 'change', target: '', note: '', gain: -12, fill: true, layer: '' })
+    setForm({ referenceId: '', at, end: '', kind: outdated?.kind ?? 'change', target: '', note: outdated?.note ?? '', gain: outdated?.gain ?? -12, fill: outdated?.fill ?? true, layer: '' })
   }
   function step(seconds: number) {
     // Stepping pauses so the mark lands where the user stopped; an open note follows the playhead.
@@ -96,10 +58,12 @@ export function ReviewNotes({ projectId, csrf, runId, data, video, disabled, onC
     if (form) setForm({ ...form, at: next })
   }
   useEffect(() => {
+    if (!visible) return
     // "M" marks the current moment and the arrows nudge the playhead, like an editing app.
     function key(event: KeyboardEvent) {
       const field = (event.target as HTMLElement | null)?.closest('input, textarea, select, [contenteditable="true"]')
-      if (field || disabled || busy || event.metaKey || event.ctrlKey || event.altKey) return
+      const otherPlayer = (event.target as HTMLElement | null)?.closest('video')
+      if (field || (otherPlayer && otherPlayer !== player.current) || disabled || busy || event.metaKey || event.ctrlKey || event.altKey) return
       if (event.key.toLowerCase() === 'm' && !form) { event.preventDefault(); mark() }
       else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
         event.preventDefault()
@@ -155,7 +119,7 @@ export function ReviewNotes({ projectId, csrf, runId, data, video, disabled, onC
   return <section className="review-notes" aria-labelledby={`${id}-heading`}>
     <div className="review-notes-heading"><h4 id={`${id}-heading`}>邊看邊記</h4><span>{notes.length ? `${notes.length} 筆注記` : '還沒有注記'}</span></div>
     <div className="review-player" ref={stage}>
-      {video ? <video ref={player} controls preload="metadata" src={video.media_url} aria-label="審片用影片" onTimeUpdate={(e) => setNow(e.currentTarget.currentTime)} onSeeked={(e) => setNow(e.currentTarget.currentTime)} />
+      {video ? <video ref={player} controls preload="metadata" src={video.media_url} aria-label="審片用影片" onLoadedMetadata={(e) => { if (form) e.currentTarget.currentTime = Math.min(form.at, (timeline.duration_frames - 1) / fps) }} onTimeUpdate={(e) => setNow(e.currentTarget.currentTime)} onSeeked={(e) => setNow(e.currentTarget.currentTime)} />
         : <FrameViewer projectId={projectId} csrf={csrf} runId={runId} revisionId={data.revision.revision_id} timeline={timeline} frame={frame} onSeek={(value) => setNow(value / fps)} />}
       <div className="review-mark-bar">
         <button type="button" className="button primary" disabled={disabled || busy || Boolean(form)} onClick={mark}>在 {clock(now)} 記一筆</button>
@@ -167,12 +131,14 @@ export function ReviewNotes({ projectId, csrf, runId, data, video, disabled, onC
       </div>
     </div>
     {error && <p role="alert" className="inline-message error">{error}</p>}{message && <p role="status">{message}</p>}
+    {outdated && <div role="status" className="inline-message"><p>上一版有尚未記下的注記，文字已保留。請找到對應畫面，按「記一筆」重新定位。</p><p>{outdated.note}</p><button type="button" className="button ghost" onClick={() => setForm(null)}>放棄這份草稿</button></div>}
     {form && <fieldset className="review-note-form" disabled={disabled || busy}>
       <legend>{`${form.referenceId ? '修改 ' : ''}${clock(form.at, true)} 的注記`}</legend>
       <div className="review-chips" role="radiogroup" aria-label="要怎麼處理">{noteKinds.map(([value, label]) => <button type="button" role="radio" aria-checked={form.kind === value} key={value} className={`review-chip is-${value}`} onClick={() => setForm({ ...form, kind: value })}>{label}</button>)}</div>
       {targets.length > 1 && <div className="review-chips" role="radiogroup" aria-label="指的是">{targets.map((entry, index) => <button type="button" role="radio" key={entry.id} aria-checked={index === 0 ? !target?.text : form.target === entry.id} className="review-chip" onClick={() => setForm({ ...form, target: index === 0 ? '' : entry.id })}>{entry.label}</button>)}</div>}
       {targets.length === 1 && <p className="review-target">指的是：{shot.label}</p>}
       <label>說明<textarea aria-label="注記說明" rows={2} maxLength={2000} value={form.note} placeholder={placeholders[form.kind]} onChange={(e) => setForm({ ...form, note: e.target.value })} autoFocus /></label>
+      <p className="prompt-draft-hint">這筆注記的草稿會自動保存在本機；按「記下這筆」後才會加入本輪修改。</p>
       {form.kind === 'audio' && <>
         {layers.length > 0 && <label>哪個聲音<select value={form.layer} onChange={(e) => setForm({ ...form, layer: e.target.value })}><option value="">這段素材的原音</option>{layers.map((layer) => <option key={String(layer.layer_id)} value={String(layer.layer_id)}>{data.audio_assets.find((asset) => asset.asset_id === layer.asset_id)?.name ?? '配樂／音效'}</option>)}</select></label>}
         <label>希望降低音量：{form.gain} dB<input aria-label="希望降低音量" type="range" min={-60} max={0} step={1} value={form.gain} onChange={(e) => setForm({ ...form, gain: Number(e.target.value) })} /></label>

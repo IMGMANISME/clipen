@@ -1,5 +1,6 @@
 """Human editing of native layers; AI refinement reuses this exact revision."""
 import threading
+import json
 from clipen.projects import ProjectError, DirectoryReference, DirectoryRole
 from clipen.projects.storage import utc_now
 from .agent_tools import EditAgentTools
@@ -30,6 +31,13 @@ def state(repository, project_id, run_id):
     with repository.projects.connect(project_id) as db:
         # One entry per complete edit; the AI's per-step revisions stay internal.
         history=versions(db,run_id,repository.get(project_id,run_id).provider)
+        for version in history:
+            row=db.execute('SELECT payload_json FROM edit_agent_revisions WHERE revision_id=? AND run_id=?',(version['revision_id'],run_id)).fetchone()
+            if row:
+                value=json.loads(row['payload_json']);rate=value['frame_rate']
+                version['duration_seconds']=value['duration_frames']*rate['den']/rate['num']
+            preview=db.execute("SELECT render_id FROM preview_renders WHERE timeline_id=? AND state='succeeded' ORDER BY created_at DESC LIMIT 1",(version['revision_id'],)).fetchone()
+            version['preview_url']=f"/api/projects/{project_id}/preview/{preview['render_id']}/media" if preview else None
     styles=load_text_styles(repository.projects,project_id)
     used={i.style_id for t in revision.timeline.tracks for i in t.items if hasattr(i,'style_id')}
     return {'revision':revision.to_public(include_timeline=True),'styles':{k:v for k,v in styles.items() if k in used},'history':history,'visual_styles':public_styles((repository.production_session(project_id,run_id) or {}).get('skill',{})),'references':public_state((repository.production_session(project_id,run_id) or {}).get('intent',{}),revision.timeline),'sent_notes':sent((repository.production_session(project_id,run_id) or {}).get('intent',{})),'audio_assets':AgentAudioStore(repository.projects,project_id).public_assets(),'tools':[t for t in EXTRA_TOOLS if t['name'] in EDIT_TOOLS]}
