@@ -376,6 +376,9 @@ function InventorySection({
   actionBusy,
   onStart,
   onCancel,
+  onLoadMore,
+  loadingMore,
+  loadMoreError,
 }: {
   summary: InventorySummary | null
   page: InventoryItemsPage | null
@@ -384,6 +387,9 @@ function InventorySection({
   actionBusy: boolean
   onStart: () => void
   onCancel: (run: InventoryRun) => void
+  onLoadMore: () => void
+  loadingMore: boolean
+  loadMoreError: string | null
 }) {
   const latest = summary?.latest ?? null
   const current = summary?.current ?? null
@@ -475,11 +481,11 @@ function InventorySection({
             <div><strong>{current.counts.ignored.toLocaleString()}</strong><span>略過的其他檔案</span></div>
           </div>
 
-          {page && resultItems.length > 0 && (
+          {page && page.total > 0 && (
             <details className="asset-list">
               <summary className="asset-list-heading">
                 <div><strong>查看媒體清單</strong><span>只有需要找特定檔案時才需要展開</span></div>
-                <span>顯示 {resultItems.length.toLocaleString()} / {page.total.toLocaleString()} 個</span>
+                <span>顯示 {resultItems.length.toLocaleString()} 個媒體 · 已讀取 {page.items.length.toLocaleString()} / {page.total.toLocaleString()} 筆</span>
               </summary>
               <div className="asset-list-content">
               {resultItems.map((item) => {
@@ -492,12 +498,14 @@ function InventorySection({
                     <div className="asset-detail">
                       {item.status === 'needs_attention'
                         ? <strong>{item.issue_code ? itemIssueCopy[item.issue_code] ?? '需要確認' : '需要確認'}</strong>
-                        : <><span>{typeof duration === 'string' ? `${duration} 秒` : formatBytes(item.size_bytes)}</span>{codecs && <span>{codecs}</span>}</>}
+                        : <><span>{typeof duration === 'string' && Number.isFinite(Number(duration)) ? `${Number(duration).toFixed(1)} 秒` : formatBytes(item.size_bytes)}</span>{codecs && <span>{codecs}</span>}</>}
                     </div>
                   </div>
                 )
               })}
-              {page.total > page.items.length && <p className="asset-limit">目前顯示前 {page.items.length.toLocaleString()} 個項目，共 {page.total.toLocaleString()} 個。</p>}
+              {page.next_offset !== null && <button type="button" className="button secondary" disabled={loadingMore} onClick={onLoadMore}>{loadingMore ? '正在載入…' : '載入更多素材'}</button>}
+              {loadMoreError && <p role="alert" className="inline-message error">{loadMoreError}</p>}
+              <p className="asset-limit">已讀取 {page.items.length.toLocaleString()} / {page.total.toLocaleString()} 筆；略過的其他檔案不列入媒體清單。</p>
               </div>
             </details>
           )}
@@ -745,6 +753,8 @@ function MaterialsWorkspace({
   const [error, setError] = useState<string | null>(null)
   const [inventory, setInventory] = useState<InventorySummary | null>(null)
   const [inventoryPage, setInventoryPage] = useState<InventoryItemsPage | null>(null)
+  const [inventoryMoreLoading, setInventoryMoreLoading] = useState(false)
+  const [inventoryMoreError, setInventoryMoreError] = useState<string | null>(null)
   const [inventoryLoading, setInventoryLoading] = useState(true)
   const [inventoryActionBusy, setInventoryActionBusy] = useState(false)
   const [analysis, setAnalysis] = useState<AnalysisSummary | null>(null)
@@ -788,13 +798,25 @@ function MaterialsWorkspace({
     if (!currentInventoryId) return
     let mounted = true
     getInventoryItems(project.project_id, currentInventoryId)
-      .then((result) => { if (mounted) setInventoryPage(result) })
+      .then((result) => { if (mounted) { setInventoryPage(result); setInventoryMoreError(null) } })
       .catch((caught) => { if (mounted) setError(errorMessage(caught)) })
     return () => { mounted = false }
   }, [currentInventoryId, project.project_id])
   const visibleInventoryPage = inventoryPage?.inventory.run_id === currentInventoryId
     ? inventoryPage
     : null
+  async function loadMoreInventory() {
+    const offset = visibleInventoryPage?.next_offset
+    if (!currentInventoryId || offset == null || inventoryMoreLoading) return
+    const runId = currentInventoryId
+    setInventoryMoreLoading(true); setInventoryMoreError(null)
+    try {
+      const next = await getInventoryItems(project.project_id, runId, offset)
+      setInventoryPage((current) => current?.inventory.run_id === runId && current.next_offset === offset
+        ? { ...next, offset: 0, items: [...current.items, ...next.items] } : current)
+    } catch (caught) { setInventoryMoreError(errorMessage(caught)) }
+    finally { setInventoryMoreLoading(false) }
+  }
 
   useEffect(() => {
     if (!currentInventoryId) return
@@ -1208,6 +1230,9 @@ function MaterialsWorkspace({
             actionBusy={inventoryActionBusy}
             onStart={() => void inspectMedia()}
             onCancel={(run) => void stopInventory(run)}
+            onLoadMore={() => void loadMoreInventory()}
+            loadingMore={inventoryMoreLoading}
+            loadMoreError={inventoryMoreError}
           />
           {currentInventoryId && <div className="stage-next"><span>素材已經整理完成</span><button className="button primary" type="button" onClick={() => selectStage('production')}>開始 AI 節目製作</button></div>}
           <section className="danger-zone" aria-labelledby="delete-project-title">
