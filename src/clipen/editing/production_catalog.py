@@ -46,6 +46,8 @@ EXTRA_TOOLS=(
             'required':['beat_id','role','item_ids','dialogue_ids','source_evidence','audience_takeaway'],'additionalProperties':False}}}),
  schema('set_canvas','Choose a bounded SDR preview canvas before styling. Changes the revision and invalidates previous render review; source media and timing remain intact.',
         {'width':{'enum':[640,1280,1920]},'height':{'enum':[360,720,1080]},**SUMMARY}),
+ schema('set_target_duration','Update the production duration only when the latest user revision request changes the desired length (including matching selected music). Cite an exact request_excerpt and derive seconds from the request or measured music. Never lower the target just to pass delivery checks. Saves an audit event without changing shots, graphics, audio or render review.',
+        {'target_duration_seconds':{'type':'integer','minimum':30,'maximum':1200},'request_excerpt':TEXT,**SUMMARY}),
  schema('sample_source','Choose exact sample offsets inside a candidate. Returns actual frames with source timestamps; does not infer unseen motion.',
         {'candidate_id':ID,'offsets_seconds':{'type':'array','items':{'type':'number','minimum':0},'minItems':1,'maxItems':8}}),
  schema('inspect_candidates','Audition up to three candidate source ranges before choosing shots. Returns start/middle/end images, transcripts and evidence limitations in one call. Prefer this to repeatedly requesting single cached stills; refine with sample_source when action is missed.',

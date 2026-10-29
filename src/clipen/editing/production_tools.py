@@ -74,6 +74,14 @@ class ProductionTools:
                 'resolve_project':'Native timeline JSON only; no verified Resolve exporter.',
                 'HDR_mastering':'SDR preview pipeline only.'}})
 
+    def _production_set_target_duration(self,args):
+        updated=self.repository.set_target_duration(self.project_id,self.run_id,
+            self._expected_revision_id,**args)
+        self._session_cache=self.repository.production_session(self.project_id,self.run_id)
+        from dataclasses import asdict
+        from .production_limits import limits_for
+        return ToolResult({**updated,'limits':asdict(limits_for(self))})
+
     def _custom_candidates(self):
         from clipen.planning.models import PlanningCandidate
         path=self._workdir('analysis')/'candidates.json'
@@ -455,14 +463,18 @@ class ProductionTools:
         from .production_media import validate_production_timeline,load_text_styles
         from .production_preview import finish_review_status
         from clipen.finishing.audio import open_asset
-        from .production_limits import limits_for,valid_production
+        from .production_limits import limits_for,production_limit_issues
         issues=validate_production_timeline(self._timeline(),max_texts=limits_for(self).titles)
-        if self._session_value() and self._video().items and not valid_production(self,self._timeline()):issues.append({'code':'production_limits_exceeded'})
+        limit_issues=production_limit_issues(self,self._timeline()) if self._session_value() else []
+        issues+=limit_issues
         component_issues=self._component_issues()
         content_codes={'program_component_collision','component_restates_subtitle'}
         issues+=[i for i in component_issues if i['code'] not in content_codes]
         from .program_direction import direction_issues
         delivery_issues=direction_issues(self)
+        if self._session_value():
+            invalid_fields={i['field'] for i in limit_issues}
+            delivery_issues += [i for i in production_limit_issues(self,self._timeline(),complete=True) if i['field'] not in invalid_fields]
         delivery_issues+=[i for i in component_issues if i['code'] in content_codes]
         from .production_requirements import requirement_issues
         delivery_issues+=requirement_issues(self)

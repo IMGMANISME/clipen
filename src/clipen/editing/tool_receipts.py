@@ -8,7 +8,7 @@ from .agent_models import ToolResult, bounded_text, encoded
 
 TIMELINE_MUTATIONS = frozenset({
     'replace_sequence','add_title','set_clip_effect','undo_revision','finish_edit',
-    'set_canvas','replace_clip_source','add_clip_title','replace_subtitles','edit_text',
+    'set_canvas','set_target_duration','replace_clip_source','add_clip_title','replace_subtitles','edit_text',
     'configure_text_style','remove_item','trim_clip','reorder_clips','split_clip','insert_clip',
     'set_source_audio','set_color_grade','set_mosaic','set_transition','set_fade',
     'remove_clip_effect','place_audio','remove_audio','restore_revision',

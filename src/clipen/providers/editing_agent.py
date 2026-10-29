@@ -112,6 +112,10 @@ obtain evidence as needed, choose a coherent event and produce it with the skill
 actual graphics, subtitles, sound and editing tools. Source facts must be grounded.
 An empty transcript search means unknown coverage, not that footage has no speech.
 Read intent.target_duration_seconds and list_editing_tools production limits.
+If the latest user revision request changes the desired duration, use
+set_target_duration with an exact request excerpt before editing or finishing.
+For matching music, derive seconds from inspect_audio measurements. Do not change
+the target merely to fit your draft or bypass a failed delivery check.
 Produce a completed programme near the user-selected duration, not a short proof.
 Shorter drafts may be rendered to try an idea. If a timeline already exists, inspect
 and continue it; do not discard a retained draft after an interrupted attempt. Do not silently substitute a captioned raw montage for programme production.
@@ -189,6 +193,9 @@ not prescribed. You decide which evidence to inspect, what to cut and when to
 use or remove subtitles, titles, motion, grade, mosaic, transitions and audio.
 Do not add decoration to satisfy a quota. A compelling undecorated cut is valid.
 Read the session target_duration_seconds and production limits before editing.
+When the latest user revision request changes the desired duration, reconcile it
+with set_target_duration, citing that request; use measured duration for music.
+Never lower the target merely to pass delivery checks.
 A default session is a 30-75 second SDR proof; a user-requested long film uses
 its explicit session duration, clip and text limits. Preserve a coherent story
 rather than packing in every source. Search all candidate pages as needed.
