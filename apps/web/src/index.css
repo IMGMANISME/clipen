@@ -1884,9 +1884,6 @@ legend { color: #5a5f6b; font-size: 12px; font-weight: 600; padding-inline: 8px;
 .review-sent, .workbench-versions-panel, .workbench-export { border-top: 1px solid var(--line); padding-top: 12px; display: grid; gap: 10px; }
 .workbench-export p { font-size: 13px; color: var(--muted); margin: 0; }
 .version-preview video { display: block; width: 100%; max-height: 60vh; background: #111; border-radius: 10px; }
-@media (min-width: 641px) and (min-height: 800px) {
-  .review-player { position: sticky; top: 80px; z-index: 3; background: var(--surface, #fff); box-shadow: 0 6px 18px #0000000d; }
-}
 @media (max-width: 640px) {
   .review-player { padding: 8px; }
   .review-player video { max-height: 34vh; }
