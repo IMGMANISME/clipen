@@ -21,16 +21,26 @@ export function usePromptDraft(projectId: string, kind: Kind, fallback = '', run
     let legacy: string | null = null
     try { legacy = localStorage.getItem(legacyKey) } catch { return }
     if (legacy === null) return
-    void getProductionPrompts(projectId).then(({ prompts }) => {
-      if (disposed || startedAt !== version.current) return
-      const submitted = prompts.filter((p) => p.kind === kind && p.source === 'submitted').map((p) => p.text)
+    async function migrate() {
+      const submitted: string[] = []
+      let offset = 0
+      while (true) {
+        const page = await getProductionPrompts(projectId, offset)
+        if (disposed || startedAt !== version.current) return
+        submitted.push(...page.prompts.filter((p) => p.kind === kind && p.source === 'submitted').map((p) => p.text))
+        offset += page.prompts.length
+        if (offset >= page.total) break
+        // An incomplete history cannot establish whether this draft was sent.
+        if (!page.prompts.length) return
+      }
       const restored = recoverUnsentDraft(legacy!, submitted, fallback)
       setText((current) => {
         if (current !== fallback) return current
         try { localStorage.setItem(key, restored); localStorage.removeItem(legacyKey) } catch { /* Keep it visible in the form. */ }
         return restored
       })
-    }).catch(() => { /* Leave the legacy draft intact; history can be retried explicitly. */ })
+    }
+    void migrate().catch(() => { /* Leave the legacy draft intact if any history page fails. */ })
     return () => { disposed = true }
   }, [projectId, kind, key, legacyKey, fallback])
   return [text, update]
