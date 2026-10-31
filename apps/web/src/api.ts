@@ -1352,19 +1352,17 @@ export async function resumeProduction(csrf: string, projectId: string, runId: s
 export type MusicAsset = { asset_id: string; name: string; role: string; duration_seconds: number; duplicate_group?: string; provenance?: { source?: string } }
 export type ProductionWorkbenchState = {
   revision: { revision_id: string; ordinal: number; summary: string; timeline: EditAgentTimeline }
-  styles: Record<string, Record<string, unknown>>
   references?: ReferenceState
   sent_notes?: { instruction: string | null; created_at: string | null; items: RefinementReference[] } | null
-  visual_styles?: VisualStyle[]
   history: FilmVersion[]
   audio_assets: MusicAsset[]
-  tools: Array<{ name: string; description: string; inputSchema: { properties: Record<string, unknown>; required: string[] } }>
 }
 export function getProductionWorkbench(projectId: string, runId: string): Promise<ProductionWorkbenchState> {
   return request(`/api/projects/${projectId}/production/${runId}/workbench`)
 }
-export function editProduction(csrf: string, projectId: string, runId: string, expectedRevision: string, tool: string, args: Record<string, unknown>): Promise<unknown> {
-  return command(`/api/projects/${projectId}/production/${runId}/workbench/edit`, csrf, { tool, arguments: args, expected_revision_id: expectedRevision, mutation_id: crypto.randomUUID() })
+/** Make an earlier version current again; every other change goes through review notes. */
+export function restoreProduction(csrf: string, projectId: string, runId: string, expectedRevision: string, revisionId: string): Promise<unknown> {
+  return command(`/api/projects/${projectId}/production/${runId}/workbench/edit`, csrf, { tool: 'restore_revision', arguments: { revision_id: revisionId, summary: '使用者還原影片版本' }, expected_revision_id: expectedRevision, mutation_id: crypto.randomUUID() })
 }
 export function renderProduction(csrf: string, projectId: string, runId: string, expectedRevision: string): Promise<unknown> {
   return command(`/api/projects/${projectId}/production/${runId}/workbench/render`, csrf, { expected_revision_id: expectedRevision })
@@ -1391,9 +1389,9 @@ export function saveProductionPrompt(csrf: string, projectId: string, kind: 'pro
   return command(`/api/projects/${projectId}/production/prompts`, csrf, { request_id: crypto.randomUUID(), kind, text })
 }
 
-export type EditingFrame = { revision_id: string; frame: number; source_item_id: string; image_data_url: string; scope: string; unsaved_override: boolean }
-export function getEditingFrame(csrf: string, projectId: string, runId: string, revisionId: string, frame: number, override?: Record<string, unknown>, signal?: AbortSignal): Promise<EditingFrame> {
-  return request(`/api/projects/${projectId}/production/${runId}/workbench/frame`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Clipen-CSRF': csrf }, body: JSON.stringify({ expected_revision_id: revisionId, frame, ...(override ? { override } : {}) }), signal })
+export type EditingFrame = { revision_id: string; frame: number; source_item_id: string; image_data_url: string; scope: string }
+export function getEditingFrame(csrf: string, projectId: string, runId: string, revisionId: string, frame: number, signal?: AbortSignal): Promise<EditingFrame> {
+  return request(`/api/projects/${projectId}/production/${runId}/workbench/frame`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Clipen-CSRF': csrf }, body: JSON.stringify({ expected_revision_id: revisionId, frame }), signal })
 }
 
 export type RefinementReference = {

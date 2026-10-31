@@ -70,23 +70,17 @@ class CanvasAndPromptTests(unittest.TestCase):
         for invalid in ('', ' ', 'a' * 8001):
             with self.assertRaises(ProjectError): save(self.repository, other.project_id, 'invalid', 'production', invalid)
 
-    def test_actual_frame_and_unsaved_text_override_never_mutate_revision_or_budget(self):
+    def test_actual_frame_never_mutates_revision_or_budget(self):
         self.f.component(element_id='live-label', start_offset_frames=0, duration_frames=60, text='原標註')
         self.f.real_media()
         before = self.repository.current_revision(self.project, self.run)
         budget = self.repository.get(self.project, self.run)
-        from clipen.editing.production_media import load_text_styles
-        styles_before = load_text_styles(self.f.projects, self.project)
         with patch('clipen.editing.visual_preview.MediaPreviewRepository', return_value=self.f.tools.media):
-            original = frame(self.repository, self.project, self.run, before.revision_id, 30)
-            changed = frame(self.repository, self.project, self.run, before.revision_id, 30, {'item_id':'live-label','text':'可以直接預覽','x':.4,'y':.5})
-        self.assertNotEqual(original['image_data_url'], changed['image_data_url'])
-        with Image.open(BytesIO(base64.b64decode(changed['image_data_url'].split(',',1)[1]))) as image:
+            still = frame(self.repository, self.project, self.run, before.revision_id, 30)
+        with Image.open(BytesIO(base64.b64decode(still['image_data_url'].split(',',1)[1]))) as image:
             self.assertEqual(image.size, (640, 360)); self.assertEqual(image.format, 'JPEG')
-        self.assertEqual(changed['source_item_id'], 'agent-video-0001')
-        self.assertTrue(changed['unsaved_override'])
+        self.assertEqual(still['source_item_id'], 'agent-video-0001')
         self.assertEqual(self.repository.current_revision(self.project, self.run), before)
-        self.assertEqual(load_text_styles(self.f.projects, self.project), styles_before)
         self.assertEqual(self.repository.get(self.project, self.run), budget)
 
     def test_canvas_seeks_into_the_selected_clip_using_source_pts(self):
@@ -111,8 +105,6 @@ class CanvasAndPromptTests(unittest.TestCase):
             self.assertEqual(error.exception.status_code,409)
             for number in (-1,True,1.5,current.timeline.duration_frames):
                 with self.assertRaises(ProjectError): frame(self.repository,self.project,self.run,current.revision_id,number)
-            for override in ({'item_id':'elsewhere'}, {'item_id':'live-label','x':float('nan')}, {'item_id':'live-label','y':True}, {'item_id':'live-label','x':2}, {'item_id':'live-label','source':'/secret'}):
-                with self.assertRaises(ProjectError): frame(self.repository,self.project,self.run,current.revision_id,20,override)
             media.assert_not_called()
 
     def test_prompt_and_frame_api_require_session_and_csrf(self):

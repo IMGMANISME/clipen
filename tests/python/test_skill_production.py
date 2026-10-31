@@ -857,13 +857,6 @@ class SkillProductionTests(unittest.TestCase):
         self.component(element_id='price',text='拉麵 1200 円',x=.5,y=.12)
         self.component(element_id='beat',component_id='impact',text='有點難度',duration_frames=45,start_offset_frames=60,x=.4,y=.3)
         self.assertTrue(any(i.item_id=='beat' for t in self.tools._timeline().tracks for i in t.items))
-        # The user's own workbench edit is not second-guessed by the model's editorial rules.
-        self.repository.cancel(self.project.project_id,self.run.run_id)
-        self.tools._user_edit=True
-        try:self.call('add_program_component',element_id='mine',item_id='agent-video-0002',component_id='fact',start_offset_frames=6,
-                      duration_frames=45,text='熱熱上桌',evidence='使用者自己加入',summary='使用者標註')
-        finally:self.tools._user_edit=False
-        self.assertTrue(any(i.item_id=='mine' for t in self.tools._timeline().tracks for i in t.items))
 
     def test_components_must_not_restate_concurrent_subtitles(self):
         from clipen.editing.component_review import restated_ratio

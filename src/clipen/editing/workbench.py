@@ -1,15 +1,14 @@
-"""Human editing of native layers; AI refinement reuses this exact revision."""
+"""The review workbench: read the current film, restore a version, render and export it."""
 import threading
 import json
 from clipen.projects import ProjectError, DirectoryReference, DirectoryRole
 from clipen.projects.storage import utc_now
 from .agent_tools import EditAgentTools
-from .production_media import AgentAudioStore, load_text_styles
-from .production_catalog import EXTRA_TOOLS
+from .production_media import AgentAudioStore
 from .refinement_references import public_state, sent
-from clipen.skills.visual_styles import public_styles
 
-EDIT_TOOLS = frozenset({'edit_text','configure_text_style','remove_item','trim_clip','reorder_clips','split_clip','replace_clip_source','insert_clip','set_source_audio','set_color_grade','set_mosaic','set_transition','set_fade','remove_clip_effect','place_audio','remove_audio','add_program_component','update_program_component','remove_program_component','restyle_program_components','restore_revision'})
+# Changes go through review notes to the AI; the user only picks which version is current.
+USER_TOOLS = frozenset({'restore_revision'})
 
 def idle(repository, project_id, run_id):
     run=repository.get(project_id,run_id)
@@ -38,14 +37,13 @@ def state(repository, project_id, run_id):
                 version['duration_seconds']=value['duration_frames']*rate['den']/rate['num']
             preview=db.execute("SELECT render_id FROM preview_renders WHERE timeline_id=? AND state='succeeded' ORDER BY created_at DESC LIMIT 1",(version['revision_id'],)).fetchone()
             version['preview_url']=f"/api/projects/{project_id}/preview/{preview['render_id']}/media" if preview else None
-    styles=load_text_styles(repository.projects,project_id)
-    used={i.style_id for t in revision.timeline.tracks for i in t.items if hasattr(i,'style_id')}
-    return {'revision':revision.to_public(include_timeline=True),'styles':{k:v for k,v in styles.items() if k in used},'history':history,'visual_styles':public_styles((repository.production_session(project_id,run_id) or {}).get('skill',{})),'references':public_state((repository.production_session(project_id,run_id) or {}).get('intent',{}),revision.timeline),'sent_notes':sent((repository.production_session(project_id,run_id) or {}).get('intent',{})),'audio_assets':AgentAudioStore(repository.projects,project_id).public_assets(),'tools':[t for t in EXTRA_TOOLS if t['name'] in EDIT_TOOLS]}
+    intent=(repository.production_session(project_id,run_id) or {}).get('intent',{})
+    return {'revision':revision.to_public(include_timeline=True),'history':history,'references':public_state(intent,revision.timeline),'sent_notes':sent(intent),'audio_assets':AgentAudioStore(repository.projects,project_id).public_assets()}
 
 def edit(repository, project_id, run_id, name, arguments, expected, mutation_id):
     idle(repository,project_id,run_id)
-    if name not in EDIT_TOOLS:
-        raise ProjectError('tool_not_allowed','不支援這個手動編輯操作。',status_code=422)
+    if name not in USER_TOOLS:
+        raise ProjectError('tool_not_allowed','請用審片注記交給 AI 修改；這裡只能還原版本。',status_code=422)
     tools=tools_for(repository,project_id,run_id)
     try:
         result=tools.call(name,{**arguments,'expected_revision_id':expected,'mutation_id':mutation_id})

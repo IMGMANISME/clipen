@@ -252,25 +252,7 @@ class ProductionTools:
         item=self._item(args['item_id'])
         if not isinstance(item,TextClip):raise problem('指定項目不是文字。')
         self._require_generic_text(item)
-        if getattr(self,'_user_edit',False):args={**args,'style_id':item.style_id}
         if args['start_frame']+args['duration_frames']>self._timeline().duration_frames:raise problem('文字超過時間軸結尾。')
-        if getattr(self,'_user_edit',False):
-            from .production_media import atomic_json,load_text_styles,text_style_path
-            from clipen.finishing.models import digest
-            styles=load_text_styles(self.repository.projects,self.project_id)
-            profile=styles.get(item.style_id,{})
-            text_changed=args['text']!=item.text
-            time_changed=(args['start_frame'],args['duration_frames'])!=(item.start_frame,item.duration_frames)
-            if profile.get('kind')=='program_subtitle' and (text_changed or time_changed):
-                invalidated=profile.get('text_alignment_invalidated',False) or text_changed
-                profile={**profile,**({'verification':'user_edited','wording_authority':'user'} if text_changed else {}),
-                    'timing_basis':'alignment_invalidated_by_user_text' if invalidated else 'user_adjusted',
-                    'text_alignment_invalidated':invalidated,'caption_text_edited':profile.get('caption_text_edited',False) or text_changed,
-                    'previous_timing_basis':profile.get('previous_timing_basis',profile.get('timing_basis')),
-                    'user_edit_base_revision_id':self.repository.current_revision(self.project_id,self.run_id).revision_id}
-                style_id='agent.text.'+digest(profile)[:24]
-                styles[style_id]=profile;atomic_json(text_style_path(self.repository.projects,self.project_id),styles)
-                args={**args,'style_id':style_id}
         return self._change_item(replace(item,**{k:args[k] for k in ('start_frame','duration_frames','text','style_id')}),args['summary'])
 
     def _production_remove_item(self,args):
@@ -296,7 +278,6 @@ class ProductionTools:
 
     def _require_generic_text(self,item):
         from .production_media import load_text_styles
-        if getattr(self,'_user_edit',False):return
         if load_text_styles(self.repository.projects,self.project_id).get(item.style_id,{}).get('kind') in {'program_subtitle','program_component'}:
             raise problem('節目字幕需保留來源與斷句資訊。請用 replace_subtitles 調整 text、source_excerpt、delivery、emphasis；通用字卡工具不能覆寫來源字幕。')
 

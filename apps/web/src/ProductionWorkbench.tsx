@@ -1,6 +1,6 @@
 import { PowerNotice } from './PowerNotice'
 import { useEffect, useId, useRef, useState } from 'react'
-import { editProduction, exportProduction, getProductionWorkbench, refineProduction, renderProduction } from './api'
+import { exportProduction, getProductionWorkbench, refineProduction, renderProduction, restoreProduction } from './api'
 import type { FilmPreview, FilmVersion, ProductionWorkbenchState } from './api'
 import { ProductionMusicPicker } from './ProductionMusicPicker'
 import { PromptHistory } from './PromptHistory'
@@ -102,7 +102,7 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
         </li>
       })}</ol> : <p>還沒有完成的版本。</p>}
       {versionPreview?.preview_url && <div className="version-preview"><p>正在比較版本 {versionPreview.number}，目前影片不會被還原。</p><video key={versionPreview.preview_url} ref={versionPlayer} controls preload="metadata" src={versionPreview.preview_url} aria-label={`版本 ${versionPreview.number} 預覽`} onError={() => setPreviewError('這版的預覽檔暫時無法讀取。')} />{previewError && <p role="status">{previewError}</p>}<button type="button" className="button ghost" onClick={() => setVersionPreview(null)}>關閉版本預覽</button></div>}
-      <button type="button" className="button secondary" disabled={!historyId || busy || active} onClick={() => void action(() => editProduction(csrf, projectId, runId, data!.revision.revision_id, 'restore_revision', { revision_id: historyId, summary: '使用者還原影片版本' }), '已還原。輸出這一版影片後就能審片。')}>還原選定版本</button>
+      <button type="button" className="button secondary" disabled={!historyId || busy || active} onClick={() => void action(() => restoreProduction(csrf, projectId, runId, data!.revision.revision_id, historyId), '已還原。輸出這一版影片後就能審片。')}>還原選定版本</button>
     </details>
     <details className="workbench-export"><summary>匯出剪輯資料</summary>
       <p>要逐格精修，之後會支援匯出到 DaVinci Resolve。目前可以下載 Clipen 的剪輯資料（文字、效果、時間軸與來源）。</p>
