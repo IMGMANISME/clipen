@@ -85,8 +85,8 @@ class TemplateLibraryTests(unittest.TestCase):
 
     def test_new_style_is_available_to_native_mcp_and_old_frozen_sessions_reject_it(self):
         # The existing session already freezes the newly installed template collection.
-        from clipen.editing.workbench import state
-        self.assertIn('tpl-daily-vlog',{s['visual_style_id'] for s in state(self.repo,self.project,self.f.run.run_id)['visual_styles']})
+        frozen=self.repo.production_session(self.project,self.f.run.run_id)['skill']
+        self.assertIn('tpl-daily-vlog',{s['visual_style_id'] for s in frozen['visual_styles']})
         from clipen.editing.production_catalog import validate_arguments
         validate_arguments('restyle_program_components',{'visual_style_id':'tpl-daily-vlog','summary':'更換模板'})
         skill=get_skill();old={**skill,'visual_styles':[s for s in skill['visual_styles'] if s['visual_style_id']=='variety']}

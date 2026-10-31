@@ -128,20 +128,18 @@ class SkillTools:
             raise ProjectError("component_target_required", "指示元件需要指定目標位置。", status_code=422)
         from .component_review import (REACTION_COMPONENTS, REACTION_MAX_SECONDS, RESTATE_RATIO,
                                        concurrent_subtitles, fact_has_information, restated_ratio)
-        # Editorial rules steer the model; a user's own workbench edit stays in their control.
-        model_edit = not getattr(self, "_user_edit", False)
-        if model_edit and not updating and not {"x", "y"} <= set(args):
+        if not updating and not {"x", "y"} <= set(args):
             raise ProjectError("component_position_required",
                                "請先看這個畫面，再依人物、物件與空白處指定 x、y；不使用預設位置。", status_code=422)
-        if model_edit and component["component_id"] == "fact" and not fact_has_information(args["text"], args.get("detail", "")):
+        if component["component_id"] == "fact" and not fact_has_information(args["text"], args.get("detail", "")):
             raise ProjectError("component_fact_without_information",
                                "fact 需要畫面看不出的具體資訊：在 detail 寫有來源的品名、價格或數字，否則不要放。", status_code=422)
         fps = timeline.frame_rate.numerator/timeline.frame_rate.denominator
-        if model_edit and component["component_id"] in REACTION_COMPONENTS and args["duration_frames"] > REACTION_MAX_SECONDS*fps:
+        if component["component_id"] in REACTION_COMPONENTS and args["duration_frames"] > REACTION_MAX_SECONDS*fps:
             raise ProjectError("component_reaction_too_long",
                                f"反應類元件請對準反應那一刻，顯示 {REACTION_MAX_SECONDS} 秒以內。", status_code=422)
         start_frame = shot.start_frame+args["start_offset_frames"]
-        if model_edit and restated_ratio(args["text"], concurrent_subtitles(timeline, start_frame, args["duration_frames"])) >= RESTATE_RATIO:
+        if restated_ratio(args["text"], concurrent_subtitles(timeline, start_frame, args["duration_frames"])) >= RESTATE_RATIO:
             raise ProjectError("component_restates_subtitle",
                                "這段文字和同時出現的字幕重複。請補充畫面與字幕都沒說的資訊或觀點，否則不要放。", status_code=422)
         previous_style=load_text_styles(self.repository.projects,self.project_id).get(current.style_id,{}) if updating else {}
@@ -159,8 +157,7 @@ class SkillTools:
                    "skill_id": skill["skill_id"], "skill_version": skill["version"], "skill_hash": skill["content_hash"],
                    "presets": presets, "visual_style_id":visual_style, "font_style_id":font_style, "eyebrow":component.get('eyebrow',''),"anchor_item_id": shot.item_id,
                    "start_offset_frames": args["start_offset_frames"], "evidence": args["evidence"],
-                   **position, **({"target": args["target"]} if "target" in args else {}),
-                   **({} if model_edit else {"authority": "user"})}
+                   **position, **({"target": args["target"]} if "target" in args else {})}
         style_id = "agent.component." + digest(profile)[:24]
         text=args['text']+('\n'+args['detail'] if args.get('detail') else '')
         item = TextClip(args["element_id"], shot.start_frame+args["start_offset_frames"], args["duration_frames"], text, style_id)

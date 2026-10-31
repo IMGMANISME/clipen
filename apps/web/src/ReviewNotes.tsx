@@ -173,7 +173,7 @@ function FrameViewer({ projectId, csrf, runId, revisionId, timeline, frame, onSe
   useEffect(() => {
     const abort = new AbortController()
     const timer = window.setTimeout(() => {
-      void getEditingFrame(csrf, projectId, runId, revisionId, frame, undefined, abort.signal)
+      void getEditingFrame(csrf, projectId, runId, revisionId, frame, abort.signal)
         .then((value) => { if (!abort.signal.aborted) { setImage(value.image_data_url); setError('') } })
         .catch((e) => { if (!abort.signal.aborted) setError(e instanceof Error ? e.message : '暫時無法讀取畫面。') })
     }, 300)

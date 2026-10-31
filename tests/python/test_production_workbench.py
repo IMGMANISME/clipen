@@ -1,4 +1,4 @@
-"""User edits and refinement retain the exact native film and explicit music."""
+"""Restoring and refinement retain the exact native film and explicit music."""
 import json
 from pathlib import Path
 import subprocess
@@ -16,61 +16,6 @@ class ProductionWorkbenchTests(unittest.TestCase):
         self.repository=self.f.repository;self.project=self.f.project.project_id;self.run=self.f.run.run_id
     def tearDown(self):self.f.tearDown()
     def stop(self):self.repository.cancel(self.project,self.run)
-
-    def aligned_caption(self):
-        from clipen.editing.agent_models import ToolResult
-        text='原來的字幕'
-        cue={'cue_id':'user-edit-cue','text':text,'start_frame':10,'duration_frames':30,'verification':'asr_draft','item_id':'agent-video-0001',
-             'words':[{'text':text,'char_start':0,'char_end':len(text),'start_frame':10,'end_frame':40}]}
-        with patch.object(self.f.tools,'_production_list_transcripts',return_value=ToolResult({'cues':[cue]})):
-            self.f.call('replace_subtitles',captions=[{'cue_id':cue['cue_id'],'text':text}],allow_asr_draft=True,summary='建立來源對齊字幕')
-        revision=self.repository.current_revision(self.project,self.run)
-        item=next(i for t in revision.timeline.tracks if t.track_id=='agent-subtitles' for i in t.items)
-        self.stop()
-        return revision,item
-
-    def test_manual_caption_wording_invalidates_alignment_and_undo_restores_it(self):
-        from clipen.editing.program_subtitles import subtitle_status
-        from clipen.editing.production_media import load_text_styles
-        before,item=self.aligned_caption()
-        original_profile=load_text_styles(self.f.projects,self.project)[item.style_id]
-        values={'item_id':item.item_id,'start_frame':60,'duration_frames':30,'text':'人工修改的新字幕','style_id':'title.caption','summary':'改字和時間'}
-        edit(self.repository,self.project,self.run,'edit_text',values,before.revision_id,'manual-caption-wording')
-        current=self.repository.current_revision(self.project,self.run)
-        changed=next(i for t in current.timeline.tracks if t.track_id=='agent-subtitles' for i in t.items)
-        profile=load_text_styles(self.f.projects,self.project)[changed.style_id]
-        self.assertNotEqual(changed.style_id,item.style_id)
-        self.assertEqual(profile['wording_authority'],'user')
-        self.assertEqual(profile['timing_basis'],'alignment_invalidated_by_user_text')
-        self.assertEqual(profile['previous_timing_basis'],'forced_alignment')
-        status=subtitle_status(self.f.projects,self.project,current.timeline)
-        self.assertEqual(status['aligned_count'],0);self.assertEqual(status['unaligned_item_ids'],[item.item_id])
-        # A later timing edit cannot silently restore evidence for different words.
-        edit(self.repository,self.project,self.run,'edit_text',{**values,'start_frame':70},current.revision_id,'manual-caption-move')
-        current=self.repository.current_revision(self.project,self.run)
-        self.assertEqual(subtitle_status(self.f.projects,self.project,current.timeline)['unaligned_item_ids'],[item.item_id])
-        self.assertEqual(load_text_styles(self.f.projects,self.project)[item.style_id],original_profile)
-        edit(self.repository,self.project,self.run,'restore_revision',{'revision_id':before.revision_id,'summary':'還原字幕'},current.revision_id,'restore-caption-evidence')
-        restored=self.repository.current_revision(self.project,self.run)
-        self.assertEqual(subtitle_status(self.f.projects,self.project,restored.timeline)['aligned_count'],1)
-
-    def test_manual_caption_timing_is_distinct_from_forced_alignment_and_draft_review(self):
-        from clipen.editing.program_subtitles import subtitle_status
-        before,item=self.aligned_caption()
-        values={'item_id':item.item_id,'start_frame':60,'duration_frames':30,'text':item.text,'style_id':'title.caption','summary':'人工調整時間'}
-        edit(self.repository,self.project,self.run,'edit_text',values,before.revision_id,'manual-caption-timing')
-        current=self.repository.current_revision(self.project,self.run)
-        status=subtitle_status(self.f.projects,self.project,current.timeline)
-        self.assertEqual(status['aligned_count'],0);self.assertEqual(status['manual_timing_item_ids'],[item.item_id])
-        self.assertEqual(status['unaligned_item_ids'],[])
-        self.assertEqual(status['draft_item_ids'],[item.item_id])
-
-    def test_unchanged_manual_caption_keeps_existing_alignment(self):
-        from clipen.editing.program_subtitles import subtitle_status
-        before,item=self.aligned_caption()
-        edit(self.repository,self.project,self.run,'edit_text',{'item_id':item.item_id,'start_frame':item.start_frame,'duration_frames':item.duration_frames,'text':item.text,'style_id':'title.caption','summary':'保持原內容'},before.revision_id,'unchanged-caption')
-        current=self.repository.current_revision(self.project,self.run)
-        self.assertEqual(subtitle_status(self.f.projects,self.project,current.timeline)['aligned_count'],1)
 
     def test_identity_renderer_changes_invalidate_preview_recipe(self):
         import tempfile
@@ -135,29 +80,31 @@ class ProductionWorkbenchTests(unittest.TestCase):
         self.assertEqual(self.repository.get(self.project, self.run), before)
         self.assertEqual(self.repository.current_revision(self.project, self.run), revision)
 
-    def test_manual_changes_are_versioned_without_ai_budget_and_exportable(self):
+    def test_user_can_only_restore_versions_without_ai_budget_and_export(self):
         self.f.call('add_program_component',element_id='header',item_id='agent-video-0001',component_id='headline',start_offset_frames=0,duration_frames=60,text='原來的標題',x=.08,y=.25,evidence='測試畫面標註',summary='元件')
-        before=self.repository.current_revision(self.project,self.run);budget=self.repository.get(self.project,self.run).tool_calls
-        with self.assertRaises(ProjectError):edit(self.repository,self.project,self.run,'remove_item',{'item_id':'header','summary':'刪除'},before.revision_id,'busy')
+        before=self.repository.current_revision(self.project,self.run)
+        self.f.call('remove_item',item_id='header',summary='AI 拿掉標題')
+        changed=self.repository.current_revision(self.project,self.run);budget=self.repository.get(self.project,self.run).tool_calls
+        restore={'revision_id':before.revision_id,'summary':'還原標題'}
+        with self.assertRaises(ProjectError):edit(self.repository,self.project,self.run,'restore_revision',restore,changed.revision_id,'busy')
         self.stop()
-        args={'item_id':'header','start_frame':0,'duration_frames':60,'text':'我修好的標題','style_id':'title.caption','summary':'修改標題'}
-        result=edit(self.repository,self.project,self.run,'edit_text',args,before.revision_id,'user-text')
+        # Changes go through review notes; the workbench never edits the film directly.
+        with self.assertRaises(ProjectError) as rejected:
+            edit(self.repository,self.project,self.run,'edit_text',{'item_id':'header','start_frame':0,'duration_frames':60,'text':'我修好的標題','style_id':'title.caption','summary':'修改標題'},changed.revision_id,'user-text')
+        self.assertEqual(rejected.exception.code,'tool_not_allowed')
+        edit(self.repository,self.project,self.run,'restore_revision',restore,changed.revision_id,'user-restore')
         current=self.repository.current_revision(self.project,self.run)
-        self.assertNotEqual(current.revision_id,before.revision_id)
-        self.assertEqual(current.timeline.tracks[0],before.timeline.tracks[0])
-        item=next(i for t in current.timeline.tracks for i in t.items if i.item_id=='header')
-        self.assertEqual(item.text,'我修好的標題');self.assertEqual(item.style_id,next(i for t in before.timeline.tracks for i in t.items if i.item_id=='header').style_id)
+        # Revisions are content-addressed, so restoring selects the earlier version again.
+        self.assertEqual(current.revision_id,before.revision_id)
         self.assertEqual(self.repository.get(self.project,self.run).tool_calls,budget)
-        replay=edit(self.repository,self.project,self.run,'edit_text',args,before.revision_id,'user-text')
-        self.assertTrue(replay.get('replayed'))
-        with self.assertRaises(ProjectError):edit(self.repository,self.project,self.run,'remove_item',{'item_id':'header','summary':'stale'},before.revision_id,'stale')
-        info=state(self.repository,self.project,self.run);self.assertIn(item.style_id,info['styles'])
-        # The manual edit is one version, newest first; AI steps are not listed one by one.
-        self.assertEqual((info['history'][0]['revision_id'],info['history'][0]['label']),(current.revision_id,'手動修改：文字與時間'))
+        self.assertTrue(edit(self.repository,self.project,self.run,'restore_revision',restore,changed.revision_id,'user-restore').get('replayed'))
+        with self.assertRaises(ProjectError):edit(self.repository,self.project,self.run,'restore_revision',restore,changed.revision_id,'stale')
+        info=state(self.repository,self.project,self.run)
+        self.assertFalse({'tools','styles','visual_styles'}&set(info))
         from clipen.editing.workbench import tools_for
         exported=tools_for(self.repository,self.project,self.run).production_call('export_edit',{}).payload
         path=self.f.root/'projects'/self.project/'agent-production'/self.run/'exports'/(exported['revision_id']+'.json')
-        native=json.loads(path.read_text());self.assertIn(item.style_id,native['text_styles']);self.assertEqual(native['timeline'],current.timeline.to_payload())
+        self.assertEqual(json.loads(path.read_text())['timeline'],current.timeline.to_payload())
     def test_refine_keeps_timeline_and_frozen_style_and_is_idempotent(self):
         before=self.repository.current_revision(self.project,self.run);frozen=self.repository.production_session(self.project,self.run)['skill'];self.stop()
         run,created=self.repository.request_refinement(self.project,self.run,'refine-one',before.revision_id,'保留鏡頭，只修改字幕。')
@@ -198,6 +145,7 @@ class ProductionWorkbenchTests(unittest.TestCase):
         from clipen.editing import EditAgentCoordinator
         from clipen.providers import ProviderCancelled
         from test_project_api import request_app
+        original=self.repository.current_revision(self.project,self.run)
         self.f.call('add_program_component',element_id='editable-header',item_id='agent-video-0001',component_id='headline',start_offset_frames=0,duration_frames=60,text='原標題',x=.08,y=.25,evidence='測試標題',summary='標題')
         self.stop();before=self.repository.current_revision(self.project,self.run)
         started=threading.Event()
@@ -217,7 +165,9 @@ class ProductionWorkbenchTests(unittest.TestCase):
             cookie=headers['set-cookie'].split(';',1)[0];_,_,body=request('GET','/api/status',headers={'cookie':cookie});csrf=json.loads(body)['session']['csrf_token']
             auth={'cookie':cookie};mutation={**auth,'origin':'http://localhost:4200','sec-fetch-site':'same-origin','content-type':'application/json','x-clipen-csrf':csrf}
             code,_,body=request('GET',work,headers=auth);self.assertEqual(code,200,body);self.assertEqual(json.loads(body)['revision']['revision_id'],before.revision_id)
-            args={'tool':'edit_text','arguments':{'item_id':'editable-header','text':'人工修改','style_id':'title.caption','start_frame':0,'duration_frames':60,'summary':'人工修改'},'expected_revision_id':before.revision_id,'mutation_id':'api-user-edit'}
+            manual={'tool':'edit_text','arguments':{'item_id':'editable-header','text':'人工修改','style_id':'title.caption','start_frame':0,'duration_frames':60,'summary':'人工修改'},'expected_revision_id':before.revision_id,'mutation_id':'api-user-edit'}
+            self.assertEqual(request('POST',work+'/edit',manual,mutation)[0],422)
+            args={'tool':'restore_revision','arguments':{'revision_id':original.revision_id,'summary':'還原'},'expected_revision_id':before.revision_id,'mutation_id':'api-user-restore'}
             self.assertEqual(request('POST',work+'/edit',args,auth)[0],403)
             code,_,body=request('POST',work+'/edit',args,mutation);self.assertEqual(code,200,body)
             current=self.repository.current_revision(self.project,self.run)

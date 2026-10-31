@@ -6,7 +6,14 @@ import test_skill_production as fixtures
 from clipen.domain import TrackKind
 from clipen.editing import EditAgentRepository, EditAgentTools
 from clipen.editing.refinement_references import update, public_state
-from clipen.editing.workbench import state, edit
+from clipen.editing.workbench import state, tools_for
+
+
+def edit(repository, project, run, name, arguments, expected, mutation_id):
+    # Stand-in for an AI revision made between review rounds.
+    tools=tools_for(repository,project,run)
+    try:return tools.call(name,{**arguments,'expected_revision_id':expected,'mutation_id':mutation_id}).payload
+    finally:tools.close_production()
 from clipen.editing.prompt_history import history
 from clipen.projects import ProjectError
 

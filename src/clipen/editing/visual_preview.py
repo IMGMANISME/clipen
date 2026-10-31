@@ -21,31 +21,13 @@ from clipen.rendering.titles import TitleCardRenderer, TitleRenderError
 from .production_media import load_text_styles
 
 
-def frame(repository, project_id, run_id, expected_revision_id, frame_number, override=None):
+def frame(repository, project_id, run_id, expected_revision_id, frame_number):
     revision=repository.current_revision(project_id,run_id);timeline=revision.timeline
     if revision.revision_id!=expected_revision_id:raise ProjectError('revision_conflict','影片已更新，正在重新讀取編輯畫面。',status_code=409)
     if isinstance(frame_number,bool) or not isinstance(frame_number,int) or not 0<=frame_number<timeline.duration_frames:
         raise ProjectError('frame_invalid','預覽時間不在影片內。',status_code=422)
     items=[i for t in timeline.tracks if t.kind is TrackKind.TITLE for i in t.items]
     styles=load_text_styles(repository.projects,project_id)
-    if override is not None:
-        if not isinstance(override,dict) or set(override)-{'item_id','text','x','y'} or 'item_id' not in override:
-            raise ProjectError('frame_invalid','編輯預覽參數無效。',status_code=422)
-        selected=next((i for i in items if i.item_id==override['item_id']),None)
-        if selected is None:raise ProjectError('timeline_item_not_found','找不到選定的文字元素。',status_code=404)
-        if 'text' in override:
-            if not isinstance(override['text'],str) or len(override['text'])>500 or '\x00' in override['text']:
-                raise ProjectError('frame_invalid','預覽文字超過上限。',status_code=422)
-            items=[replace(i,text=override['text'] or ' ') if i.item_id==selected.item_id else i for i in items]
-        if styles.get(selected.style_id,{}).get('kind')=='program_component':
-            profile=dict(styles[selected.style_id])
-            for key in ('x','y'):
-                if key in override:
-                    value=override[key]
-                    if isinstance(value,bool) or not isinstance(value,(int,float)) or not math.isfinite(value) or not 0<=value<=1:
-                        raise ProjectError('frame_invalid','元件位置必須在畫面內。',status_code=422)
-                    profile[key]=value
-            styles={**styles,selected.style_id:profile}
     clip=next((i for t in timeline.tracks if t.kind is TrackKind.VIDEO for i in t.items if i.start_frame<=frame_number<i.start_frame+i.duration_frames),None)
     if clip is None:raise ProjectError('frame_invalid','這個時間沒有畫面片段。',status_code=422)
     fps=Fraction(timeline.frame_rate.numerator,timeline.frame_rate.denominator)
@@ -93,4 +75,4 @@ def frame(repository, project_id, run_id, expected_revision_id, frame_number, ov
     except TitleRenderError as error:raise ProjectError(error.code,'文字超出版面或無法顯示，請縮短文字或調整位置。',status_code=422) from error
     image=Image.alpha_composite(image,overlay).convert('RGB');image.thumbnail((960,960))
     encoded=BytesIO();image.save(encoded,format='JPEG',quality=88)
-    return {'revision_id':revision.revision_id,'frame':frame_number,'source_item_id':clip.item_id,'image_data_url':'data:image/jpeg;base64,'+base64.b64encode(encoded.getvalue()).decode(),'scope':'editing_still','unsaved_override':override is not None}
+    return {'revision_id':revision.revision_id,'frame':frame_number,'source_item_id':clip.item_id,'image_data_url':'data:image/jpeg;base64,'+base64.b64encode(encoded.getvalue()).decode(),'scope':'editing_still'}
