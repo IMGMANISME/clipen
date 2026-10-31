@@ -2,8 +2,8 @@
 
 The AI saves a revision after every small step (one caption, one label), and
 those stay available for repair tools. People see a version when an AI request
-ends (finished, or stopped part way with changes), after each manual edit and
-after each restore.
+ends (finished, or stopped part way with changes) and after each restore.
+Projects from before review notes may also hold manual edits, still labelled below.
 """
 import json
 
@@ -15,6 +15,7 @@ _STOP_REASONS = {
     'provider_authentication_required': '登入過期時停下', 'provider_stopped_early': 'AI 提早結束',
     'delivery_blocked': '交付檢查未通過', 'provider_network_error': '連線中斷時停下',
 }
+# Labels for manual edits saved by earlier Clipen versions.
 _MANUAL = {'edit_text': '文字與時間', 'configure_text_style': '文字外觀', 'remove_item': '刪除元素', 'trim_clip': '裁切片段',
            'reorder_clips': '重排片段', 'split_clip': '分割片段', 'replace_clip_source': '替換來源', 'insert_clip': '插入片段',
            'set_source_audio': '原音', 'set_color_grade': '調色', 'set_mosaic': '馬賽克', 'set_transition': '轉場',

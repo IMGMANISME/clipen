@@ -14,7 +14,7 @@ def idle(repository, project_id, run_id):
     run=repository.get(project_id,run_id)
     latest=repository.latest(project_id)
     if latest is None or latest.run_id!=run_id or run.state in {'queued','running'}:
-        raise ProjectError('edit_agent_busy','請先停止 AI 製作，再編輯目前版本。',status_code=409)
+        raise ProjectError('edit_agent_busy','請先停止 AI 製作，再還原或輸出目前版本。',status_code=409)
     if repository.production_session(project_id,run_id) is None:
         raise ProjectError('production_required','這個版本不是可編輯的影片製作。',status_code=409)
     return run
