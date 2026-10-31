@@ -2,7 +2,6 @@
 from dataclasses import dataclass, replace
 import base64
 import hashlib
-import json
 import os
 
 from clipen.domain import TextClip, Track, TrackKind

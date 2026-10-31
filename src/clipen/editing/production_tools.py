@@ -91,7 +91,6 @@ class ProductionTools:
         return tuple(PlanningCandidate.from_storage(v) for v in json.loads(path.read_text()))
 
     def _production_list_source_media(self,args):
-        from .production_media import source_rows
         rows=self._source_rows();offset=args.get('offset',0);limit=args.get('limit',20)
         return ToolResult({'sources':rows[offset:offset+limit],'total':len(rows),'next_offset':offset+limit if offset+limit<len(rows) else None,
                           'next_step':'register_source_range creates candidates for sample_source, transcripts and editing; no prior analysis window is required.'})
@@ -106,7 +105,7 @@ class ProductionTools:
         return search_dialogue(self,args)
 
     def _production_register_source_range(self,args):
-        from .production_media import source_rows,atomic_json
+        from .production_media import atomic_json
         from clipen.finishing.models import digest
         from clipen.domain import Rational
         from clipen.planning.models import PlanningCandidate,TranscriptReliability
@@ -185,7 +184,6 @@ class ProductionTools:
         return review_cut(self,args)
 
     def _production_replace_clip_source(self,args):
-        from .production_media import source_rows
         from clipen.domain import Rational
         item=self._item(args['item_id']);source=args['source']
         if item not in self._video().items:raise problem('只能替換主畫面來源。')
