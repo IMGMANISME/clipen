@@ -1371,8 +1371,8 @@ export function refineProduction(csrf: string, projectId: string, runId: string,
   return command(`/api/projects/${projectId}/production/${runId}/workbench/refine`, csrf, { request_id: crypto.randomUUID(), expected_revision_id: expectedRevision, instruction, consent: true, ...(musicAssetId ? { music_asset_id: musicAssetId } : {}), ...(referencesVersion !== undefined ? { expected_references_version: referencesVersion } : {}) })
 }
 export type ResolveExport = { folder: string; fcpxml: string; shots: number; burned: number; overlays: number; captions: number; music_layers: number; notes: string[] }
-/** Ask for a folder, then write a DaVinci Resolve package there; null when the user cancels the folder dialog. */
-export function exportToResolve(csrf: string, projectId: string, runId: string): Promise<ResolveExport | null> {
+/** Write a DaVinci Resolve package into「Clipen 匯出」inside the footage folder. */
+export function exportToResolve(csrf: string, projectId: string, runId: string): Promise<ResolveExport> {
   return command(`/api/projects/${projectId}/production/${runId}/workbench/resolve`, csrf, {})
 }
 export async function exportProduction(csrf: string, projectId: string, runId: string): Promise<{ download_url: string }> {

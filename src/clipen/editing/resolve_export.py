@@ -216,11 +216,23 @@ def _is_caption(track, item, styles) -> bool:
     return track.track_id == 'agent-subtitles' or styles.get(item.style_id, {}).get('kind') == 'program_subtitle'
 
 
-def export_resolve(repository, project_id: str, run_id: str, destination: Path, cancel: threading.Event | None = None) -> dict:
-    """Write a Resolve package into a new folder inside destination and describe what it holds."""
+def export_folder(repository, project_id: str) -> Path:
+    """「Clipen 匯出」inside the footage folder: the App Store Resolve reads only folders the user opens,
+    so one 'Locate' on the footage folder lets it find the footage and the package together."""
+    from clipen.media.discovery import EXPORT_FOLDER
+    from clipen.projects import DirectoryRole
+    source = next((d for d in repository.projects.get_project(project_id).directories if d.role is DirectoryRole.SOURCE), None)
+    if source is None or not Path(source.canonical_path).is_dir():
+        raise ProjectError('resolve_source_offline', '找不到毛片資料夾，請確認外接硬碟已連接。', status_code=409)
+    folder = Path(source.canonical_path) / EXPORT_FOLDER
+    folder.mkdir(exist_ok=True)
+    return folder
+
+
+def export_resolve(repository, project_id: str, run_id: str, destination: Path | None = None, cancel: threading.Event | None = None) -> dict:
+    """Write a Resolve package into a new folder (beside the footage unless told otherwise) and describe it."""
     cancel = cancel or threading.Event()
-    if not destination.is_dir():
-        raise ProjectError('resolve_destination_missing', '找不到選擇的資料夾。', status_code=422)
+    destination = destination or export_folder(repository, project_id)
     revision = repository.current_revision(project_id, run_id)
     timeline = revision.timeline
     video = next((t for t in timeline.tracks if t.kind is TrackKind.VIDEO and t.items), None)
@@ -455,7 +467,9 @@ def _guide(package: Path, fcpxml: Path, captions: bool, notes: list[str]):
     if captions:
         steps += ['3. 選「檔案 > 匯入 > 字幕…」（File > Import > Subtitle），選擇「字幕.srt」，再把它拖到時間線最上方的字幕軌。',
                   '   字幕會變成 Resolve 的字幕軌，可以直接改字和時間；外觀請在字幕軌的檢查器設定。']
-    steps += ['', '影片片段直接指向你電腦上的原始素材，前後保留可延長的長度。若搬動了素材，Resolve 會請你重新連結。',
+    steps += ['', '如果 Resolve 顯示「clips were not yet found」，按「Locate」（尋找），選擇毛片資料夾（也就是「Clipen 匯出」所在的資料夾）。',
+              'App Store 版的 Resolve 只能讀取你打開過的資料夾，選一次毛片資料夾，素材和這裡的元件、音樂就都找得到。',
+              '', '影片片段直接指向原始素材，前後保留可延長的長度。若搬動了素材，Resolve 會請你重新連結。',
               '這個資料夾裡的元件、音樂和已處理片段也被時間線使用，請保持資料夾完整。']
     if notes:
         steps += ['', '需要留意', ''] + [f'・{note}' for note in notes]
