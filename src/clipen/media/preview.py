@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import json
 import mimetypes
 import os
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 import re
 import sqlite3
 from typing import Iterator
@@ -50,6 +50,27 @@ class MediaPreview:
 class MediaPreviewRepository:
     def __init__(self, projects: ProjectRepository) -> None:
         self.projects = projects
+
+    def locate(self, project_id: str, version_id: str) -> tuple[Path, dict[int, dict]]:
+        """The unchanged source file on disk and its probed streams, for handing to another editor."""
+        self.open(project_id, version_id).close()
+        with self.projects.connect(project_id) as database:
+            row = database.execute(
+                "SELECT assets.relative_path,directories.canonical_path FROM asset_versions AS versions "
+                "JOIN assets ON assets.asset_id=versions.asset_id "
+                "JOIN project_directories AS directories ON directories.role=assets.role "
+                "WHERE versions.version_id=? AND assets.project_id=?",
+                (version_id, project_id),
+            ).fetchone()
+            streams = database.execute(
+                "SELECT stream_index,kind,details_json FROM media_streams WHERE version_id=?",
+                (version_id,),
+            ).fetchall()
+        path = Path(row["canonical_path"]).joinpath(*PurePosixPath(row["relative_path"]).parts)
+        return path, {
+            stream["stream_index"]: {**json.loads(stream["details_json"]), "kind": stream["kind"]}
+            for stream in streams
+        }
 
     def open(self, project_id: str, version_id: str) -> MediaPreview:
         validate_project_id(project_id)

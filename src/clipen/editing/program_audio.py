@@ -57,9 +57,10 @@ def measure_stem(path):
             'window_seconds':.5,'window_rms_dbfs':windows}
 
 
-def mix_program_audio(media, project_id, timeline, base, output, cancel):
+def render_music_stem(media, project_id, timeline, music, cancel):
+    """Write the music and effects under dialogue as one PCM stem; returns its settings and speech regions."""
     from clipen.finishing.audio import open_asset, run_process
-    from .production_media import AgentAudioStore, atomic_json
+    from .production_media import AgentAudioStore
     fps=timeline.frame_rate.numerator/timeline.frame_rate.denominator
     seconds=timeline.duration_frames/fps
     layers=[(i,l) for t in timeline.tracks for i in t.items if isinstance(i,MediaClip)
@@ -68,7 +69,6 @@ def mix_program_audio(media, project_id, timeline, base, output, cancel):
     regions=dialogue_regions(media.projects,project_id,timeline)
     if len(regions)>(1024 if seconds>75 else 256):raise ProjectError('audio_envelope_limit','語音包絡過多，請縮小預覽區間。',status_code=422)
     store=AgentAudioStore(media.projects,project_id)
-    music=output.with_suffix('.music.wav');camera=output.with_suffix('.camera.wav');final=output.with_suffix('.mix.wav')
     command=['ffmpeg','-v','error','-nostdin','-y','-filter_complex_threads','2','-f','lavfi','-i',f'anullsrc=r=48000:cl=stereo:d={seconds}']
     filters=[];labels=['[0:a]'];duck_labels=[];opened=[];settings=[]
     try:
@@ -97,6 +97,15 @@ def mix_program_audio(media, project_id, timeline, base, output, cancel):
         run_process(command+['-filter_complex',';'.join(filters),'-map','[music]','-c:a','pcm_s16le',str(music)],cancel,pass_fds=tuple(opened),timeout=300)
     finally:
         for fd in opened:os.close(fd)
+    return settings,regions
+
+
+def mix_program_audio(media, project_id, timeline, base, output, cancel):
+    from clipen.finishing.audio import run_process
+    from .production_media import atomic_json
+    seconds=timeline.duration_frames/(timeline.frame_rate.numerator/timeline.frame_rate.denominator)
+    music=output.with_suffix('.music.wav');camera=output.with_suffix('.camera.wav');final=output.with_suffix('.mix.wav')
+    settings,regions=render_music_stem(media,project_id,timeline,music,cancel)
     run_process(['ffmpeg','-v','error','-nostdin','-y','-i',str(base),'-i',str(music),
                  '-filter_complex','[0:a][1:a]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.750:level=0[a]',
                  '-map','0:v','-map','[a]','-c:v','copy','-c:a','aac','-t',str(seconds),'-movflags','+faststart',str(output)],cancel,timeout=300)

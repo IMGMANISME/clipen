@@ -1122,6 +1122,15 @@ def create_app(
             elif operation=='export':
                 require_fields(payload,set())
                 result=await run_in_threadpool(lambda:tools_for(coordinator.repository,project,run).production_call('export_edit',{}).payload)
+            elif operation=='resolve':
+                require_fields(payload,set())
+                from clipen.editing.resolve_export import export_resolve, reveal
+                from clipen.editing.workbench import idle
+                await run_in_threadpool(idle,coordinator.repository,project,run)
+                folder=await run_in_threadpool(require_workspace().picker.choose_folder,'選擇要存放 DaVinci Resolve 匯出的資料夾')
+                if folder is None:return Response(status_code=204)
+                result=await run_in_threadpool(export_resolve,coordinator.repository,project,run,folder)
+                await run_in_threadpool(reveal,Path(result['fcpxml']))
             else:raise ProjectError('command_invalid','不支援這個編輯操作。',status_code=404)
             return JSONResponse(result)
         except ProjectError as error:return await project_error_response(error)
