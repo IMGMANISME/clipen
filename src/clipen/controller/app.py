@@ -1127,9 +1127,7 @@ def create_app(
                 from clipen.editing.resolve_export import export_resolve, reveal
                 from clipen.editing.workbench import idle
                 await run_in_threadpool(idle,coordinator.repository,project,run)
-                folder=await run_in_threadpool(require_workspace().picker.choose_folder,'選擇要存放 DaVinci Resolve 匯出的資料夾')
-                if folder is None:return Response(status_code=204)
-                result=await run_in_threadpool(export_resolve,coordinator.repository,project,run,folder)
+                result=await run_in_threadpool(export_resolve,coordinator.repository,project,run)
                 await run_in_threadpool(reveal,Path(result['fcpxml']))
             else:raise ProjectError('command_invalid','不支援這個編輯操作。',status_code=404)
             return JSONResponse(result)

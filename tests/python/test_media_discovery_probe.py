@@ -51,6 +51,10 @@ class MediaDiscoveryTests(unittest.TestCase):
         (self.root / ".DS_Store").write_bytes(b"metadata")
         (self.root / ".hidden").mkdir()
         (self.root / ".hidden" / "private.mov").write_bytes(b"hidden")
+        (self.root / "Clipen 匯出" / "film").mkdir(parents=True)
+        (self.root / "Clipen 匯出" / "film" / "shot.mov").write_bytes(b"exported")
+        (self.root / "camera" / "Clipen 匯出").mkdir()
+        (self.root / "camera" / "Clipen 匯出" / "B001.MOV").write_bytes(b"footage")
         self.outside = Path(self.temporary.name) / "outside"
         self.outside.mkdir()
         (self.outside / "escape.mp4").write_bytes(b"outside")
@@ -72,6 +76,9 @@ class MediaDiscoveryTests(unittest.TestCase):
         self.assertNotIn("linked/escape.mp4", by_path)
         self.assertNotIn(".DS_Store", by_path)
         self.assertNotIn(".hidden/private.mov", by_path)
+        # Clipen's own Resolve packages beside the footage are not footage; only the top-level folder is reserved.
+        self.assertNotIn("Clipen 匯出/film/shot.mov", by_path)
+        self.assertIn("camera/Clipen 匯出/B001.MOV", by_path)
         self.assertEqual(tree_state(self.root), before_source)
         self.assertEqual(tree_state(self.outside), before_outside)
 

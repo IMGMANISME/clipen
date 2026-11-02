@@ -116,20 +116,15 @@ class ResolveExportTests(unittest.TestCase):
             with self.assertRaises(ProjectError):self.export(revision)
         self.assertEqual(list(self.destination.iterdir()),[])
 
-    def test_api_asks_for_a_folder_then_reveals_the_timeline(self):
+    def test_api_exports_beside_the_footage_and_reveals_the_timeline(self):
         import asyncio, json
         from clipen.controller import ControllerConfig, LocalSessionAuthority, ProviderState, ProviderStatus, create_app
         from clipen.editing import EditAgentCoordinator
-        from clipen.projects.service import ProjectWorkspace
         from test_project_api import request_app
         self.repository.cancel(self.project,self.run)
-        chosen=[]
-        class Picker:
-            def choose_folder(picker,prompt):return chosen.pop(0)
         static=self.f.root/'api-dist';static.mkdir();(static/'index.html').write_text('Clipen')
-        workspace=ProjectWorkspace(self.f.root/'projects',picker=Picker())
         coordinator=EditAgentCoordinator(self.repository,self.f.root)
-        app=create_app(ControllerConfig(static),ProviderStatus('Codex',ProviderState.READY,'ready'),LocalSessionAuthority(),workspace=workspace,edit_agents=coordinator)
+        app=create_app(ControllerConfig(static),ProviderStatus('Codex',ProviderState.READY,'ready'),LocalSessionAuthority(),edit_agents=coordinator)
         def request(method,path,payload=None,headers=None):
             return asyncio.run(request_app(app,method,path,headers=headers,body=b'' if payload is None else json.dumps(payload).encode()))
         try:
@@ -139,13 +134,19 @@ class ResolveExportTests(unittest.TestCase):
             path=f'/api/projects/{self.project}/production/{self.run}/workbench/resolve'
             with patch('clipen.editing.resolve_export.export_resolve',return_value={'fcpxml':str(self.destination/'a.fcpxml')}) as export,\
                  patch('clipen.editing.resolve_export.reveal') as reveal:
-                chosen.append(None)
-                self.assertEqual(request('POST',path,{},mutation)[0],204);export.assert_not_called()
-                chosen.append(self.destination)
                 code,_,body=request('POST',path,{},mutation);self.assertEqual(code,200,body)
-                self.assertEqual(export.call_args.args[1:4],(self.project,self.run,self.destination))
+                self.assertEqual(export.call_args.args[1:],(self.project,self.run))
                 reveal.assert_called_once_with(self.destination/'a.fcpxml')
         finally:coordinator.close()
+
+    def test_packages_go_into_clipen_exports_beside_the_footage(self):
+        from clipen.editing.resolve_export import export_folder
+        footage=self.f.root/'source'
+        self.assertEqual(export_folder(self.repository,self.project),footage/'Clipen 匯出')
+        self.assertTrue((footage/'Clipen 匯出').is_dir())
+        footage.joinpath('Clipen 匯出').rmdir();footage.rename(self.f.root/'unplugged')
+        with self.assertRaises(ProjectError) as offline:export_folder(self.repository,self.project)
+        self.assertEqual(offline.exception.code,'resolve_source_offline')
 
     def test_source_time_follows_the_file_timecode(self):
         self.assertEqual(timecode_seconds('00:00:01:00',Fraction(25)),1)

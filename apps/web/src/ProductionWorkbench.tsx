@@ -43,10 +43,10 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
   const video = previews.find((preview) => preview?.state === 'succeeded' && preview.revision_id === data?.revision.revision_id) ?? null
   const notes = data?.references?.items ?? []
   const prompt = data ? composePrompt(instruction, notes, data.revision.timeline) : ''
-  async function action(work: () => Promise<unknown>, success: string | (() => string)) {
+  async function action(work: () => Promise<unknown>, success: string) {
     if (busy || active || !data) return
     setBusy(true); setError(''); setMessage('')
-    try { await work(); setMessage(typeof success === 'function' ? success() : success) }
+    try { await work(); setMessage(success) }
     catch (e) { setError(e instanceof Error ? e.message : '這次操作未完成。') }
     finally {
       try { setData(await getProductionWorkbench(projectId, runId)) } catch { /* Keep the last visible state. */ }
@@ -60,10 +60,9 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
     void action(async () => { await refineProduction(csrf, projectId, runId, data.revision.revision_id, text, musicId || undefined, data.references?.version ?? 0); setInstruction(''); setConsent(false) }, 'AI 已開始依你的注記修改。')
   }
   function exportResolve() {
-    let result: ResolveExport | null = null
     setExporting(true)
-    void action(async () => { try { result = await exportToResolve(csrf, projectId, runId); setResolved(result) } finally { setExporting(false) } },
-      () => result ? '已匯出，Finder 已打開匯出的資料夾。' : '')
+    void action(async () => { try { setResolved(await exportToResolve(csrf, projectId, runId)) } finally { setExporting(false) } },
+      '已匯出到毛片資料夾，Finder 已打開匯出的資料夾。')
   }
   async function copy() {
     try { await navigator.clipboard.writeText(prompt); setCopied(true); window.setTimeout(() => setCopied(false), 2000) }
@@ -113,13 +112,14 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
       <button type="button" className="button secondary" disabled={!historyId || busy || active} onClick={() => void action(() => restoreProduction(csrf, projectId, runId, data!.revision.revision_id, historyId), '已還原。輸出這一版影片後就能審片。')}>還原選定版本</button>
     </details>
     <details className="workbench-export"><summary>到 DaVinci Resolve 自己剪</summary>
-      <p>在 Clipen 裡，修改都是記注記交給 AI。要自己動手逐格剪，就匯出到 DaVinci Resolve：時間線直接使用原始素材，元件做成透明圖片疊在上層，字幕是可編輯的字幕軌，配樂也一起帶過去。</p>
+      <p>在 Clipen 裡，修改都是記注記交給 AI。要自己動手逐格剪，就匯出到 DaVinci Resolve：時間線直接使用原始素材，元件做成透明圖片疊在上層，字幕是可編輯的字幕軌，配樂也一起帶過去。匯出會放在毛片資料夾裡的「Clipen 匯出」，不會被當成新素材。</p>
       <button type="button" className="button secondary" disabled={busy || active || !data} onClick={exportResolve}>{exporting ? '匯出中…' : '匯出到 DaVinci Resolve'}</button>
-      {exporting && <p className="prompt-draft-hint">先選擇要存放的資料夾；有馬賽克或變速的片段需要先輸出，可能要一點時間。</p>}
+      {exporting && <p className="prompt-draft-hint">有馬賽克或變速的片段需要先輸出，可能要一點時間。</p>}
       {resolved && <div className="resolve-result" role="status">
         <p>已匯出到「{resolved.folder}」。</p>
         <ol>
           <li>在 Resolve 選「檔案 &gt; 匯入 &gt; 時間線…」，選擇資料夾裡的 .fcpxml。</li>
+          <li>如果 Resolve 說找不到素材（clips were not yet found），按「Locate」，選擇毛片資料夾。</li>
           {resolved.captions > 0 && <li>再選「檔案 &gt; 匯入 &gt; 字幕…」，選擇「字幕.srt」，拖到時間線的字幕軌。</li>}
         </ol>
         {resolved.notes.length > 0 && <details><summary>匯出時要留意的地方（{resolved.notes.length}）</summary><ul>{resolved.notes.map((note) => <li key={note}>{note}</li>)}</ul></details>}

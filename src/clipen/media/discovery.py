@@ -37,6 +37,8 @@ _IMAGE_EXTENSIONS = frozenset(
     {".bmp", ".heic", ".heif", ".jpeg", ".jpg", ".png", ".tif", ".tiff", ".webp"}
 )
 _SYSTEM_NAMES = frozenset({".DS_Store", "Thumbs.db", "desktop.ini"})
+# Clipen writes Resolve packages here, beside the footage; they are not footage.
+EXPORT_FOLDER = "Clipen 匯出"
 
 
 class DiscoveryError(RuntimeError):
@@ -156,7 +158,7 @@ class MediaDiscovery:
                         )
                         continue
                     if entry.is_dir(follow_symlinks=False):
-                        if name.startswith("."):
+                        if name.startswith(".") or (not prefix and name == EXPORT_FOLDER):
                             continue
                         if depth + 1 > self.maximum_depth:
                             raise DiscoveryError("tree_too_deep")
