@@ -368,10 +368,17 @@ def _write(repository, project_id, package, name, timeline, video, cancel):
     if overlays:
         directory = package / '元件'
         directory.mkdir()
-        only = replace(timeline, tracks=tuple(Track(f'overlay-{n}', TrackKind.TITLE, (item,)) for n, (_, item) in enumerate(overlays)))
         with tempfile.TemporaryDirectory(dir=package) as temporary:
+            images = []
             try:
-                images = TitleCardRenderer(styles).render(only, Path(temporary))
+                # The renderer caps one pass for FFmpeg's sake; stills for Resolve go batch by batch.
+                size = TitleCardRenderer._MAX_TITLES
+                for first in range(0, len(overlays), size):
+                    batch = overlays[first:first + size]
+                    only = replace(timeline, tracks=tuple(Track(f'overlay-{n}', TrackKind.TITLE, (item,)) for n, (_, item) in enumerate(batch)))
+                    folder = Path(temporary) / str(first)
+                    folder.mkdir()
+                    images += TitleCardRenderer(styles).render(only, folder)
             except TitleRenderError as error:
                 raise ProjectError('resolve_overlay_failed', f'元件圖片無法產生（{error.code}）。', status_code=500) from error
             for number, ((_, item), image) in enumerate(zip(overlays, images), 1):
