@@ -35,11 +35,14 @@ class FfmpegPreviewRenderer:
         *,
         popen: Callable[..., subprocess.Popen[str]] = subprocess.Popen,
         hardware_acceleration: bool = False,
+        master: bool = False,
     ) -> None:
         self.media = media
         self.executable = executable
         self._popen = popen
         self.hardware_acceleration = hardware_acceleration
+        # Master output feeds another editor: ProRes and PCM instead of a compact preview.
+        self.master = master
 
     def render(self,project_id,timeline,output,cancel,progress):
         layers=any(e.effect_id=='audio.layers' for t in timeline.tracks for i in t.items if isinstance(i,MediaClip) for e in i.effects)
@@ -292,7 +295,12 @@ class FfmpegPreviewRenderer:
                     str(output),
                 ]
             )
-            if self.hardware_acceleration:
+            if self.master:
+                position = command.index('libx264') - 1
+                end = command.index('+faststart') + 1
+                command[position:end] = ['-c:v', 'prores_ks', '-profile:v', '3', '-pix_fmt', 'yuv422p10le',
+                                         '-c:a', 'pcm_s16le', '-ar', '48000']
+            elif self.hardware_acceleration:
                 position = command.index('libx264')
                 command[position] = 'h264_videotoolbox'
                 for option in ('-preset', '-crf'):

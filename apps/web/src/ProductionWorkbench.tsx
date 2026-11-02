@@ -1,7 +1,7 @@
 import { PowerNotice } from './PowerNotice'
 import { useEffect, useId, useRef, useState } from 'react'
-import { exportProduction, getProductionWorkbench, refineProduction, renderProduction, restoreProduction } from './api'
-import type { FilmPreview, FilmVersion, ProductionWorkbenchState } from './api'
+import { exportProduction, exportToResolve, getProductionWorkbench, refineProduction, renderProduction, restoreProduction } from './api'
+import type { FilmPreview, FilmVersion, ProductionWorkbenchState, ResolveExport } from './api'
 import { ProductionMusicPicker } from './ProductionMusicPicker'
 import { PromptHistory } from './PromptHistory'
 import { usePromptDraft } from './usePromptDraft'
@@ -26,6 +26,8 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
   const [consent, setConsent] = useState(false)
   const [noteOpen, setNoteOpen] = useState(false)
   const [exportUrl, setExportUrl] = useState('')
+  const [resolved, setResolved] = useState<ResolveExport | null>(null)
+  const [exporting, setExporting] = useState(false)
   const [historyId, setHistoryId] = useState('')
   const [copied, setCopied] = useState(false)
   const [versionPreview, setVersionPreview] = useState<FilmVersion | null>(null)
@@ -34,17 +36,17 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
   useEffect(() => { if (!visible) versionPlayer.current?.pause() }, [visible])
   useEffect(() => {
     let disposed = false
-    void getProductionWorkbench(projectId, runId).then((next) => { if (!disposed) { setData(next); setExportUrl('') } }).catch((e) => { if (!disposed) setError(String(e)) })
+    void getProductionWorkbench(projectId, runId).then((next) => { if (!disposed) { setData(next); setExportUrl(''); setResolved(null) } }).catch((e) => { if (!disposed) setError(String(e)) })
     return () => { disposed = true }
   }, [projectId, runId, revisionId])
   // Note times are positions in the current version, so review only a film rendered from it.
   const video = previews.find((preview) => preview?.state === 'succeeded' && preview.revision_id === data?.revision.revision_id) ?? null
   const notes = data?.references?.items ?? []
   const prompt = data ? composePrompt(instruction, notes, data.revision.timeline) : ''
-  async function action(work: () => Promise<unknown>, success: string) {
+  async function action(work: () => Promise<unknown>, success: string | (() => string)) {
     if (busy || active || !data) return
     setBusy(true); setError(''); setMessage('')
-    try { await work(); setMessage(success) }
+    try { await work(); setMessage(typeof success === 'function' ? success() : success) }
     catch (e) { setError(e instanceof Error ? e.message : '這次操作未完成。') }
     finally {
       try { setData(await getProductionWorkbench(projectId, runId)) } catch { /* Keep the last visible state. */ }
@@ -56,6 +58,12 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
     // The notes travel as structured data too, so a very long list can fall back to the overall request.
     const text = prompt.length <= MAX_INSTRUCTION ? prompt : `${instruction.trim() || '請依審片注記修改目前影片，其他部分保留。'}\n\n（共 ${notes.length} 筆審片注記，詳見附帶的注記資料。）`.slice(0, MAX_INSTRUCTION)
     void action(async () => { await refineProduction(csrf, projectId, runId, data.revision.revision_id, text, musicId || undefined, data.references?.version ?? 0); setInstruction(''); setConsent(false) }, 'AI 已開始依你的注記修改。')
+  }
+  function exportResolve() {
+    let result: ResolveExport | null = null
+    setExporting(true)
+    void action(async () => { try { result = await exportToResolve(csrf, projectId, runId); setResolved(result) } finally { setExporting(false) } },
+      () => result ? '已匯出，Finder 已打開匯出的資料夾。' : '')
   }
   async function copy() {
     try { await navigator.clipboard.writeText(prompt); setCopied(true); window.setTimeout(() => setCopied(false), 2000) }
@@ -104,9 +112,20 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
       {versionPreview?.preview_url && <div className="version-preview"><p>正在比較版本 {versionPreview.number}，目前影片不會被還原。</p><video key={versionPreview.preview_url} ref={versionPlayer} controls preload="metadata" src={versionPreview.preview_url} aria-label={`版本 ${versionPreview.number} 預覽`} onError={() => setPreviewError('這版的預覽檔暫時無法讀取。')} />{previewError && <p role="status">{previewError}</p>}<button type="button" className="button ghost" onClick={() => setVersionPreview(null)}>關閉版本預覽</button></div>}
       <button type="button" className="button secondary" disabled={!historyId || busy || active} onClick={() => void action(() => restoreProduction(csrf, projectId, runId, data!.revision.revision_id, historyId), '已還原。輸出這一版影片後就能審片。')}>還原選定版本</button>
     </details>
-    <details className="workbench-export"><summary>匯出剪輯資料</summary>
-      <p>要逐格精修，之後會支援匯出到 DaVinci Resolve。目前可以下載 Clipen 的剪輯資料（文字、效果、時間軸與來源）。</p>
-      <button type="button" className="button secondary" disabled={busy || active || !data} onClick={() => void action(async () => { const result = await exportProduction(csrf, projectId, runId); setExportUrl(result.download_url) }, '剪輯資料已準備好。')}>準備剪輯資料</button>
+    <details className="workbench-export"><summary>到 DaVinci Resolve 自己剪</summary>
+      <p>在 Clipen 裡，修改都是記注記交給 AI。要自己動手逐格剪，就匯出到 DaVinci Resolve：時間線直接使用原始素材，元件做成透明圖片疊在上層，字幕是可編輯的字幕軌，配樂也一起帶過去。</p>
+      <button type="button" className="button secondary" disabled={busy || active || !data} onClick={exportResolve}>{exporting ? '匯出中…' : '匯出到 DaVinci Resolve'}</button>
+      {exporting && <p className="prompt-draft-hint">先選擇要存放的資料夾；有馬賽克或變速的片段需要先輸出，可能要一點時間。</p>}
+      {resolved && <div className="resolve-result" role="status">
+        <p>已匯出到「{resolved.folder}」。</p>
+        <ol>
+          <li>在 Resolve 選「檔案 &gt; 匯入 &gt; 時間線…」，選擇資料夾裡的 .fcpxml。</li>
+          {resolved.captions > 0 && <li>再選「檔案 &gt; 匯入 &gt; 字幕…」，選擇「字幕.srt」，拖到時間線的字幕軌。</li>}
+        </ol>
+        {resolved.notes.length > 0 && <details><summary>匯出時要留意的地方（{resolved.notes.length}）</summary><ul>{resolved.notes.map((note) => <li key={note}>{note}</li>)}</ul></details>}
+        <p className="prompt-draft-hint">完整步驟在資料夾裡的「說明.txt」。請保持資料夾完整，時間線會用到裡面的檔案。</p>
+      </div>}
+      <button type="button" className="button ghost" disabled={busy || active || !data} onClick={() => void action(async () => { const result = await exportProduction(csrf, projectId, runId); setExportUrl(result.download_url) }, 'Clipen 剪輯資料已準備好。')}>下載 Clipen 剪輯資料（JSON）</button>
       {exportUrl && <a href={exportUrl} download>下載剪輯資料</a>}
     </details>
     </div>
