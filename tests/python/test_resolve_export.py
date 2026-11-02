@@ -96,6 +96,14 @@ class ResolveExportTests(unittest.TestCase):
         guide=(package/'說明.txt').read_text(encoding='utf-8')
         self.assertIn('匯入 > 時間線',guide);self.assertIn('字幕.srt',guide);self.assertIn('馬賽克',guide)
 
+    def test_more_components_than_one_render_pass_still_export(self):
+        revision=self.film();timeline=revision.timeline
+        extra=Track('agent-titles',TrackKind.TITLE,(TextClip('chapter',90,30,'第二章','title.default'),))
+        with patch('clipen.rendering.titles.TitleCardRenderer._MAX_TITLES',1):
+            result,_=self.export(replace(revision,timeline=replace(timeline,tracks=timeline.tracks+(extra,))))
+        self.assertEqual(result['overlays'],2)
+        self.assertEqual(len(list((Path(result['folder'])/'元件').glob('*.png'))),2)
+
     def test_a_second_export_never_overwrites_the_first(self):
         revision=self.film()
         first,_=self.export(revision);second,_=self.export(revision)
