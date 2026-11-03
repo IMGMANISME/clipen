@@ -128,7 +128,7 @@ export function ReviewNotes({ visible, projectId, csrf, runId, data, video, disa
           <button type="button" className="button ghost" disabled={disabled || busy} onClick={() => step(-1)} aria-label="上一秒">‹ 1 秒</button>
           <button type="button" className="button ghost" disabled={disabled || busy} onClick={() => step(1)} aria-label="下一秒">1 秒 ›</button>
         </span>
-        <span className="prompt-draft-hint">看到要改的地方就按，或按鍵盤 M，影片會先暫停。← → 前後一秒，Shift + ← → 前後一格。</span>
+        <span className="review-keys"><kbd>M</kbd> 記一筆　<kbd>←</kbd><kbd>→</kbd> 一秒　<kbd>Shift</kbd>+<kbd>←</kbd><kbd>→</kbd> 一格</span>
       </div>
     </div>
     {error && <p role="alert" className="inline-message error">{error}</p>}{message && <p role="status">{message}</p>}

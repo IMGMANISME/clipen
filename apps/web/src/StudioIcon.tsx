@@ -12,6 +12,7 @@ const paths = {
   layers: 'm12 3 10 5-10 5L2 8l10-5Zm-9 9 9 5 9-5M3 16l9 5 9-5',
   download: 'M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5',
   check: 'm5 12 4 4L19 6',
+  'arrow-left': 'M19 12H5m6-6-6 6 6 6',
 }
 export type StudioIconName = keyof typeof paths
 export function StudioIcon({ name, size = 18, style }: { name: StudioIconName; size?: number; style?: CSSProperties }) {

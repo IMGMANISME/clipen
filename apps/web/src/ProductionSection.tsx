@@ -142,7 +142,7 @@ export function ProductionSection({ projectId, csrf, brief, sourceReady }: Props
   return <section className="production-workspace" aria-labelledby="production-heading" onPlayCapture={(event) => {
     event.currentTarget.querySelectorAll('video').forEach((video) => { if (video !== event.target) video.pause() })
   }}>
-    <div className="studio-heading"><div><p className="eyebrow">CLIPEN STUDIO</p><h2 id="production-heading">把故事，剪成作品。</h2><p>從第一個鏡頭，到每一個值得留下的細節。</p></div><span className="studio-local"><span />本機工作室</span></div>
+    <h2 id="production-heading" className="sr-only">AI 節目製作</h2>
     {production && <nav className="studio-view-nav" aria-label="製作工作區">{([
       ['overview', '影片總覽', 'play'], ['edit', '審片修改', 'edit'], ['new', '新片設定', 'plus'],
     ] as const).map(([id, label, icon]) => <button key={id} type="button" aria-pressed={view === id} onClick={() => { setView(id); if (id === 'new') setBriefOpen(true) }}><StudioIcon name={icon as StudioIconName} />{label}</button>)}</nav>}
@@ -159,7 +159,7 @@ export function ProductionSection({ projectId, csrf, brief, sourceReady }: Props
         window.requestAnimationFrame(() => document.getElementById('production-intent')?.focus())
       }} />}
     {production && <div className="production-output studio-screen" id="production-output" tabIndex={-1} hidden={view !== 'overview'}>
-      <div className="screen-heading"><div><span className="studio-section-number">01 / PREVIEW</span><h3>你的影片</h3></div><span className="studio-version">{shownVersion ? `版本 ${shownVersion.number}` : viewingDraft ? '未完成的草稿' : '目前草稿'} · {Math.floor(duration / 60)}:{String(Math.round(duration % 60)).padStart(2, '0')}</span></div>
+      <div className="screen-heading"><h3>你的影片</h3><span className="studio-version">{shownVersion ? `版本 ${shownVersion.number}` : viewingDraft ? '未完成的草稿' : '目前草稿'} · {Math.floor(duration / 60)}:{String(Math.round(duration % 60)).padStart(2, '0')}</span></div>
       {preview?.state === 'succeeded' ? <>
         {viewingDraft && <div className="film-draft-notice" role="status"><strong>未完成的草稿{draft?.version?.kind === 'ai_partial' ? `：${draft.version.label}` : ''}</strong>
           <p>{active ? 'AI 還在製作，這是製作途中的畫面，還沒做完交付檢查。' : 'AI 還沒做完這一輪的交付檢查，畫面可能只改了一部分。'}</p>

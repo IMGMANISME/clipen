@@ -255,9 +255,7 @@ function ProjectHome({
     <main className="home-main">
       <section className="home-heading">
         <div>
-          <p className="eyebrow">本機剪輯工作台</p>
           <h1>你的作品</h1>
-          <p>靈感從這裡開始。整理素材，讓 AI 陪你把每段日常剪成故事。</p>
         </div>
         {!creating && (
           <button className="button primary create-button" onClick={() => setCreating(true)}>
@@ -294,10 +292,10 @@ function ProjectHome({
               const source = project.directories.find((directory) => directory.role === 'source')
               return (
                 <button className="project-card" key={project.project_id} onClick={() => onOpen(project)}>
-                  <span className="project-cover" aria-hidden="true"><StudioIcon name="film" size={40} /><span>CLIPEN PROJECT</span></span><span className="project-stage">剪輯作品</span>
+                  <span className="project-cover" aria-hidden="true"><StudioIcon name="film" size={32} /></span>
                   <strong>{project.name}</strong>
                   <span className="project-next">
-                    {source ? '開啟作品工作室' : '下一步：選擇毛片資料夾'}
+                    {source ? '開啟作品' : '下一步：選擇毛片資料夾'}
                   </span>
                   <span className="project-time">最近活動：{formatUpdatedAt(project.last_activity_at ?? project.updated_at)}</span>
                 </button>
@@ -1087,44 +1085,22 @@ function MaterialsWorkspace({
 
   return (
     <main className="workspace-main">
-      <button className="back-button" onClick={onBack}>← 所有作品</button>
-      <div className="workspace-layout">
-        <aside className="stage-sidebar" aria-label="作品階段">
-          <div className="sidebar-project">
-            <span>目前作品</span>
-            <strong>{project.name}</strong>
-          </div>
-          <ol>
-            {stages.map((stage, index) => {
-              const available = stageAvailable(stage.id)
-              const completed = stage.id === 'materials' && Boolean(currentInventoryId)
-              return (
-              <li
-                key={stage.id}
-                className={activeStage === stage.id ? 'active' : completed ? 'completed' : available ? '' : 'locked'}
-              >
-                <button type="button" disabled={!available} aria-current={activeStage === stage.id ? 'step' : undefined} onClick={() => selectStage(stage.id)}>
-                  <span><StudioIcon name={index === 0 ? 'folder' : 'sparkle'} size={19} /></span>
-                  <div>
-                    <strong>{stage.label}</strong>
-                    {stage.id === 'materials' && currentInventoryId && <small>已檢查</small>}
-                    {!available && stage.id !== 'materials' && <small>尚未開放</small>}
-                  </div>
-                </button>
-              </li>
-              )
-            })}
-          </ol>
-          <details className="legacy-workflow-navigation">
-            <summary>進階工具</summary>
-            <ol>{toolStages.map((stage) => <li key={stage.id} className={activeStage === stage.id ? 'active' : ''}>
-              <button type="button" disabled={!stageAvailable(stage.id)} onClick={() => selectStage(stage.id)}>
-                <span aria-hidden="true">↗</span><div><strong>{stage.label}</strong></div>
+      <nav className="workspace-bar" aria-label="作品階段">
+        <button type="button" className="workspace-back" onClick={onBack} aria-label="回到所有作品"><StudioIcon name="arrow-left" size={16} /></button>
+        <strong className="workspace-name">{project.name}</strong>
+        <ol className="workspace-steps">
+          {stages.map((stage) => {
+            const available = stageAvailable(stage.id)
+            return <li key={stage.id}>
+              <button type="button" disabled={!available} className={activeStage === stage.id ? 'is-active' : ''} aria-current={activeStage === stage.id ? 'step' : undefined} onClick={() => selectStage(stage.id)}>
+                {stage.label}{stage.id === 'materials' && currentInventoryId && <StudioIcon name="check" size={14} />}
               </button>
-            </li>)}</ol>
-          </details>
-        </aside>
-
+            </li>
+          })}
+        </ol>
+        {toolStages.map((stage) => <button key={stage.id} type="button" className={`workspace-tool ${activeStage === stage.id ? 'is-active' : ''}`} disabled={!stageAvailable(stage.id)} onClick={() => selectStage(stage.id)}>{stage.label}</button>)}
+      </nav>
+      <div className="workspace-layout">
         <section className="materials-panel" aria-label="作品工作區">
           {activeStage === 'materials' && <div className="panel-heading">
             <div>
