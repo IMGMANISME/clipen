@@ -19,6 +19,7 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import time
 import xml.etree.ElementTree as ET
 
 from clipen.domain import MediaClip, Track, TrackKind
@@ -405,7 +406,7 @@ def _write(repository, project_id, package, name, timeline, video, cancel):
             build.connect('video', {'ref': ref, 'lane': str(lane), 'name': label, 'start': '0s',
                                     'duration': seconds(build.time(item.duration_frames))}, item.start_frame)
         notes.append(f'畫面元件 {len(rendered)} 個先以透明 PNG 放在影片上層，位置和外觀與 Clipen 相同，彈出動畫不會保留。'
-                     + (f'其中 {editable} 個可以換成能改字的 DaVinci 標題，做法見上面「讓元件文字可以修改」。' if editable else ''))
+                     + (f'其中 {editable} 個可以換成能改字的 DaVinci 標題，做法見上面「想在 Resolve 改元件的字」。' if editable else ''))
     if captions:
         lines = []
         for number, (_, item) in enumerate(sorted(captions, key=lambda pair: pair[1].start_frame), 1):
@@ -484,19 +485,24 @@ def _editable_titles(directory: Path, rendered, styles, timeline) -> int:
 RESOLVE_DEFAULT_FOLDER = Path.home() / 'Movies' / 'DaVinci Resolve'
 
 
-def convert_timeline(package: Path) -> tuple[Path, int]:
-    """Turn the newest .drt exported from this package's timeline into one with editable component titles.
+def _exported_timeline(package: Path, since: float = 0.) -> Path | None:
+    """The newest .drt saved from this package's timeline after since (a time stamp).
 
     Resolve saves exports to its own folder unless told otherwise, so both that folder and the
     package are searched; a .drt counts when its clips point at this package's components."""
-    from .resolve_titles import MANIFEST, convert, uses
+    from .resolve_titles import uses
+    candidates = [p for folder in (package, RESOLVE_DEFAULT_FOLDER) for p in folder.glob('*.drt') if '（可改字）' not in p.stem]
+    candidates = [p for p in candidates if p.stat().st_mtime > since]
+    return next((p for p in sorted(candidates, key=lambda p: p.stat().st_mtime, reverse=True) if uses(p, package / '元件')), None)
+
+
+def convert_timeline(package: Path, source: Path | None = None) -> tuple[Path, int]:
+    """Write a copy of the .drt exported from this package's timeline with editable component titles."""
+    from .resolve_titles import MANIFEST, convert
     package = Path(package)
-    components = package / '元件'
-    if not (components / MANIFEST).is_file():
+    if not (package / '元件' / MANIFEST).is_file():
         raise ProjectError('resolve_titles_missing', '這份匯出沒有可以換成文字的元件。', status_code=409)
-    candidates = [p for folder in (package, RESOLVE_DEFAULT_FOLDER) for p in folder.glob('*.drt')
-                  if '（可改字）' not in p.stem]
-    source = next((p for p in sorted(candidates, key=lambda p: p.stat().st_mtime, reverse=True) if uses(p, components)), None)
+    source = source or _exported_timeline(package)
     if source is None:
         raise ProjectError('resolve_timeline_missing', '還找不到這份匯出的 .drt。請先在 DaVinci Resolve 用「檔案 > 匯出 > 時間線…」把時間線存成 .drt。', status_code=409)
     target = _unique(package, f'{source.stem}（可改字）.drt')
@@ -509,6 +515,39 @@ def convert_timeline(package: Path) -> tuple[Path, int]:
     finally:
         temporary.unlink(missing_ok=True)
     return target, replaced
+
+
+def watch_timeline(package: Path, since: float, stop: threading.Event | None = None,
+                   timeout: float = 4 * 3600, interval: float = 2.) -> Path | None:
+    """Wait for the person to save this package's timeline as .drt in Resolve, then convert and show it.
+
+    A save counts once its size holds still for one interval, so a half-written file is never read.
+    Gives up after timeout or when stop is set; returns the converted timeline."""
+    stop = stop or threading.Event()
+    deadline, seen = time.monotonic() + timeout, None
+    while not stop.wait(interval) and time.monotonic() < deadline:
+        source = _exported_timeline(package, since)
+        if source is None:
+            continue
+        size = source.stat().st_size
+        if seen != (source, size):
+            seen = (source, size)
+            continue
+        try:
+            target, _ = convert_timeline(package, source)
+        except ProjectError:
+            return None
+        reveal(target)
+        return target
+    return None
+
+
+def start_watching(package: Path) -> threading.Thread:
+    """Watch for the .drt in the background so the person never has to come back to Clipen for it."""
+    since = time.time()
+    thread = threading.Thread(target=watch_timeline, args=(Path(package), since), name='resolve-titles', daemon=True)
+    thread.start()
+    return thread
 
 
 def reveal(path: Path) -> None:
@@ -532,11 +571,11 @@ def _guide(package: Path, fcpxml: Path, captions: bool, editable: int, notes: li
               '', '影片片段直接指向原始素材，前後保留可延長的長度。若搬動了素材，Resolve 會請你重新連結。',
               '這個資料夾裡的元件、音樂和已處理片段也被時間線使用，請保持資料夾完整。']
     if editable:
-        steps += ['', '讓元件文字可以修改', '',
-                  f'元件先以圖片放在時間線上。其中 {editable} 個可以換成 DaVinci 的 Fusion 標題，選取後在右邊「檢查器」直接改字，樣式維持 Clipen 的樣子：',
-                  '1. 時間線匯入後，選「檔案 > 匯出 > 時間線…」（File > Export > Timeline），格式選「DaVinci Resolve Timeline Files (*.drt)」，直接按儲存。',
-                  '2. 回到 Clipen 的「到 DaVinci Resolve 自己剪」，按「把元件換成可改字的標題」。',
-                  '3. 回到 DaVinci，選「檔案 > 匯入 > 時間線…」，選這個資料夾裡名稱有「（可改字）」的 .drt。',
+        steps += ['', '想在 Resolve 改元件的字（需要時再做）', '',
+                  f'匯入後元件已經和 Clipen 一模一樣，只是以圖片呈現。要改其中的字，再做兩步，{editable} 個元件會一起換成可以改字的標題：',
+                  '1. 選「檔案 > 匯出 > 時間線…」（File > Export > Timeline），格式選「DaVinci Resolve Timeline Files (*.drt)」，按儲存。',
+                  '   Clipen 開著的話會自動做好一份名稱有「（可改字）」的 .drt，並在 Finder 打開它；沒出現的話，到 Clipen 的「到 DaVinci Resolve 自己剪」按「把元件換成可改字的標題」。',
+                  '2. 選「檔案 > 匯入 > 時間線…」，選那份「（可改字）」的 .drt。選取元件後，在右邊「檢查器」改字。',
                   '   改字只會改文字本身；底框、細線這類圖形是固定的圖片，字數差很多時可能要自己調整位置。']
     if notes:
         steps += ['', '需要留意', ''] + [f'・{note}' for note in notes]

@@ -1124,11 +1124,13 @@ def create_app(
                 result=await run_in_threadpool(lambda:tools_for(coordinator.repository,project,run).production_call('export_edit',{}).payload)
             elif operation=='resolve':
                 require_fields(payload,set())
-                from clipen.editing.resolve_export import export_resolve, reveal
+                from clipen.editing.resolve_export import export_resolve, reveal, start_watching
                 from clipen.editing.workbench import idle
                 await run_in_threadpool(idle,coordinator.repository,project,run)
                 result=await run_in_threadpool(export_resolve,coordinator.repository,project,run)
                 await run_in_threadpool(reveal,Path(result['fcpxml']))
+                # Saving the timeline as .drt in Resolve is enough; Clipen makes the editable copy on its own.
+                if result.get('editable_overlays'):start_watching(Path(result['folder']))
             elif operation=='resolve_titles':
                 require_fields(payload,{'folder'})
                 from clipen.editing.resolve_export import convert_timeline, export_folder, reveal

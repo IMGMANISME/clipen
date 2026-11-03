@@ -128,16 +128,17 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
           <li>如果 Resolve 說找不到素材（clips were not yet found），按「Locate」，選擇毛片資料夾。</li>
           {resolved.captions > 0 && <li>再選「檔案 &gt; 匯入 &gt; 字幕…」，選擇「字幕.srt」，拖到時間線的字幕軌。</li>}
         </ol>
-        {resolved.editable_overlays > 0 && <div className="resolve-titles">
-          <p>元件先以圖片放在時間線上。想在 Resolve 直接改元件的字，再做這三步（{resolved.editable_overlays} 個元件可以換）：</p>
+        {resolved.editable_overlays > 0 && <details className="resolve-titles">
+          <summary>想在 Resolve 改元件的字（需要時再做）</summary>
+          <p>匯入後元件已經和 Clipen 一模一樣，只是以圖片呈現。要改字時，再做兩步，{resolved.editable_overlays} 個元件會一起換成可以改字的標題：</p>
           <ol>
-            <li>在 Resolve 選「檔案 &gt; 匯出 &gt; 時間線…」，格式選「DaVinci Resolve Timeline Files (*.drt)」，直接按儲存。</li>
-            <li>回到這裡按「把元件換成可改字的標題」。</li>
-            <li>在 Resolve 選「檔案 &gt; 匯入 &gt; 時間線…」，選名稱有「（可改字）」的 .drt。選元件後，在右邊檢查器就能改字。</li>
+            <li>在 Resolve 選「檔案 &gt; 匯出 &gt; 時間線…」，格式選「DaVinci Resolve Timeline Files (*.drt)」，按儲存。Clipen 會自動做好可改字的版本，並在 Finder 打開它。</li>
+            <li>在 Resolve 選「檔案 &gt; 匯入 &gt; 時間線…」，選名稱有「（可改字）」的 .drt。選取元件後，在右邊檢查器改字。</li>
           </ol>
-          <button type="button" className="button secondary" disabled={busy || active} onClick={convertTitles}>把元件換成可改字的標題</button>
+          <p className="prompt-draft-hint">Finder 沒有自動打開的話（例如中途關過 Clipen），按這裡手動轉換：</p>
+          <button type="button" className="button ghost" disabled={busy || active} onClick={convertTitles}>把元件換成可改字的標題</button>
           {converted && <p>已做好「{converted.split('/').pop()}」，放在匯出資料夾裡。</p>}
-        </div>}
+        </details>}
         {resolved.notes.length > 0 && <details><summary>匯出時要留意的地方（{resolved.notes.length}）</summary><ul>{resolved.notes.map((note) => <li key={note}>{note}</li>)}</ul></details>}
         <p className="prompt-draft-hint">完整步驟在資料夾裡的「說明.txt」。請保持資料夾完整，時間線會用到裡面的檔案。</p>
       </div>}
