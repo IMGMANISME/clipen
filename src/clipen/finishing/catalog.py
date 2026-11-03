@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import socket
 import ipaddress
-from pathlib import Path
 import time
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit, urljoin
@@ -15,7 +14,9 @@ from clipen.projects import DirectoryReference, DirectoryRole, ProjectError
 from clipen.projects.storage import utc_now
 
 from .audio import inspect_library
-from .models import MUSIC_TAGS, digest, encoded
+from clipen.music_vocabulary import MUSIC_TAGS
+
+from .models import digest, encoded
 
 
 _HOSTS = {'api.openverse.org', 'prod-1.storage.jamendo.com', 'prod-2.storage.jamendo.com',

@@ -12,7 +12,6 @@ from clipen.controller import (
     ProviderStatus,
     create_app,
 )
-from clipen.system_skills import SystemSkillSummary
 
 
 @dataclass(frozen=True)
@@ -257,37 +256,6 @@ class ControllerAppTests(unittest.TestCase):
         health = self.request("GET", "/api/health")
         self.assertEqual(health.status, 200)
         self.assertEqual(health.header("cache-control"), "no-store")
-
-    def test_system_skill_catalog_requires_session_and_never_exposes_content(self) -> None:
-        summary = SystemSkillSummary(
-            "clipen-clean-cut",
-            "通用精簡",
-            "保留原始順序並改善節奏。",
-            ("目標長度", "畫幅"),
-        )
-        self.app = create_app(
-            ControllerConfig(self.static_root, (summary,)),
-            self.provider,
-            self.authority,
-        )
-        unauthenticated = self.request("GET", "/api/system-skills")
-        self.assertEqual(unauthenticated.status, 401)
-
-        connection = self.connect()
-        cookie_header = connection.header("set-cookie")
-        assert cookie_header is not None
-        catalog = self.request(
-            "GET",
-            "/api/system-skills",
-            {"cookie": cookie_header.split(";", 1)[0]},
-        )
-        self.assertEqual(catalog.status, 200)
-        payload = catalog.json()
-        self.assertEqual(payload["skills"], [summary.as_public_dict()])
-        serialized = json.dumps(payload, ensure_ascii=False)
-        self.assertNotIn("SKILL.md", serialized)
-        self.assertNotIn("content", serialized)
-        self.assertNotIn("clipen-core", serialized)
 
 
 if __name__ == "__main__":

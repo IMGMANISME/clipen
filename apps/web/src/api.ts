@@ -292,58 +292,10 @@ export type MaterialAnnotationState = {
   plan_invalidated?: boolean
 }
 
-export type TimelineValidationIssue = {
-  rule_id: string
-  severity: 'warning' | 'blocking'
-  location: string
-  item_id: string | null
-  message: string
-  suggestion: string
-  evidence_refs: string[]
-}
 
-export type TimelineValidationReport = {
-  schema_version: 1
-  report_id: string
-  timeline_id: string
-  capability_profile_id: string
-  capability_content_hash: string
-  status: 'pass' | 'warning' | 'blocking'
-  issues: TimelineValidationIssue[]
-}
 
-export type TimelineValidationState = {
-  state: 'not_ready' | 'ready' | 'needs_confirmation' | 'blocked'
-  can_execute: boolean
-  report: TimelineValidationReport | null
-  warnings_accepted: boolean
-  accepted_at: string | null
-}
 
-export type EditTimelineSummary = {
-  timeline_id: string
-  plan_id: string
-  plan_revision: number
-  plan_content_hash: string
-  output: {
-    preset: 'landscape_1080p' | 'portrait_1080p'
-    frame_rate: 24 | 25 | 30 | 60
-    width: number
-    height: number
-  }
-  duration_frames: number
-  duration_seconds: number
-  tracks: Array<{ track_id: string; kind: 'video' | 'audio' | 'title' | 'graphic'; item_count: number }>
-  markers: Array<{ marker_id: string; frame: number; label: string; note: string }>
-  created_at: string
-}
 
-export type EditTimelineState = {
-  state: 'not_ready' | 'stale' | 'validation_required' | 'ready' | 'needs_confirmation' | 'blocked'
-  can_execute: boolean
-  timeline: EditTimelineSummary | null
-  validation: TimelineValidationState | null
-}
 
 export type PreviewRenderState =
   | 'queued'
@@ -370,21 +322,6 @@ export type PreviewRender = {
 export type FilmVersion = { revision_id: string; number: number; kind: 'ai_complete' | 'ai_partial' | 'manual' | 'restore'; label: string; detail: string | null; created_at: string; duration_seconds?: number; preview_url?: string | null }
 export type FilmPreview = PreviewRender & { stale: boolean; revision_id: string; media_url: string; version?: FilmVersion | null }
 
-export type PreviewRenderStatus = {
-  render: PreviewRender | null
-  can_start: boolean
-  stale?: boolean
-  source?: 'base' | 'ai' | null
-  target_timeline_id?: string | null
-  target_is_style_proof?: boolean
-  target_stats?: {
-    duration_seconds: number
-    clip_count: number
-    longest_clip_seconds: number
-    title_count: number
-    effect_count: number
-  } | null
-}
 
 export type EditAgentState =
   | 'queued'
@@ -541,125 +478,17 @@ export async function startProduction(csrf: string, projectId: string, skillId: 
 
 export type ProgramReference = { run_id: string; revision_id: string; authority: 'user_selected_style_reference' }
 
-export type SystemSkillSummary = {
-  id: string
-  name: string
-  purpose: string
-  adjustable_parameters: string[]
-}
 
-export type PlanningCandidate = {
-  candidate_id: string
-  display_name: string
-  media_kind: 'video' | 'audio'
-  duration_seconds: number
-  evidence_summary: string
-  transcript: {
-    reliability: 'trusted' | 'needs_review' | 'unavailable'
-    excerpt: string | null
-  }
-}
 
-export type EditablePlanSection = {
-  section_id: string
-  title: string
-  purpose: string
-  candidate_ids: string[]
-  edit_notes: string
-  unknowns: string[]
-}
 
-export type BlueprintEffect = {
-  effect: 'punch_in' | 'slow_push' | 'reframe' | 'speed_ramp'
-  intensity: 'subtle' | 'medium' | 'strong'
-}
 
-export type BlueprintClip = {
-  candidate_id: string
-  role: 'hook' | 'story' | 'b_roll' | 'reaction' | 'transition' | 'ending'
-  audio_treatment: 'dialogue' | 'ambient' | 'mixed' | 'mute'
-  effects: BlueprintEffect[]
-}
 
-export type BlueprintTitleCue = {
-  cue_id: string
-  text: string
-  placement: 'section_start' | 'over_clip' | 'section_end'
-  style: 'minimal' | 'chapter' | 'location' | 'ending'
-}
 
-export type BlueprintSoundCue = {
-  cue_id: string
-  sound: 'whoosh' | 'impact' | 'click' | 'riser' | 'ambient_accent'
-  placement: 'section_start' | 'section_middle' | 'section_end'
-  intensity: 'subtle' | 'medium' | 'strong'
-}
 
-export type BlueprintSection = {
-  section_id: string
-  clips: BlueprintClip[]
-  title_cues: BlueprintTitleCue[]
-  sound_cues: BlueprintSoundCue[]
-  transition_out: 'cut' | 'dissolve' | 'fade' | 'whip'
-}
 
-export type EditBlueprint = {
-  target_duration_seconds: number | null
-  pacing: 'relaxed' | 'balanced' | 'energetic'
-  subtitle_mode: 'none' | 'dialogue' | 'full' | 'dynamic'
-  graphics_intensity: 'minimal' | 'balanced' | 'expressive'
-  music: {
-    mode: 'none' | 'ambient_only' | 'approved_asset_required'
-    mood: string
-  }
-  sound_design: string
-  sections: BlueprintSection[]
-}
 
-export type EditablePlan = {
-  plan_id: string
-  revision: number
-  status: 'ready_for_review' | 'confirmed' | 'superseded'
-  title: string
-  summary: string
-  sections: EditablePlanSection[]
-  blueprint: EditBlueprint | null
-}
 
-export type PlanningRun = {
-  run_id: string
-  project_revision: number
-  editing_skill_id: string
-  estimated_input_tokens: number
-  state: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted'
-  phase: string
-  plan_id: string | null
-  plan_revision: number | null
-  usage: { input_tokens: number; cached_input_tokens: number; output_tokens: number } | null
-  error_code: string | null
-  created_at: string
-  started_at: string | null
-  completed_at: string | null
-}
 
-export type PlanningStatus = {
-  blocked_reason: string | null
-  preflight: {
-    candidate_count: number
-    estimated_input_tokens: number
-    context_hash: string
-    candidates: PlanningCandidate[]
-  } | null
-  latest_run: PlanningRun | null
-  recent_runs: PlanningRun[]
-  current_plan: EditablePlan | null
-  plan_quality?: {
-    target_duration_seconds: number | null
-    selected_video_duration_seconds: number
-    selected_video_count: number
-    issue_code: string | null
-  } | null
-}
 
 export class ApiError extends Error {
   code: string
@@ -734,124 +563,11 @@ export async function getStatus(): Promise<StatusPayload> {
   return request<StatusPayload>('/api/status')
 }
 
-export async function getSystemSkills(): Promise<SystemSkillSummary[]> {
-  return (await request<{ skills: SystemSkillSummary[] }>('/api/system-skills')).skills
-}
 
-export async function getPlanning(projectId: string): Promise<PlanningStatus> {
-  return request<PlanningStatus>(`/api/projects/${projectId}/planning`)
-}
 
-export async function startPlanning(
-  csrf: string,
-  project: Project,
-  editingSkillId: string,
-  contextHash: string,
-): Promise<PlanningRun> {
-  return (
-    await command<{ run: PlanningRun }>(
-      `/api/projects/${project.project_id}/planning/commands/start`,
-      csrf,
-      {
-        request_id: crypto.randomUUID(),
-        expected_revision: project.revision,
-        editing_skill_id: editingSkillId,
-        consent: true,
-        expected_context_hash: contextHash,
-      },
-    )
-  ).run
-}
 
-export async function cancelPlanning(
-  csrf: string,
-  projectId: string,
-  runId: string,
-): Promise<PlanningRun> {
-  return (
-    await command<{ run: PlanningRun }>(
-      `/api/projects/${projectId}/planning/${runId}/commands/cancel`,
-      csrf,
-      {},
-    )
-  ).run
-}
 
-export async function updatePlan(
-  csrf: string,
-  projectId: string,
-  plan: EditablePlan,
-): Promise<EditablePlan> {
-  const blueprintSections = new Map(
-    plan.blueprint?.sections.map((section) => [section.section_id, section]),
-  )
-  const sections = plan.sections.map((section) => {
-    if (!plan.blueprint) return section
-    const existing = blueprintSections.get(section.section_id)
-    const clips = new Map(existing?.clips.map((clip) => [clip.candidate_id, clip]))
-    return {
-      ...section,
-      clips: section.candidate_ids.map((candidateId) => clips.get(candidateId) ?? {
-        candidate_id: candidateId,
-        role: 'story' as const,
-        audio_treatment: 'mixed' as const,
-        effects: [],
-      }),
-      title_cues: existing?.title_cues ?? [],
-      transition_out: existing?.transition_out ?? 'cut',
-      candidate_ids: undefined,
-    }
-  })
-  const proposal = plan.blueprint ? {
-    schema_version: 2,
-    title: plan.title,
-    summary: plan.summary,
-    creative_direction: {
-      target_duration_seconds: plan.blueprint.target_duration_seconds,
-      pacing: plan.blueprint.pacing,
-      subtitle_mode: plan.blueprint.subtitle_mode,
-      graphics_intensity: plan.blueprint.graphics_intensity,
-      music: plan.blueprint.music,
-      sound_design: plan.blueprint.sound_design,
-    },
-    sections,
-  } : {
-    schema_version: 1,
-    title: plan.title,
-    summary: plan.summary,
-    sections,
-  }
-  return (
-    await command<{ plan: EditablePlan }>(
-      `/api/projects/${projectId}/plan/commands/update`,
-      csrf,
-      {
-        request_id: crypto.randomUUID(),
-        plan_id: plan.plan_id,
-        expected_revision: plan.revision,
-        plan: proposal,
-      },
-    )
-  ).plan
-}
 
-export async function confirmPlan(
-  csrf: string,
-  projectId: string,
-  plan: EditablePlan,
-): Promise<EditablePlan> {
-  return (
-    await command<{ plan: EditablePlan }>(
-      `/api/projects/${projectId}/plan/commands/confirm`,
-      csrf,
-      {
-        request_id: crypto.randomUUID(),
-        plan_id: plan.plan_id,
-        expected_revision: plan.revision,
-      },
-    )
-  ).plan
-}
 
 export async function listProjects(): Promise<Project[]> {
   return (await request<{ projects: Project[] }>('/api/projects')).projects
@@ -1006,49 +722,14 @@ export async function getAnalysis(projectId: string): Promise<AnalysisSummary> {
   return request<AnalysisSummary>(`/api/projects/${projectId}/analysis`)
 }
 
-export async function getTimelineValidation(
-  projectId: string,
-): Promise<TimelineValidationState> {
-  return request<TimelineValidationState>(
-    `/api/projects/${projectId}/timeline-validation`,
-  )
-}
 
-export async function getEditTimeline(projectId: string): Promise<EditTimelineState> {
-  return request<EditTimelineState>(`/api/projects/${projectId}/timeline`)
-}
 
-export async function getPreviewRender(projectId: string): Promise<PreviewRenderStatus> {
-  return request<PreviewRenderStatus>(`/api/projects/${projectId}/preview`)
-}
 
 export async function getEditAgent(projectId: string): Promise<EditAgentStatus> {
   return request<EditAgentStatus>(`/api/projects/${projectId}/edit-agent`)
 }
 
-export async function startEditAgent(
-  csrf: string,
-  projectId: string,
-): Promise<EditAgentRun> {
-  return (
-    await command<{ run: EditAgentRun }>(
-      `/api/projects/${projectId}/edit-agent/commands/start`,
-      csrf,
-      { request_id: crypto.randomUUID(), consent: true, creative_direction: {
-        format: 'travel_program', title_cards: false, subtitle_style: 'program',
-        direction: '以人物對話、期待、實際體驗與回應串起故事；不用獨立字卡交代行程。',
-        production_requirements: { music: true, editing: true, transitions: true },
-      } },
-    )
-  ).run
-}
 
-export async function acceptProgramReference(csrf: string, projectId: string, result: EditAgentResult): Promise<ProgramReference> {
-  return (await command<{ program_reference: ProgramReference }>(
-    `/api/projects/${projectId}/edit-agent/commands/accept-reference`, csrf,
-    { run_id: result.run_id, revision_id: result.revision_id },
-  )).program_reference
-}
 
 export async function cancelEditAgent(
   csrf: string,
@@ -1064,61 +745,9 @@ export async function cancelEditAgent(
   ).run
 }
 
-export async function startPreviewRender(
-  csrf: string,
-  projectId: string,
-  timelineId: string,
-): Promise<PreviewRenderStatus> {
-  return command<PreviewRenderStatus>(
-    `/api/projects/${projectId}/preview/commands/start`,
-    csrf,
-    { request_id: crypto.randomUUID(), timeline_id: timelineId },
-  )
-}
 
-export async function cancelPreviewRender(
-  csrf: string,
-  projectId: string,
-  renderId: string,
-): Promise<PreviewRenderStatus> {
-  return command<PreviewRenderStatus>(
-    `/api/projects/${projectId}/preview/${renderId}/commands/cancel`,
-    csrf,
-    {},
-  )
-}
 
-export async function buildEditTimeline(
-  csrf: string,
-  projectId: string,
-  plan: Pick<EditablePlan, 'plan_id' | 'revision'>,
-  outputPreset: 'landscape_1080p' | 'portrait_1080p',
-  frameRate: 24 | 25 | 30 | 60,
-): Promise<EditTimelineState> {
-  return command<EditTimelineState>(
-    `/api/projects/${projectId}/timeline/commands/build`,
-    csrf,
-    {
-      request_id: crypto.randomUUID(),
-      plan_id: plan.plan_id,
-      plan_revision: plan.revision,
-      output_preset: outputPreset,
-      frame_rate: frameRate,
-    },
-  )
-}
 
-export async function acceptTimelineWarnings(
-  csrf: string,
-  projectId: string,
-  reportId: string,
-): Promise<TimelineValidationState> {
-  return command<TimelineValidationState>(
-    `/api/projects/${projectId}/timeline-validation/commands/accept-warnings`,
-    csrf,
-    { request_id: crypto.randomUUID(), report_id: reportId },
-  )
-}
 
 export async function getAnalysisResults(
   projectId: string,
@@ -1307,41 +936,6 @@ export function evidenceCommand(projectId: string, csrf: string, action: 'start'
   return command<EvidenceSummary>(`/api/projects/${projectId}/evidence/commands/${action}`, csrf, payload)
 }
 
-export type FinishingRun = {
-  local_resume_available: boolean
-  run_id: string; kind: string; state: string; phase: string; progress: number
-  error_code: string | null; playback_url: string | null; stale?: boolean
-  usage: { input_tokens: number; cached_input_tokens: number; output_tokens: number; complete: boolean } | null
-  result: {
-    message?: string; summary?: string; duration_seconds?: number
-    music?: { title: string; reason: string; regions?: { reason: string }[]; provenance: {
-      creator: string; source_url: string; license: string; license_version: string
-      license_url: string; attribution: string; changes: string; verification: string
-    } }
-    cut_changes?: { clip_id: string; source_offset_frames: number; duration_frames: number; reason: string }[]
-    music_alternatives?: { title: string; reason: string }[]
-    decisions?: { alternatives: { asset_id: string; reason_not_selected: string }[] }
-  } | null
-}
-export type FinishingStatus = {
-  workflow_version: number; latest_run: FinishingRun | null; result: FinishingRun | null
-  recent_runs: FinishingRun[]; has_legacy_experiment: boolean
-  blocked: { code: string; message: string } | null
-  preflight: { context_hash: string; base_revision_id: string; duration_seconds: number
-    cue_count: number; shot_count: number; maximum_ai_calls: number; maximum_images: number } | null
-}
-export function getFinishing(projectId: string): Promise<FinishingStatus> {
-  return request(`/api/projects/${projectId}/finishing`)
-}
-export function finishingCommand<T>(csrf: string, projectId: string, action: string, body: object): Promise<T> {
-  return command(`/api/projects/${projectId}/finishing/commands/${action}`, csrf, body)
-}
-export function cancelFinishing(csrf: string, projectId: string, runId: string): Promise<FinishingRun> {
-  return command(`/api/projects/${projectId}/finishing/${runId}/commands/cancel`, csrf, {})
-}
-export function resumeFinishing(csrf: string, projectId: string, runId: string): Promise<FinishingRun> {
-  return command(`/api/projects/${projectId}/finishing/${runId}/commands/resume`, csrf, {})
-}
 
 export async function resumeProduction(csrf: string, projectId: string, runId: string): Promise<EditAgentRun> {
   return (await command<{ run: EditAgentRun }>(

@@ -29,19 +29,14 @@ from clipen.analysis import (
 )
 from clipen.analysis.evidence_service import EvidenceService
 from clipen.annotations import AnnotationRepository
-from clipen.editing import EditAgentCoordinator, TimelineService
+from clipen.editing import EditAgentCoordinator
 from clipen.media import InventoryCoordinator, MediaPreviewRepository
-from clipen.planning import PlanningService
-from clipen.rendering import PreviewRenderService
-from clipen.finishing import FinishingService
 from clipen.projects import (
     DirectoryRole,
     ProjectError,
     ProjectWorkspace,
-    TimelineValidationRepository,
 )
 from clipen.projects.models import validate_request_id
-from clipen.system_skills import SystemSkillSummary
 
 
 _SESSION_COOKIE = "clipen_session"
@@ -79,7 +74,6 @@ class ProviderStatus:
 @dataclass(frozen=True)
 class ControllerConfig:
     static_root: Path
-    system_skills: tuple[SystemSkillSummary, ...] = ()
     origin: str = "http://localhost:4200"
     allowed_hosts: tuple[str, ...] = ("localhost:4200", "127.0.0.1:4200")
     instance_secret: str | None = None
@@ -94,9 +88,6 @@ class ControllerConfig:
             raise ValueError("at least one local Host value is required")
         if self.instance_secret is not None and len(self.instance_secret) < 32:
             raise ValueError("controller instance secret is too short")
-        identifiers = [summary.skill_id for summary in self.system_skills]
-        if len(identifiers) != len(set(identifiers)):
-            raise ValueError("system Skill catalog contains duplicate identifiers")
 
 
 @dataclass(frozen=True)
@@ -289,19 +280,12 @@ def create_app(
     preparation_repository: PreparationRepository | None = None,
     analysis_runtime: ManagedAnalysisRuntime | None = None,
     evidence_service: EvidenceService | None = None,
-    timeline_validations: TimelineValidationRepository | None = None,
-    planning_service: PlanningService | None = None,
-    timeline_service: TimelineService | None = None,
     annotations: AnnotationRepository | None = None,
     media_previews: MediaPreviewRepository | None = None,
-    preview_renders: PreviewRenderService | None = None,
     edit_agents: EditAgentCoordinator | None = None,
-    finishing: FinishingService | None = None,
     provider_account=None,
 ) -> ASGIApp:
     static_root = config.static_root.resolve(strict=True)
-    if timeline_validations is None and workspace is not None:
-        timeline_validations = TimelineValidationRepository(workspace.repository)
 
     async def health(_: Request) -> Response:
         return JSONResponse({"status": "ok"})
@@ -462,33 +446,6 @@ def create_app(
             )
         return analysis_runtime
 
-    def require_timeline_validations() -> TimelineValidationRepository:
-        if timeline_validations is None:
-            raise ProjectError(
-                "timeline_validation_unavailable",
-                "Clipen 剪輯檢查尚未準備完成。",
-                status_code=503,
-            )
-        return timeline_validations
-
-    def require_planning() -> PlanningService:
-        if planning_service is None:
-            raise ProjectError(
-                "planning_unavailable",
-                "Clipen 剪輯計畫尚未準備完成。",
-                status_code=503,
-            )
-        return planning_service
-
-    def require_timeline() -> TimelineService:
-        if timeline_service is None:
-            raise ProjectError(
-                "timeline_unavailable",
-                "Clipen 剪輯版本尚未準備完成。",
-                status_code=503,
-            )
-        return timeline_service
-
     def require_annotations() -> AnnotationRepository:
         if annotations is None:
             raise ProjectError(
@@ -506,15 +463,6 @@ def create_app(
                 status_code=503,
             )
         return media_previews
-
-    def require_preview_renders() -> PreviewRenderService:
-        if preview_renders is None:
-            raise ProjectError(
-                "preview_unavailable",
-                "Clipen 初剪輸出尚未準備完成。",
-                status_code=503,
-            )
-        return preview_renders
 
     def require_edit_agents() -> EditAgentCoordinator:
         if edit_agents is None:
@@ -690,40 +638,6 @@ def create_app(
         except ProjectError as error:
             return await project_error_response(error)
 
-    async def timeline_validation_status(request: Request) -> Response:
-        try:
-            state = await run_in_threadpool(
-                require_timeline_validations().get_state,
-                request.path_params["project_id"],
-            )
-            return JSONResponse(state.to_public())
-        except ProjectError as error:
-            return await project_error_response(error)
-
-    async def accept_timeline_warnings(request: Request) -> Response:
-        try:
-            payload = await read_json(request)
-            require_fields(payload, {"request_id", "report_id"})
-            state = await run_in_threadpool(
-                require_timeline_validations().accept_current_warnings,
-                request.path_params["project_id"],
-                payload["request_id"],
-                payload["report_id"],
-            )
-            return JSONResponse(state.to_public())
-        except ProjectError as error:
-            return await project_error_response(error)
-
-    async def timeline_status(request: Request) -> Response:
-        try:
-            result = await run_in_threadpool(
-                require_timeline().status,
-                request.path_params["project_id"],
-            )
-            return JSONResponse(result)
-        except ProjectError as error:
-            return await project_error_response(error)
-
     async def annotation_status(request: Request) -> Response:
         try:
             try:
@@ -808,134 +722,6 @@ def create_app(
         except ProjectError as error:
             return await project_error_response(error)
 
-    def require_finishing() -> FinishingService:
-        if finishing is None:
-            raise ProjectError("finishing_unavailable", "目前無法使用完成度製作。", status_code=503)
-        return finishing
-
-    async def finishing_status(request: Request) -> Response:
-        try:
-            return JSONResponse(await run_in_threadpool(require_finishing().status, request.path_params["project_id"]))
-        except ProjectError as error:
-            return await project_error_response(error)
-
-    async def finishing_command(request: Request) -> Response:
-        try:
-            payload = await read_json(request)
-            service = require_finishing()
-            project_id = request.path_params["project_id"]
-            command = request.path_params["command"]
-            if command != "produce":
-                raise ProjectError("finishing_workflow_changed", "請使用新版「AI 自動製作樣片」。", status_code=409)
-            require_fields(payload, {"request_id", "consent", "direction_confirmed", "context_hash"}, {"feedback"})
-            result = await run_in_threadpool(
-                service.start, project_id, payload["request_id"], command,
-                consent=payload["consent"], direction_confirmed=payload["direction_confirmed"],
-                context_hash=payload["context_hash"], feedback=payload.get("feedback", ""),
-            )
-            return JSONResponse(result, status_code=202)
-        except ProjectError as error:
-            return await project_error_response(error)
-
-    async def cancel_finishing(request: Request) -> Response:
-        try:
-            require_fields(await read_json(request), set())
-            return JSONResponse(await run_in_threadpool(require_finishing().cancel, request.path_params["project_id"], request.path_params["run_id"]))
-        except ProjectError as error:
-            return await project_error_response(error)
-
-    async def resume_finishing(request: Request) -> Response:
-        try:
-            require_fields(await read_json(request), set())
-            return JSONResponse(await run_in_threadpool(require_finishing().resume, request.path_params["project_id"], request.path_params["run_id"]), status_code=202)
-        except ProjectError as error:
-            return await project_error_response(error)
-
-    async def finishing_media(request: Request) -> Response:
-        try:
-            path = await run_in_threadpool(require_finishing().media_path, request.path_params["project_id"], request.path_params["run_id"])
-            return FileResponse(path, media_type="video/mp4", headers={"Cache-Control":"private, no-store"})
-        except ProjectError as error:
-            return await project_error_response(error)
-
-    async def preview_render_status(request: Request) -> Response:
-        try:
-            result = await run_in_threadpool(
-                require_preview_renders().status,
-                request.path_params["project_id"],
-            )
-            return JSONResponse(result)
-        except ProjectError as error:
-            return await project_error_response(error)
-
-    async def start_preview_render(request: Request) -> Response:
-        try:
-            payload = await read_json(request)
-            require_fields(payload, {"request_id", "timeline_id"})
-            result = await run_in_threadpool(
-                require_preview_renders().start,
-                request.path_params["project_id"],
-                payload["request_id"],
-                payload["timeline_id"],
-            )
-            return JSONResponse(result, status_code=202)
-        except ProjectError as error:
-            return await project_error_response(error)
-
-    async def cancel_preview_render(request: Request) -> Response:
-        try:
-            payload = await read_json(request)
-            require_fields(payload, set())
-            result = await run_in_threadpool(
-                require_preview_renders().cancel,
-                request.path_params["project_id"],
-                request.path_params["render_id"],
-            )
-            return JSONResponse(result)
-        except ProjectError as error:
-            return await project_error_response(error)
-
-    async def preview_render_media(request: Request) -> Response:
-        try:
-            path = await run_in_threadpool(
-                require_preview_renders().media_path,
-                request.path_params["project_id"],
-                request.path_params["render_id"],
-            )
-            return FileResponse(
-                path,
-                media_type="video/mp4",
-                headers={"Cache-Control": "private, no-store"},
-            )
-        except ProjectError as error:
-            return await project_error_response(error)
-
-    async def build_timeline(request: Request) -> Response:
-        try:
-            payload = await read_json(request)
-            require_fields(
-                payload,
-                {
-                    "request_id",
-                    "plan_id",
-                    "plan_revision",
-                    "output_preset",
-                    "frame_rate",
-                },
-            )
-            result = await run_in_threadpool(
-                require_timeline().build,
-                request.path_params["project_id"],
-                payload["request_id"],
-                payload["plan_id"],
-                payload["plan_revision"],
-                payload["output_preset"],
-                payload["frame_rate"],
-            )
-            return JSONResponse(result, status_code=201)
-        except ProjectError as error:
-            return await project_error_response(error)
-
     async def edit_agent_status(request: Request) -> Response:
         try:
             result = await run_in_threadpool(
@@ -950,41 +736,6 @@ def create_app(
         try:
             path=await run_in_threadpool(require_edit_agents().export_path,request.path_params['project_id'],request.path_params['run_id'],request.path_params['revision_id'])
             return FileResponse(path,media_type='application/json',filename=path.name)
-        except ProjectError as error:
-            return await project_error_response(error)
-
-    async def accept_program_reference(request: Request) -> Response:
-        try:
-            payload=await read_json(request)
-            require_fields(payload,{'run_id','revision_id'})
-            reference=await run_in_threadpool(require_edit_agents().accept_program_reference,
-                request.path_params['project_id'],payload['run_id'],payload['revision_id'])
-            return JSONResponse({'program_reference':reference})
-        except ProjectError as error:
-            return await project_error_response(error)
-
-    async def start_edit_agent(request: Request) -> Response:
-        try:
-            payload = await read_json(request)
-            require_fields(
-                payload,
-                {"request_id", "consent"},
-                {"max_tool_calls", "max_preview_renders", "creative_direction"},
-            )
-            run = await run_in_threadpool(
-                require_edit_agents().start,
-                request.path_params["project_id"],
-                payload["request_id"],
-                payload["consent"],
-                max_tool_calls=payload.get("max_tool_calls", 96),
-                max_preview_renders=payload.get("max_preview_renders", 4),
-                creative_direction=payload.get("creative_direction"),
-            )
-            return JSONResponse({"run": run.to_public()}, status_code=202)
-        except (TypeError, ValueError) as error:
-            return await project_error_response(
-                ProjectError("command_invalid", str(error), status_code=422)
-            )
         except ProjectError as error:
             return await project_error_response(error)
 
@@ -1201,98 +952,6 @@ def create_app(
                 request.path_params["run_id"],
             )
             return JSONResponse({"run": run.to_public()})
-        except ProjectError as error:
-            return await project_error_response(error)
-
-    async def planning_status(request: Request) -> Response:
-        try:
-            result = await run_in_threadpool(
-                require_planning().status,
-                request.path_params["project_id"],
-            )
-            return JSONResponse(result)
-        except ProjectError as error:
-            return await project_error_response(error)
-
-    async def start_planning(request: Request) -> Response:
-        try:
-            payload = await read_json(request)
-            require_fields(
-                payload,
-                {
-                    "request_id",
-                    "expected_revision",
-                    "editing_skill_id",
-                    "consent",
-                    "expected_context_hash",
-                },
-            )
-            run = await run_in_threadpool(
-                require_planning().start,
-                request.path_params["project_id"],
-                payload["request_id"],
-                payload["expected_revision"],
-                payload["editing_skill_id"],
-                payload["consent"],
-                payload["expected_context_hash"],
-            )
-            return JSONResponse({"run": run.to_public()}, status_code=202)
-        except ProjectError as error:
-            return await project_error_response(error)
-
-    async def cancel_planning(request: Request) -> Response:
-        try:
-            payload = await read_json(request)
-            require_fields(payload, set())
-            run = await run_in_threadpool(
-                require_planning().cancel,
-                request.path_params["project_id"],
-                request.path_params["run_id"],
-            )
-            return JSONResponse({"run": run.to_public()})
-        except ProjectError as error:
-            return await project_error_response(error)
-
-    async def update_plan(request: Request) -> Response:
-        try:
-            payload = await read_json(request)
-            require_fields(
-                payload,
-                {"request_id", "plan_id", "expected_revision", "plan"},
-            )
-            if not isinstance(payload["plan"], dict):
-                raise ProjectError(
-                    "plan_content_invalid",
-                    "剪輯計畫內容格式無效。",
-                    status_code=422,
-                )
-            result = await run_in_threadpool(
-                require_planning().update_plan,
-                request.path_params["project_id"],
-                payload["request_id"],
-                payload["plan_id"],
-                payload["expected_revision"],
-                payload["plan"],
-            )
-            return JSONResponse(result)
-        except ProjectError as error:
-            return await project_error_response(error)
-
-    async def confirm_plan(request: Request) -> Response:
-        try:
-            payload = await read_json(request)
-            require_fields(
-                payload,
-                {"request_id", "plan_id", "expected_revision"},
-            )
-            result = await run_in_threadpool(
-                require_planning().confirm_plan,
-                request.path_params["project_id"],
-                payload["request_id"],
-                payload["plan_id"],
-                payload["expected_revision"],
-            )
-            return JSONResponse(result)
         except ProjectError as error:
             return await project_error_response(error)
 
@@ -1610,19 +1269,9 @@ def create_app(
         except ProjectError as error:
             return await project_error_response(error)
 
-    async def system_skills(_: Request) -> Response:
-        return JSONResponse(
-            {"skills": [summary.as_public_dict() for summary in config.system_skills]}
-        )
-
     app = Starlette(
         debug=False,
         routes=[
-            Route("/api/projects/{project_id}/finishing", finishing_status, methods=["GET"]),
-            Route("/api/projects/{project_id}/finishing/commands/{command}", finishing_command, methods=["POST"]),
-            Route("/api/projects/{project_id}/finishing/{run_id}/commands/cancel", cancel_finishing, methods=["POST"]),
-            Route("/api/projects/{project_id}/finishing/{run_id}/commands/resume", resume_finishing, methods=["POST"]),
-            Route("/api/projects/{project_id}/finishing/{run_id}/media", finishing_media, methods=["GET", "HEAD"]),
             Route("/api/health", health, methods=["GET"]),
             Route("/api/projects/{project_id}/edit-agent/{run_id}/exports/{revision_id}", edit_agent_export, methods=["GET"]),
             Route('/api/projects/{project_id}/production/commands/resume/{run_id}', resume_production, methods=['POST']),
@@ -1650,7 +1299,6 @@ def create_app(
                 remove_asr,
                 methods=["POST"],
             ),
-            Route("/api/system-skills", system_skills, methods=["GET"]),
             Route("/api/projects", list_projects, methods=["GET"]),
             Route("/api/projects/{project_id}", get_project, methods=["GET"]),
             Route("/api/commands/create-project", create_project, methods=["POST"]),
@@ -1680,31 +1328,6 @@ def create_app(
                 methods=["POST"],
             ),
             Route(
-                "/api/projects/{project_id}/timeline",
-                timeline_status,
-                methods=["GET"],
-            ),
-            Route(
-                "/api/projects/{project_id}/preview",
-                preview_render_status,
-                methods=["GET"],
-            ),
-            Route(
-                "/api/projects/{project_id}/preview/commands/start",
-                start_preview_render,
-                methods=["POST"],
-            ),
-            Route(
-                "/api/projects/{project_id}/preview/{render_id}/commands/cancel",
-                cancel_preview_render,
-                methods=["POST"],
-            ),
-            Route(
-                "/api/projects/{project_id}/preview/{render_id}/media",
-                preview_render_media,
-                methods=["GET", "HEAD"],
-            ),
-            Route(
                 "/api/projects/{project_id}/annotations/{version_id}/{stream_index}",
                 annotation_status,
                 methods=["GET"],
@@ -1720,63 +1343,13 @@ def create_app(
                 methods=["GET", "HEAD"],
             ),
             Route(
-                "/api/projects/{project_id}/timeline/commands/build",
-                build_timeline,
-                methods=["POST"],
-            ),
-            Route(
                 "/api/projects/{project_id}/edit-agent",
                 edit_agent_status,
                 methods=["GET"],
             ),
             Route(
-                "/api/projects/{project_id}/edit-agent/commands/start",
-                start_edit_agent,
-                methods=["POST"],
-            ),
-            Route(
-                "/api/projects/{project_id}/edit-agent/commands/accept-reference",
-                accept_program_reference,
-                methods=["POST"],
-            ),
-            Route(
                 "/api/projects/{project_id}/edit-agent/{run_id}/commands/cancel",
                 cancel_edit_agent,
-                methods=["POST"],
-            ),
-            Route(
-                "/api/projects/{project_id}/timeline-validation",
-                timeline_validation_status,
-                methods=["GET"],
-            ),
-            Route(
-                "/api/projects/{project_id}/timeline-validation/commands/accept-warnings",
-                accept_timeline_warnings,
-                methods=["POST"],
-            ),
-            Route(
-                "/api/projects/{project_id}/planning",
-                planning_status,
-                methods=["GET"],
-            ),
-            Route(
-                "/api/projects/{project_id}/planning/commands/start",
-                start_planning,
-                methods=["POST"],
-            ),
-            Route(
-                "/api/projects/{project_id}/planning/{run_id}/commands/cancel",
-                cancel_planning,
-                methods=["POST"],
-            ),
-            Route(
-                "/api/projects/{project_id}/plan/commands/update",
-                update_plan,
-                methods=["POST"],
-            ),
-            Route(
-                "/api/projects/{project_id}/plan/commands/confirm",
-                confirm_plan,
                 methods=["POST"],
             ),
             Route(

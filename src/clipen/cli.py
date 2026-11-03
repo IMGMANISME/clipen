@@ -73,10 +73,6 @@ def main(arguments: Sequence[str] | None = None) -> int:
                 projects_root=workspace.projects_root,
                 instance_root=data_root / "workspace-instances" / workspace.workspace_id,
                 asr_requirements=repo_root / "requirements" / "asr-runtime.txt",
-                plan_schema=repo_root
-                / "schemas"
-                / "v2"
-                / "plan-proposal.schema.json",
             ),
             provider,
             LocalSessionAuthority(),

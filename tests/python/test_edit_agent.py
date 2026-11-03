@@ -1,4 +1,3 @@
-import asyncio
 import json
 from pathlib import Path
 from unittest.mock import patch
@@ -19,13 +18,6 @@ from clipen.domain import (
     Track,
     TrackKind,
 )
-from clipen.controller import (
-    ControllerConfig,
-    LocalSessionAuthority,
-    ProviderState,
-    ProviderStatus,
-    create_app,
-)
 from clipen.editing import (
     EditAgentRepository,
     EditAgentCoordinator,
@@ -40,7 +32,6 @@ from clipen.planning import (
 )
 from clipen.projects import ProjectError, ProjectRepository
 from clipen.providers import ProviderCancelled
-from test_project_api import request_app
 
 
 class StaticPlanningInput:
@@ -418,80 +409,6 @@ class EditAgentTests(unittest.TestCase):
         self.assertEqual(latest["run_id"], run.run_id)
         self.assertEqual(latest["usage"]["input_tokens"], 100)
         self.assertIsNotNone(latest["final_revision_id"])
-
-    def test_authenticated_controller_starts_and_reads_edit_agent(self):
-        static = Path(self.temporary.name) / "dist"
-        static.mkdir()
-        (static / "index.html").write_text("Clipen", encoding="utf-8")
-        coordinator = EditAgentCoordinator(
-            self.repository,
-            Path(self.temporary.name),
-            adapter_factory=SuccessfulAgent,
-        )
-        authority = LocalSessionAuthority()
-        app = create_app(
-            ControllerConfig(static),
-            ProviderStatus("Codex", ProviderState.READY, "AI 已連接"),
-            authority,
-            edit_agents=coordinator,
-        )
-
-        def request(method, path, payload=None, headers=None):
-            body = b"" if payload is None else json.dumps(payload).encode("utf-8")
-            return asyncio.run(request_app(app, method, path, headers=headers, body=body))
-
-        try:
-            _, connected_headers, _ = request(
-                "POST",
-                "/api/session/connect",
-                headers={
-                    "origin": "http://localhost:4200",
-                    "sec-fetch-site": "same-origin",
-                },
-            )
-            cookie = connected_headers["set-cookie"].split(";", 1)[0]
-            _, _, status_body = request("GET", "/api/status", headers={"cookie": cookie})
-            csrf = json.loads(status_body)["session"]["csrf_token"]
-            base = f"/api/projects/{self.project.project_id}/edit-agent"
-            mutation_headers = {
-                "origin": "http://localhost:4200",
-                "sec-fetch-site": "same-origin",
-                "content-type": "application/json",
-                "cookie": cookie,
-                "x-clipen-csrf": csrf,
-            }
-
-            denied = request(
-                "POST",
-                base + "/commands/start",
-                {"request_id": "request-api-agent-denied", "consent": False},
-                mutation_headers,
-            )
-            self.assertEqual(denied[0], 422)
-            started = request(
-                "POST",
-                base + "/commands/start",
-                {"request_id": "request-api-agent-start", "consent": True},
-                mutation_headers,
-            )
-            self.assertEqual(started[0], 202)
-            deadline = time.monotonic() + 2
-            while time.monotonic() < deadline:
-                response = request("GET", base, headers={"cookie": cookie})
-                status = json.loads(response[2])
-                latest = status["latest_run"]
-                if latest and latest["state"] == "succeeded" and latest["usage"] is not None:
-                    break
-                time.sleep(0.01)
-            else:
-                self.fail("controller edit agent did not finish")
-        finally:
-            coordinator.close()
-
-        self.assertEqual(latest["usage"]["output_tokens"], 30)
-        self.assertEqual(latest["budget"]["max_tool_calls"], 96)
-        self.assertEqual(status["result"]["revision_id"], latest["final_revision_id"])
-        self.assertEqual(status["result"]["timeline"]["timeline_id"], self.timeline.timeline_id)
 
     def test_controller_shutdown_marks_active_agent_interrupted(self):
         coordinator = EditAgentCoordinator(

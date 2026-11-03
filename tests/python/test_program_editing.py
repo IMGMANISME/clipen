@@ -9,7 +9,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from clipen.domain import TextClip,Track,TrackKind
+from clipen.domain import Track, TrackKind
 from clipen.editing import EditAgentTools
 from clipen.editing.program_direction import PROGRAM_DIRECTION
 from clipen.editing.program_story import read_episode
@@ -201,33 +201,6 @@ class AutonomousProgrammeTests(unittest.TestCase):
                 self.assertIn('production_music_required',codes())
         finally:f.tearDown()
 
-    def test_reference_command_requires_browser_consent_and_exact_finished_revision(self):
-        import asyncio
-        from clipen.controller import ControllerConfig,LocalSessionAuthority,ProviderState,ProviderStatus,create_app
-        from clipen.editing import EditAgentCoordinator
-        from test_preview_rendering import request_app
-        f=ProgramEditingTests();f.setUp()
-        try:
-            pid=f.f.project.project_id;repo=f.f.repository
-            f.call('plan_episode',**f.episode());repo.finish(pid,f.run.run_id,'已完成測試版本')
-            revision=repo.get(pid,f.run.run_id).final_revision_id
-            static=Path(f.f.temporary.name)/'dist';static.mkdir();(static/'index.html').write_text('test')
-            coordinator=EditAgentCoordinator(repo,Path(f.f.temporary.name))
-            authority=LocalSessionAuthority();credentials=authority.connect_local_browser()
-            app=create_app(ControllerConfig(static),provider=ProviderStatus('Codex',ProviderState.READY,'ready'),authority=authority,edit_agents=coordinator)
-            url=f'/api/projects/{pid}/edit-agent/commands/accept-reference'
-            def request(payload,headers=None):return asyncio.run(request_app(app,'POST',url,headers=headers,body=json.dumps(payload).encode()))
-            payload={'run_id':f.run.run_id,'revision_id':revision}
-            self.assertEqual(request(payload)[0],401)
-            headers={'cookie':f'clipen_session={credentials.session_token}'}
-            self.assertEqual(request(payload,headers)[0],403)
-            headers.update({'origin':'http://localhost:4200','sec-fetch-site':'same-origin','x-clipen-csrf':credentials.csrf_token,'content-type':'application/json'})
-            self.assertEqual(request({**payload,'revision_id':'editrev_'+'a'*32},headers)[0],409)
-            self.assertEqual(request(payload,headers)[0],200)
-            self.assertEqual(request(payload,headers)[0],200)
-            with f.f.projects.connect(pid) as db:self.assertEqual(db.execute("SELECT COUNT(*) FROM edit_agent_events WHERE event_type='user_program_reference'").fetchone()[0],1)
-            coordinator.close()
-        finally:f.tearDown()
     def test_reference_is_user_only_and_frozen_per_new_run(self):
         from clipen.editing.program_reference import accept_reference,reference_for
         f=ProgramEditingTests();f.setUp()
