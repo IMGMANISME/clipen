@@ -722,6 +722,19 @@ def create_app(
         except ProjectError as error:
             return await project_error_response(error)
 
+    async def preview_render_media(request: Request) -> Response:
+        # Finished films are rendered by AI production and played or downloaded from here.
+        try:
+            from clipen.rendering import PreviewRenderRepository
+            path = await run_in_threadpool(
+                PreviewRenderRepository(require_workspace().repository).media_path,
+                request.path_params["project_id"],
+                request.path_params["render_id"],
+            )
+            return FileResponse(path, media_type="video/mp4", headers={"Cache-Control": "private, no-store"})
+        except ProjectError as error:
+            return await project_error_response(error)
+
     async def edit_agent_status(request: Request) -> Response:
         try:
             result = await run_in_threadpool(
@@ -1326,6 +1339,11 @@ def create_app(
                 "/api/projects/{project_id}/commands/delete",
                 delete_project,
                 methods=["POST"],
+            ),
+            Route(
+                "/api/projects/{project_id}/preview/{render_id}/media",
+                preview_render_media,
+                methods=["GET", "HEAD"],
             ),
             Route(
                 "/api/projects/{project_id}/annotations/{version_id}/{stream_index}",

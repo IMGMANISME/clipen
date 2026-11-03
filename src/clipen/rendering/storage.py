@@ -93,6 +93,16 @@ class PreviewRenderRepository:
             raise ProjectError("preview_not_found", "找不到這次初剪輸出。", status_code=404)
         return self._public(row)
 
+    def media_path(self, project_id: str, render_id: str) -> Path:
+        """The finished film of a render, checked against what was recorded when it succeeded."""
+        render = self.get(project_id, render_id)
+        if render["state"] != "succeeded":
+            raise ProjectError("preview_not_ready", "影片尚未輸出完成。", status_code=409)
+        path = self.output_path(project_id, render_id, prepare=False)
+        if path.is_symlink() or not path.is_file() or path.stat().st_size != render["size_bytes"]:
+            raise ProjectError("preview_missing", "找不到已輸出的影片。", status_code=409)
+        return path
+
     def finish_unsuccessful(
         self,
         project_id: str,
