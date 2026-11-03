@@ -1,10 +1,18 @@
-"""A component splits into its rows of type and a picture of everything else, for editors that set type themselves."""
+"""Components reach DaVinci Resolve as Fusion titles whose words stay editable and whose look stays Clipen's."""
+import json
+import re
+import struct
+import tempfile
 import unittest
+import zipfile
+import zlib
+from pathlib import Path
 from types import SimpleNamespace
 
 from PIL import Image, ImageChops, ImageDraw
 
 from clipen.domain import TextClip
+from clipen.editing import resolve_titles
 from clipen.rendering import program_creator
 from clipen.rendering.titles import TitleCardRenderer
 
@@ -21,6 +29,20 @@ def creator(component_id, looks, x=.06, y=.1):
 
 
 TIMELINE = SimpleNamespace(width=1280, height=720)
+
+
+def unpack(blob: str) -> tuple[str, str]:
+    """A CompositionBA back to (composition header, tool list)."""
+    data = bytes.fromhex(blob)
+    variant = zlib.decompress(data[4:])
+    self_length = struct.unpack('>I', data[:4])[0]
+    assert self_length == len(variant)
+    raw = variant[variant.index('0_data'.encode('utf-16-be')) + 12 + 9:]
+    header, rest = raw.split(b'\x00', 1)
+    length = struct.unpack('<I', rest[:4])[0]
+    tools = zlib.decompress(rest[4:])
+    assert len(tools) == length
+    return header.decode(), tools.decode()
 
 
 class EditableComponentTests(unittest.TestCase):
@@ -57,6 +79,66 @@ class EditableComponentTests(unittest.TestCase):
     def test_tilted_components_stay_pictures(self):
         item = TextClip('component', 0, 90, '好吃', 'style')
         self.assertIsNone(program_creator.editable(self.font_path, TIMELINE, item, creator('reaction', {'sticker': 'stamp'}, .4, .3)))
+
+
+class FusionTitleTests(unittest.TestCase):
+    rows = [{'text': '京成｜"Skyliner"', 'family': 'PingFang TC', 'style': 'Regular', 'size': 26, 'track': .24,
+             'fill': [255, 255, 255, 255], 'x': 109, 'baseline': 100, 'shadow': {'colour': [16, 16, 18, 230], 'offset': 1, 'blur': 3}}]
+
+    def test_clip_fields_match_what_resolve_writes(self):
+        # A Text+ title Resolve 21 exported at frame 545.
+        self.assertEqual(resolve_titles._fields(545), '000000020000002b800a160a122205546578742b4a05546578742ba801a104200112100000000000000006ffffffffffffffff')
+
+    def test_composition_publishes_each_row_over_the_picture(self):
+        header, tools = unpack(resolve_titles.composition(resolve_titles.tools(self.rows, Path('/a/底圖.png'), 1280, 720, 90), 1280, 720, 90))
+        self.assertIn('TEMPLATE_ID = "Text+"', header)
+        self.assertIn('RenderRange = { 0, 89 }', header)
+        self.assertTrue(tools.startswith('{ Template = GroupOperator'))
+        self.assertIn('Row1Text = InstanceInput { SourceOp = "Row1", Source = "StyledText", Name = "文字", }', tools)
+        self.assertIn('StyledText = Input { Value = "京成｜\\"Skyliner\\"", }', tools)
+        self.assertIn('Filename = "/a/底圖.png"', tools)
+        self.assertIn(f'Size = Input {{ Value = {26 * 1.76 / 1280:.6g}, }}', tools)
+        self.assertIn(f'CharacterSpacing = Input {{ Value = {1 + .24 / 1.76:.6g}, }}', tools)
+        self.assertIn(f'Center = Input {{ Value = {{ {109 / 1280:.6g}, {1 - 100 / 720:.6g} }}, }}', tools)
+        self.assertIn('Input = Input { SourceOp = "Merge1", Source = "Output", }', tools)
+
+    def test_convert_swaps_component_pngs_for_titles(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            components = root / 'Q & A' / '元件'
+            components.mkdir(parents=True)
+            (components / resolve_titles.MANIFEST).write_text(json.dumps({'002 京成.png': {
+                'rows': self.rows, 'picture': '002 京成（底圖）.png', 'width': 1280, 'height': 720}}, ensure_ascii=False), encoding='utf-8')
+
+            def clip(path, start):
+                escaped = str(path).replace('&', '&amp;')
+                return (f'<Sm2TiVideoClip DbId="x{start}">\n <Name>{path.name}</Name>\n <Start>{start}</Start>\n <Duration>75</Duration>\n'
+                        f' <MediaFilePath>{escaped}</MediaFilePath>\n <MediaFrameRate>0000000000003e400000000000000000</MediaFrameRate>\n</Sm2TiVideoClip>')
+            sequence = ('<Sm2SequenceContainer>\n <Items>\n  <Element>\n   ' + clip(components / '002 京成.png', 120) + '\n  </Element>\n  <Element>\n   '
+                        + clip(root / 'shot.mp4', 0) + '\n  </Element>\n </Items>\n</Sm2SequenceContainer>')
+            source = root / 'film.drt'
+            with zipfile.ZipFile(source, 'w') as archive:
+                archive.writestr('project.xml', '<SM_Project/>')
+                archive.writestr('SeqContainer/a.xml', sequence)
+            self.assertTrue(resolve_titles.uses(source, components))
+            self.assertFalse(resolve_titles.uses(source, root / 'other'))
+            target = root / 'out.drt'
+            self.assertEqual(resolve_titles.convert(source, target), 1)
+            with zipfile.ZipFile(target) as archive:
+                self.assertEqual(archive.read('project.xml'), b'<SM_Project/>')
+                out = archive.read('SeqContainer/a.xml').decode()
+            title = re.search(r'<Sm2TiVideoClip DbId="[0-9a-f-]{36}">.*?</Sm2TiVideoClip>', out, re.S).group(0)
+            self.assertIn('<PrettyType>Fusion Title</PrettyType>', title)
+            self.assertIn('<Start>120</Start>', title)
+            self.assertIn('<Duration>75</Duration>', title)
+            self.assertIn(resolve_titles._fields(120), title)
+            _, tools = unpack(re.search(r'<CompositionBA>([0-9a-f]+)<', title).group(1))
+            self.assertIn(f'Filename = "{components / "002 京成（底圖）.png"}"', tools)
+            self.assertIn('GlobalOut = Input { Value = 74, }', tools)
+            # Footage and anything Clipen did not make pass through untouched.
+            self.assertIn('<Name>shot.mp4</Name>', out)
+            self.assertNotIn('002 京成.png</MediaFilePath>', out)
+
 
 if __name__ == '__main__':
     unittest.main()
