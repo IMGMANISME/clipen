@@ -75,8 +75,7 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
     catch { setError('無法複製到剪貼簿，請直接選取文字複製。') }
   }
   return <section className="production-workbench" aria-labelledby={headingId}>
-    <div className="workbench-heading"><div><span className="studio-section-number">02 / REVIEW</span><h3 id={headingId}>邊看邊記，交給 AI 修改。</h3>
-      <p>看片時把要改、要拿掉、覺得可以的地方記下來，最後連同整體方向一起交給 AI。</p></div></div>
+    <h3 id={headingId} className="sr-only">審片並交給 AI 修改</h3>
     <div className="workbench-content">
     {active && <p role="status">AI 正在修改這支影片，完成或停止後即可繼續記注記。</p>}
     {error && <p className="inline-message error" role="alert">{error}</p>}
