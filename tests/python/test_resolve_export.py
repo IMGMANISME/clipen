@@ -3,6 +3,7 @@ from dataclasses import replace
 from fractions import Fraction
 import subprocess
 import json
+import os
 import tempfile
 import unittest
 import zipfile
@@ -171,6 +172,28 @@ class ResolveExportTests(unittest.TestCase):
             target,titles=convert_timeline(package)
         self.assertEqual((target.parent,target.name,titles),(package,'film（可改字）.drt',1))
         with zipfile.ZipFile(target) as archive:self.assertIn('<PrettyType>Fusion Title</PrettyType>',archive.read('SeqContainer/s.xml').decode())
+
+    def test_saving_the_drt_in_resolve_is_enough(self):
+        import threading
+        from clipen.editing.resolve_export import watch_timeline
+        from clipen.editing.resolve_titles import MANIFEST
+        package=self.destination/'film DaVinci Resolve';components=package/'元件';components.mkdir(parents=True)
+        row={'text':'京成','family':'PingFang TC','style':'Regular','size':26,'track':0,'fill':[255,255,255,255],'x':10,'baseline':40,'shadow':None}
+        (components/MANIFEST).write_text(json.dumps({'001 京成.png':{'rows':[row],'picture':None,'width':640,'height':360}}),encoding='utf-8')
+        resolve_folder=self.destination/'Movies';resolve_folder.mkdir()
+        # A .drt from an earlier export of this package is not mistaken for the new save.
+        old=resolve_folder/'old.drt'
+        with zipfile.ZipFile(old,'w') as archive:archive.writestr('SeqContainer/s.xml',f'<MediaFilePath>{components}/001 京成.png</MediaFilePath>')
+        os.utime(old,(1,1))
+        found=[]
+        with patch('clipen.editing.resolve_export.RESOLVE_DEFAULT_FOLDER',resolve_folder),patch('clipen.editing.resolve_export.reveal') as reveal:
+            watcher=threading.Thread(target=lambda:found.append(watch_timeline(package,100,timeout=10,interval=.05)))
+            watcher.start()
+            with zipfile.ZipFile(resolve_folder/'film.drt','w') as archive:
+                archive.writestr('SeqContainer/s.xml',f'<Sm2TiVideoClip DbId="a"><Start>3</Start><Duration>30</Duration><MediaFilePath>{components}/001 京成.png</MediaFilePath></Sm2TiVideoClip>')
+            watcher.join(10)
+        self.assertEqual(found,[package/'film（可改字）.drt'])
+        reveal.assert_called_once_with(package/'film（可改字）.drt')
 
     def test_api_converts_only_this_projects_exports(self):
         import asyncio, json as encoding
