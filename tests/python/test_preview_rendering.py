@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 from pathlib import Path
@@ -581,6 +582,32 @@ class FfmpegPreviewRendererTests(unittest.TestCase):
         ).stdout)
         self.assertEqual({stream["codec_type"] for stream in probe["streams"]}, {"video", "audio"})
         self.assertAlmostEqual(float(probe["format"]["duration"]), 2, delta=0.15)
+
+
+class FinishedFilmApiTests(unittest.TestCase):
+    def test_finished_film_is_private_and_range_capable(self) -> None:
+        from clipen.controller import ControllerConfig, LocalSessionAuthority, ProviderState, ProviderStatus, create_app
+        from clipen.projects import ProjectWorkspace
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "index.html").write_text("Clipen", encoding="utf-8")
+            media = root / "film.mp4"
+            media.write_bytes(b"0123456789")
+            app = create_app(ControllerConfig(root), ProviderStatus("Codex", ProviderState.READY, "AI 已連接"),
+                             LocalSessionAuthority(), ProjectWorkspace(root / "projects"))
+
+            def request(method, path, headers=None):
+                return asyncio.run(request_app(app, method, path, headers=headers))
+            _, headers, _ = request("POST", "/api/session/connect", {"origin": "http://localhost:4200", "sec-fetch-site": "same-origin"})
+            cookie = headers["set-cookie"].split(";", 1)[0]
+            path = f"/api/projects/{'prj_' + '1' * 32}/preview/{'render_' + '2' * 32}/media"
+            self.assertEqual(request("GET", path)[0], 401)
+            with patch("clipen.rendering.PreviewRenderRepository.media_path", return_value=media) as media_path:
+                response = request("GET", path, {"cookie": cookie, "range": "bytes=2-5"})
+            self.assertEqual(media_path.call_args.args, ("prj_" + "1" * 32, "render_" + "2" * 32))
+            self.assertEqual(response[0], 206)
+            self.assertEqual(response[2], b"2345")
+            self.assertIn("no-store", response[1]["cache-control"])
 
 
 if __name__ == "__main__":
