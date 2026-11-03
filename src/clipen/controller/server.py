@@ -33,26 +33,13 @@ from clipen.analysis import (
     PreparationRepository,
 )
 from clipen.media import InventoryCoordinator, InventoryRepository, MediaPreviewRepository
-from clipen.domain import CapabilityProfile
-from clipen.editing import (
-    EditAgentCoordinator,
-    EditAgentRepository,
-    TimelineRepository,
-    TimelineService,
-)
-from clipen.planning import PlanningRepository, PlanningService
-from clipen.rendering import (
-    FfmpegPreviewRenderer,
-    PreviewRenderRepository,
-    PreviewRenderService,
-)
+from clipen.editing import EditAgentCoordinator, EditAgentRepository
 from clipen.providers import CodexExecAdapter, ProviderUnavailable
 from clipen.providers.claude import ClaudeCliAdapter
 from clipen.provider_registry import exec_adapter_factory
 from clipen.analysis.evidence_service import EvidenceService
-from clipen.finishing import FinishingService
 from clipen.annotations import AnnotationRepository
-from clipen.projects import ProjectWorkspace, TimelineValidationRepository
+from clipen.projects import ProjectWorkspace
 from clipen.system_skills import VerifiedSystemSkillRelease
 
 from .app import (
@@ -149,7 +136,6 @@ class ServerPaths:
     projects_root: Path | None = None
     instance_root: Path | None = None
     asr_requirements: Path | None = None
-    plan_schema: Path | None = None
 
     def prepare(self) -> None:
         if not self.static_root.resolve(strict=True).is_dir():
@@ -174,11 +160,6 @@ class ServerPaths:
             strict=True
         ).is_file():
             raise ValueError("ASR runtime requirements are missing")
-        if self.plan_schema is not None and (
-            self.plan_schema.is_symlink()
-            or not self.plan_schema.resolve(strict=True).is_file()
-        ):
-            raise ValueError("planning proposal schema is missing")
 
 
 def provider_account(provider_id: str, attempt_root: Path, ttl: float = 60.) -> Callable[[], dict]:
@@ -381,14 +362,9 @@ async def _serve(
     preparation_repository = None
     analysis_runtime = None
     evidence_service = None
-    planning_service = None
-    timeline_service = None
-    timeline_validations = None
     annotations = None
     media_previews = None
-    preview_renders = None
     edit_agents = None
-    finishing = None
     try:
         lease.publish(port)
         workspace = (
@@ -399,31 +375,9 @@ async def _serve(
         if workspace is not None:
             annotations = AnnotationRepository(workspace.repository)
             media_previews = MediaPreviewRepository(workspace.repository)
-            planning_repository = PlanningRepository(workspace.repository)
-            timeline_validations = TimelineValidationRepository(workspace.repository)
-            timeline_repository = TimelineRepository(workspace.repository)
-            timeline_service = TimelineService(
-                timeline_repository,
-                planning_repository,
-                timeline_validations,
-                CapabilityProfile("clipen-export-unverified", 1),
-            )
             edit_agent_repository = EditAgentRepository(workspace.repository)
             # Every schema-bound AI step uses the provider Clipen was started with.
             exec_adapter = exec_adapter_factory(provider.provider_id)
-            finishing = FinishingService(workspace.repository, edit_agent_repository, media_previews, paths.attempt_root,
-                                         adapter_factory=exec_adapter)
-            finishing.recover()
-            preview_renders = PreviewRenderService(
-                PreviewRenderRepository(workspace.repository),
-                timeline_repository,
-                FfmpegPreviewRenderer(media_previews),
-                timeline_service,
-                edit_agent_repository,
-            )
-            preview_renders.recover(
-                project.project_id for project in workspace.repository.list_projects()
-            )
             if provider.state is ProviderState.READY:
                 edit_agents = EditAgentCoordinator(
                     edit_agent_repository,
@@ -443,15 +397,6 @@ async def _serve(
             evidence_service = EvidenceService(workspace.repository, paths.attempt_root if provider.state is ProviderState.READY else None,
                                                adapter_factory=exec_adapter)
             evidence_service.recover()
-            if paths.plan_schema is not None:
-                planning_service = PlanningService(
-                    planning_repository,
-                    paths.attempt_root,
-                    paths.plan_schema,
-                    system_skills,
-                    adapter_factory=exec_adapter,
-                )
-                planning_service.recover()
             preparation_repository = PreparationRepository(workspace.repository)
             for project in workspace.repository.list_projects():
                 preparation_repository.interrupt_incomplete(project.project_id)
@@ -467,7 +412,6 @@ async def _serve(
         app = create_app(
             ControllerConfig(
                 paths.static_root,
-                system_skills.summaries,
                 origin=public_url,
                 allowed_hosts=(f"localhost:{port}", f"127.0.0.1:{port}"),
                 instance_secret=lease.secret,
@@ -479,14 +423,9 @@ async def _serve(
             preparation_repository=preparation_repository,
             analysis_runtime=analysis_runtime,
             evidence_service=evidence_service,
-            timeline_validations=timeline_validations,
-            planning_service=planning_service,
-            timeline_service=timeline_service,
             annotations=annotations,
             media_previews=media_previews,
-            preview_renders=preview_renders,
             edit_agents=edit_agents,
-            finishing=finishing,
             provider_account=provider_account(provider.provider_id, paths.attempt_root),
         )
         config = uvicorn.Config(
@@ -546,14 +485,8 @@ async def _serve(
             if hasattr(signal, "SIGHUP") and previous_hup is not None:
                 signal.signal(signal.SIGHUP, previous_hup)
     finally:
-        if finishing is not None:
-            finishing.close()
         if edit_agents is not None:
             edit_agents.close()
-        if preview_renders is not None:
-            preview_renders.close()
-        if planning_service is not None:
-            planning_service.close()
         if evidence_service is not None:
             evidence_service.close()
         if analysis_runtime is not None:

@@ -110,13 +110,11 @@ export function TranscriptResults({
   projectId,
   run,
   refreshToken = 0,
-  onAnnotationSaved,
 }: {
   csrf: string
   projectId: string
   run: AnalysisRun
   refreshToken?: number
-  onAnnotationSaved?: () => void
 }) {
   const [offset, setOffset] = useState(0)
   const [tripDay, setTripDay] = useState<number | null>(null)
@@ -335,7 +333,6 @@ export function TranscriptResults({
                         onSaved={(saved) => {
                           setAnnotations((current) => ({ ...current, [key]: { state: 'ready', annotation: saved } }))
                           setListRevision((current) => current + 1)
-                          onAnnotationSaved?.()
                         }}
                       />
                     )}

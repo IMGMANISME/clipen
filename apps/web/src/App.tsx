@@ -2,9 +2,7 @@ import { ProviderBadge } from './ProviderBadge'
 import { useEffect, useMemo, useState } from 'react'
 import { EvidenceSection } from './EvidenceSection'
 import { TranscriptResults } from './TranscriptResults'
-import { TimelineValidationSection } from './TimelineValidationSection'
 import { ProductionSection } from './ProductionSection'
-import { PlanningSection } from './PlanningSection'
 import type { FormEvent } from 'react'
 import {
   ApiError,
@@ -16,7 +14,6 @@ import {
   getAnalysis,
   getInventory,
   getInventoryItems,
-  getPlanning,
   getProject,
   getStatus,
   listProjects,
@@ -40,7 +37,6 @@ import type {
   AnalysisRun,
   AnalysisSummary,
   Project,
-  PlanningStatus,
   ProviderState,
   StatusPayload,
 } from './api'
@@ -54,17 +50,15 @@ type ApplicationState =
   | { kind: 'failed'; message: string; serverUnavailable: boolean }
   | { kind: 'ready'; status: StatusPayload; projects: Project[] }
 
-type WorkspaceStage = 'materials' | 'production' | 'analysis' | 'planning' | 'editing' | 'export'
+type WorkspaceStage = 'materials' | 'production' | 'analysis'
 
 const stages: Array<{ id: WorkspaceStage; label: string }> = [
   { id: 'materials', label: '素材' },
   { id: 'production', label: 'AI 節目製作' },
 ]
 
-const legacyStages: Array<{ id: WorkspaceStage; label: string }> = [
-  { id: 'analysis', label: '分析工具' },
-  { id: 'planning', label: '舊剪輯計畫' },
-  { id: 'editing', label: '舊時間軸與輸出' },
+const toolStages: Array<{ id: WorkspaceStage; label: string }> = [
+  { id: 'analysis', label: '逐字稿與片段補充' },
 ]
 
 function providerHelp(state: Exclude<ProviderState, 'ready'>, name: string): string {
@@ -525,7 +519,6 @@ function AnalysisSection({
   onCancel,
   onResume,
   onRemoveRuntime,
-  onAnnotationSaved,
 }: {
   csrf: string
   projectId: string
@@ -536,7 +529,6 @@ function AnalysisSection({
   onCancel: (run: AnalysisRun) => void
   onResume: (run: AnalysisRun) => void
   onRemoveRuntime: () => void
-  onAnnotationSaved: () => void
 }) {
   const latest = summary?.latest ?? null
   const current = summary?.current ?? null
@@ -691,7 +683,6 @@ function AnalysisSection({
             projectId={projectId}
             run={latest}
             refreshToken={processed}
-            onAnnotationSaved={onAnnotationSaved}
           />
         </div>
       )}
@@ -711,7 +702,7 @@ function AnalysisSection({
             </div>
             <span className="result-ready">分析完成</span>
           </div>
-          <TranscriptResults csrf={csrf} key={current.run_id} projectId={projectId} run={current} onAnnotationSaved={onAnnotationSaved} />
+          <TranscriptResults csrf={csrf} key={current.run_id} projectId={projectId} run={current} />
         </>
       )}
 
@@ -759,7 +750,6 @@ function MaterialsWorkspace({
   const [inventoryActionBusy, setInventoryActionBusy] = useState(false)
   const [analysis, setAnalysis] = useState<AnalysisSummary | null>(null)
   const [analysisActionBusy, setAnalysisActionBusy] = useState(false)
-  const [planning, setPlanning] = useState<PlanningStatus | null>(null)
   const [selectedStage, setSelectedStage] = useState<WorkspaceStage | null>(null)
 
   function selectStage(stage: WorkspaceStage) {
@@ -833,15 +823,6 @@ function MaterialsWorkspace({
     || analysis.current?.inventory_run_id === currentInventoryId
   ) ? analysis : null
 
-  useEffect(() => {
-    if (!currentInventoryId) return
-    let mounted = true
-    getPlanning(project.project_id)
-      .then((result) => { if (mounted) setPlanning(result) })
-      .catch((caught) => { if (mounted) setError(errorMessage(caught)) })
-    return () => { mounted = false }
-  }, [currentInventoryId, project.project_id])
-
   const recommendedStage: WorkspaceStage = !currentInventoryId
     ? 'materials'
     : 'production'
@@ -849,9 +830,7 @@ function MaterialsWorkspace({
   function stageAvailable(stage: WorkspaceStage): boolean {
     if (stage === 'materials') return true
     if (stage === 'production') return Boolean(currentInventoryId)
-    if (stage === 'analysis' || stage === 'planning') return Boolean(currentInventoryId)
-    if (stage === 'editing') return planning?.current_plan?.status === 'confirmed'
-    return false
+    return Boolean(currentInventoryId)
   }
 
   const activeStage = selectedStage && stageAvailable(selectedStage)
@@ -1118,11 +1097,7 @@ function MaterialsWorkspace({
           <ol>
             {stages.map((stage, index) => {
               const available = stageAvailable(stage.id)
-              const completed = (
-                (stage.id === 'materials' && Boolean(currentInventoryId))
-                || (stage.id === 'analysis' && Boolean(currentInventoryId && (planning?.preflight || planning?.current_plan)))
-                || (stage.id === 'planning' && Boolean(currentInventoryId && planning?.current_plan?.status === 'confirmed'))
-              )
+              const completed = stage.id === 'materials' && Boolean(currentInventoryId)
               return (
               <li
                 key={stage.id}
@@ -1133,10 +1108,6 @@ function MaterialsWorkspace({
                   <div>
                     <strong>{stage.label}</strong>
                     {stage.id === 'materials' && currentInventoryId && <small>已檢查</small>}
-                    {stage.id === 'analysis' && (planning?.preflight || planning?.current_plan) && <small>已準備</small>}
-                    {stage.id === 'planning' && planning?.current_plan?.status === 'confirmed' && <small>已確認</small>}
-                    {stage.id === 'planning' && planning?.current_plan?.status !== 'confirmed' && currentInventoryId && <small>{planning?.current_plan ? '待確認' : '尚待產生'}</small>}
-                    {stage.id === 'editing' && available && <small>建立剪輯版本</small>}
                     {!available && stage.id !== 'materials' && <small>尚未開放</small>}
                   </div>
                 </button>
@@ -1145,8 +1116,8 @@ function MaterialsWorkspace({
             })}
           </ol>
           <details className="legacy-workflow-navigation">
-            <summary>舊流程與進階工具</summary>
-            <ol>{legacyStages.map((stage) => <li key={stage.id} className={activeStage === stage.id ? 'active' : ''}>
+            <summary>進階工具</summary>
+            <ol>{toolStages.map((stage) => <li key={stage.id} className={activeStage === stage.id ? 'active' : ''}>
               <button type="button" disabled={!stageAvailable(stage.id)} onClick={() => selectStage(stage.id)}>
                 <span aria-hidden="true">↗</span><div><strong>{stage.label}</strong></div>
               </button>
@@ -1274,27 +1245,9 @@ function MaterialsWorkspace({
               onCancel={(run) => void stopAnalysis(run)}
               onResume={(run) => void continueAnalysis(run)}
               onRemoveRuntime={() => void removeLocalASR()}
-              onAnnotationSaved={() => setPlanning(null)}
             />
-            <div className="stage-next"><span>可隨時使用目前已保存的分析結果</span><button className="button primary" type="button" onClick={() => selectStage('planning')}>前往剪輯計畫</button></div>
+            <div className="stage-next"><span>逐字稿與片段補充會交給 AI 節目製作參考</span><button className="button primary" type="button" onClick={() => selectStage('production')}>回到 AI 節目製作</button></div>
           </div>}
-          {activeStage === 'planning' && currentInventoryId && (
-            <div className="stage-view">
-            <PlanningSection
-              project={project}
-              csrf={csrf}
-              projectDirty={dirty}
-              onStatus={setPlanning}
-              onConfirmed={() => selectStage('editing')}
-            />
-            {planning?.current_plan?.status === 'confirmed' && <div className="stage-next"><span>計畫已確認</span><button className="button primary" type="button" onClick={() => selectStage('editing')}>建立剪輯版本</button></div>}
-            </div>
-          )}
-          {activeStage === 'editing' && planning?.current_plan?.status === 'confirmed' && (
-            <div className="stage-view">
-            <TimelineValidationSection projectId={project.project_id} csrf={csrf} />
-            </div>
-          )}
         </section>
       </div>
     </main>

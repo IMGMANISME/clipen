@@ -1,5 +1,1 @@
-"""Local semantic finishing workflow."""
-
-from .service import FinishingService
-
-__all__ = ['FinishingService']
+"""Music, sound and media helpers for the finished programme."""
