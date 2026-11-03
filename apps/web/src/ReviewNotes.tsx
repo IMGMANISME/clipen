@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { getEditingFrame, getProductionWorkbench, updateProductionReference } from './api'
 import type { EditAgentTimeline, FilmPreview, ProductionWorkbenchState, RefinementReference, ReferenceState } from './api'
 import { readNoteDraft } from './reviewDraft'
+import { ReviewTimeline } from './ReviewTimeline'
 import { clips, clock, describeNote, kindLabel, noteKinds, parseClock, placeholders, selfExplained, targetsAt } from './reviewModel'
 import type { NoteDraft, NoteForm as Form } from './reviewDraft'
 
@@ -131,6 +132,8 @@ export function ReviewNotes({ visible, projectId, csrf, runId, data, video, disa
         <span className="review-keys"><kbd>M</kbd> 記一筆　<kbd>←</kbd><kbd>→</kbd> 一秒　<kbd>Shift</kbd>+<kbd>←</kbd><kbd>→</kbd> 一格</span>
       </div>
     </div>
+    <ReviewTimeline timeline={timeline} now={now} video={video?.media_url ?? null} onSeek={(seconds) => { seek(seconds); if (form) setForm({ ...form, at: seconds }) }}
+      notes={notes.map(({ item, at, target: label }) => ({ id: item.reference_id, at, label: `${kindLabel[item.kind]} ${label}`, kind: item.kind }))} />
     {error && <p role="alert" className="inline-message error">{error}</p>}{message && <p role="status">{message}</p>}
     {outdated && <div role="status" className="inline-message"><p>上一版有尚未記下的注記，文字已保留。請找到對應畫面，按「記一筆」重新定位。若要修改其他注記，請先記下或放棄這份草稿。</p><p>{outdated.note}</p><button type="button" className="button ghost" onClick={() => setForm(null)}>放棄這份草稿</button></div>}
     {form && <fieldset className="review-note-form" disabled={disabled || busy}>
