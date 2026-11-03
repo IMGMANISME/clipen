@@ -1,5 +1,4 @@
 """On-demand local source speech jobs, independent of the legacy preparation stage."""
-from dataclasses import replace
 from fractions import Fraction
 import json
 import hashlib
@@ -9,7 +8,7 @@ import threading
 import time
 import wave
 
-from clipen.domain import ClipSource, MediaClip, TrackKind
+from clipen.domain import TrackKind
 from clipen.projects import ProjectError
 from clipen.projects.storage import utc_now
 from .agent_models import ToolResult, encoded, make_id

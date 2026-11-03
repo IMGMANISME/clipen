@@ -7,7 +7,6 @@ from dataclasses import replace
 from datetime import datetime, timezone
 import hashlib
 import json
-import os
 from pathlib import Path
 import re
 import sqlite3

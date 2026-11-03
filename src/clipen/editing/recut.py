@@ -2,7 +2,7 @@
 from dataclasses import replace
 from fractions import Fraction
 
-from clipen.domain import EffectRequest, TextClip, TrackKind
+from clipen.domain import EffectRequest, TextClip
 
 
 def remap_cut(tools, items):

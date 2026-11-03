@@ -11,7 +11,7 @@ from clipen.domain import EditTimeline, TrackKind
 from clipen.media import MediaPreviewRepository
 from clipen.projects import ProjectError
 from .agent_models import ToolResult
-from .production_media import sample_frames, transcript_cues
+from .production_media import sample_frames
 from .production_preview import _event, inspect_preview
 
 
