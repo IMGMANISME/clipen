@@ -1370,10 +1370,14 @@ export function renderProduction(csrf: string, projectId: string, runId: string,
 export function refineProduction(csrf: string, projectId: string, runId: string, expectedRevision: string, instruction: string, musicAssetId?: string, referencesVersion?: number): Promise<unknown> {
   return command(`/api/projects/${projectId}/production/${runId}/workbench/refine`, csrf, { request_id: crypto.randomUUID(), expected_revision_id: expectedRevision, instruction, consent: true, ...(musicAssetId ? { music_asset_id: musicAssetId } : {}), ...(referencesVersion !== undefined ? { expected_references_version: referencesVersion } : {}) })
 }
-export type ResolveExport = { folder: string; fcpxml: string; shots: number; burned: number; overlays: number; captions: number; music_layers: number; notes: string[] }
+export type ResolveExport = { folder: string; fcpxml: string; shots: number; burned: number; overlays: number; editable_overlays: number; captions: number; music_layers: number; notes: string[] }
 /** Write a DaVinci Resolve package into「Clipen 匯出」inside the footage folder. */
 export function exportToResolve(csrf: string, projectId: string, runId: string): Promise<ResolveExport> {
   return command(`/api/projects/${projectId}/production/${runId}/workbench/resolve`, csrf, {})
+}
+/** Turn the .drt exported from Resolve for this package into one whose components are editable titles. */
+export function convertResolveTitles(csrf: string, projectId: string, runId: string, folder: string): Promise<{ drt: string; titles: number }> {
+  return command(`/api/projects/${projectId}/production/${runId}/workbench/resolve_titles`, csrf, { folder })
 }
 export async function exportProduction(csrf: string, projectId: string, runId: string): Promise<{ download_url: string }> {
   return command(`/api/projects/${projectId}/production/${runId}/workbench/export`, csrf, {})

@@ -2,8 +2,10 @@
 from dataclasses import replace
 from fractions import Fraction
 import subprocess
+import json
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest.mock import patch
 import xml.etree.ElementTree as ET
@@ -88,6 +90,8 @@ class ResolveExportTests(unittest.TestCase):
         self.assertEqual(len(list((package/'元件').glob('*.png'))),1)
         self.assertEqual((package/'字幕.srt').read_text(encoding='utf-8'),'1\n00:00:01,000 --> 00:00:02,500\n第一句字幕\n第二行\n')
         self.assertEqual(result['captions'],1);self.assertEqual(result['overlays'],1)
+        # This fixture's components use the classic skin, which Resolve titles cannot rebuild yet.
+        self.assertEqual(result['editable_overlays'],0);self.assertFalse((package/'元件'/'.clipen 元件.json').exists())
         # Music: Clipen's ducked mix plays; the original source waits, disabled, for a remix.
         lanes={c.get('lane'):c for c in root.iter('asset-clip') if c.get('lane')}
         self.assertEqual(lanes['-1'].get('duration'),'8s');self.assertIsNone(lanes['-1'].get('enabled'))
@@ -147,6 +151,51 @@ class ResolveExportTests(unittest.TestCase):
         footage.joinpath('Clipen 匯出').rmdir();footage.rename(self.f.root/'unplugged')
         with self.assertRaises(ProjectError) as offline:export_folder(self.repository,self.project)
         self.assertEqual(offline.exception.code,'resolve_source_offline')
+
+    def test_editable_titles_come_from_the_drt_exported_by_resolve(self):
+        from clipen.editing.resolve_export import convert_timeline
+        from clipen.editing.resolve_titles import MANIFEST
+        package=self.destination/'film DaVinci Resolve';components=package/'元件';components.mkdir(parents=True)
+        row={'text':'京成','family':'PingFang TC','style':'Regular','size':26,'track':0,'fill':[255,255,255,255],'x':10,'baseline':40,'shadow':None}
+        (components/MANIFEST).write_text(json.dumps({'001 京成.png':{'rows':[row],'picture':None,'width':640,'height':360}}),encoding='utf-8')
+        def drt(path,clip):
+            with zipfile.ZipFile(path,'w') as archive:
+                archive.writestr('SeqContainer/s.xml',f'<Sm2TiVideoClip DbId="a"><Start>3</Start><Duration>30</Duration><MediaFilePath>{clip}</MediaFilePath></Sm2TiVideoClip>')
+        resolve_folder=self.destination/'Movies';resolve_folder.mkdir()
+        with patch('clipen.editing.resolve_export.RESOLVE_DEFAULT_FOLDER',resolve_folder):
+            with self.assertRaises(ProjectError) as missing:convert_timeline(package)
+            self.assertEqual(missing.exception.code,'resolve_timeline_missing')
+            # Resolve saves to its own folder by default; a newer .drt of another film is ignored.
+            drt(resolve_folder/'film.drt',components/'001 京成.png')
+            drt(resolve_folder/'other.drt',self.destination/'elsewhere'/'元件'/'001 京成.png')
+            target,titles=convert_timeline(package)
+        self.assertEqual((target.parent,target.name,titles),(package,'film（可改字）.drt',1))
+        with zipfile.ZipFile(target) as archive:self.assertIn('<PrettyType>Fusion Title</PrettyType>',archive.read('SeqContainer/s.xml').decode())
+
+    def test_api_converts_only_this_projects_exports(self):
+        import asyncio, json as encoding
+        from clipen.controller import ControllerConfig, LocalSessionAuthority, ProviderState, ProviderStatus, create_app
+        from clipen.editing import EditAgentCoordinator
+        from test_project_api import request_app
+        static=self.f.root/'api-dist';static.mkdir();(static/'index.html').write_text('Clipen')
+        coordinator=EditAgentCoordinator(self.repository,self.f.root)
+        app=create_app(ControllerConfig(static),ProviderStatus('Codex',ProviderState.READY,'ready'),LocalSessionAuthority(),edit_agents=coordinator)
+        def request(method,path,payload=None,headers=None):
+            return asyncio.run(request_app(app,method,path,headers=headers,body=b'' if payload is None else encoding.dumps(payload).encode()))
+        try:
+            _,headers,_=request('POST','/api/session/connect',headers={'origin':'http://localhost:4200','sec-fetch-site':'same-origin'})
+            cookie=headers['set-cookie'].split(';',1)[0];_,_,body=request('GET','/api/status',headers={'cookie':cookie});csrf=encoding.loads(body)['session']['csrf_token']
+            mutation={'cookie':cookie,'origin':'http://localhost:4200','sec-fetch-site':'same-origin','content-type':'application/json','x-clipen-csrf':csrf}
+            path=f'/api/projects/{self.project}/production/{self.run}/workbench/resolve_titles'
+            package=self.f.root/'source'/'Clipen 匯出'/'film DaVinci Resolve'
+            with patch('clipen.editing.resolve_export.convert_timeline',return_value=(package/'film（可改字）.drt',3)) as convert,\
+                 patch('clipen.editing.resolve_export.reveal') as reveal:
+                code,_,body=request('POST',path,{'folder':str(self.f.root/'source')},mutation);self.assertEqual(code,422,body)
+                convert.assert_not_called()
+                code,_,body=request('POST',path,{'folder':str(package)},mutation);self.assertEqual(code,200,body)
+                self.assertEqual(encoding.loads(body),{'drt':str(package/'film（可改字）.drt'),'titles':3})
+                reveal.assert_called_once_with(package/'film（可改字）.drt')
+        finally:coordinator.close()
 
     def test_source_time_follows_the_file_timecode(self):
         self.assertEqual(timecode_seconds('00:00:01:00',Fraction(25)),1)

@@ -1841,6 +1841,8 @@ legend { color: #5a5f6b; font-size: 12px; font-weight: 600; padding-inline: 8px;
 .resolve-result { display: grid; gap: 8px; padding: 12px 14px; border-radius: 10px; background: var(--paper); font-size: 13px; }
 .resolve-result p { overflow-wrap: anywhere; }
 .resolve-result ol, .resolve-result ul { margin: 0; padding-left: 20px; display: grid; gap: 4px; line-height: 1.6; }
+.resolve-titles { display: grid; gap: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+.resolve-titles .button { justify-self: start; }
 .version-preview video { display: block; width: 100%; max-height: 60vh; background: #111; border-radius: 10px; }
 @media (max-width: 640px) {
   .review-player { padding: 8px; }
