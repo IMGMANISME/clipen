@@ -12,6 +12,7 @@ collision and safe-area checks cover every frame of the animation (pointer and
 circle targets are drawn separately at their target).
 """
 import math
+from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter
 
@@ -152,22 +153,34 @@ def _draw_text(pen, x, y, value, font, fill, stroke=0, stroke_fill=None, track=0
         x += styled_text_length(character, font) + font.size * track
 
 
-def _row_image(value, font, spec, palette):
-    """One line of type with its outline, outer ring and shadow, plus the margin used."""
+def _shadow(font, shadow, palette):
+    """A row shadow as (colour, offset, blur) in pixels, or None."""
+    if not shadow:
+        return None
+    blur = round(font.size * {'glow': .16, 'deep': .1, 'soft': .07}[shadow]) if shadow in {'soft', 'deep', 'glow'} else 0
+    offset = round(font.size * (.07 if shadow.startswith('hard') else .04 if shadow in {'soft', 'deep'} else .06))
+    colour = {'drop': _rgba(palette, 'ink', .47), 'soft': _rgba(palette, 'ink', .6), 'deep': _rgba(palette, 'ink', .9),
+              'glow': _rgba(palette, 'accent', .75)}.get(shadow) or _rgba(palette, shadow.split(':')[1])
+    return colour, offset, blur
+
+
+def _row_image(value, font, spec, palette, text=True):
+    """One line of type with its outline, outer ring and shadow, plus the margin used.
+
+    Without text the row keeps its size but stays empty, so shapes around it land where they would."""
     stroke_color, stroke_ratio = spec['stroke'] or (None, 0)
     outer_color, outer_ratio = spec['outer'] or (None, 0)
     inner, ring = _stroke(font, stroke_ratio), _stroke(font, stroke_ratio) + _stroke(font, outer_ratio)
-    shadow = spec['shadow']
-    blur = round(font.size * {'glow': .16, 'deep': .1, 'soft': .07}[shadow]) if shadow in {'soft', 'deep', 'glow'} else 0
-    offset = round(font.size * (.07 if shadow.startswith('hard') else .04 if shadow in {'soft', 'deep'} else .06)) if shadow else 0
+    shadow = _shadow(font, spec['shadow'], palette)
+    colour, offset, blur = shadow or (None, 0, 0)
     margin = ring + blur * 3 + offset + 2
     width, height = _length(value, font, spec['track']), font.size * 1.18
     image = Image.new('RGBA', (math.ceil(width + margin * 2), math.ceil(height + margin * 2)))
+    if not text:
+        return image, margin, width, height
     if shadow:
-        colour = {'drop': _rgba(palette, 'ink', .47), 'soft': _rgba(palette, 'ink', .6), 'deep': _rgba(palette, 'ink', .9),
-                  'glow': _rgba(palette, 'accent', .75)}.get(shadow) or _rgba(palette, shadow.split(':')[1])
         layer = Image.new('RGBA', image.size)
-        dx = 0 if shadow == 'glow' else offset
+        dx = 0 if spec['shadow'] == 'glow' else offset
         _draw_text(ImageDraw.Draw(layer), margin + dx, margin + dx, value, font, colour, ring, colour, spec['track'])
         if blur:
             layer = layer.filter(ImageFilter.GaussianBlur(blur))
@@ -189,8 +202,10 @@ def _texts(item, look, group):
     return [r for r in rows if r] + ([detail] if detail else []), bool(detail)
 
 
-def _assemble(item, profile, font_path, size, look, group):
-    """Lay rows out (stacked or side by side) and return the canvas with each row's text box."""
+def _assemble(item, profile, font_path, size, look, group, text=True):
+    """Lay rows out (stacked or side by side) and return the canvas, each row's text box and its type.
+
+    A row's type is (text, font, spec, origin): origin is where the text is drawn on the canvas."""
     palette = profile['presets']['palette']
     kind = profile['component_id']
     texts, has_detail = _texts(item, look, group)
@@ -198,10 +213,12 @@ def _assemble(item, profile, font_path, size, look, group):
     default_scale = .62 if kind in {'program_title', 'headline'} else .7
     small = load_style_font(font_path, max(10, round(size * look.get('detail_scale', default_scale))), profile, role='detail')
     primary_spec, detail_spec = look['rows'][0], look['rows'][-1]
-    rows = []
+    rows, types = [], []
     for index, value in enumerate(texts):
         is_detail = has_detail and index == len(texts) - 1
-        rows.append(_row_image(value, small if is_detail else font, detail_spec if is_detail else primary_spec, palette))
+        face, spec = (small, detail_spec) if is_detail else (font, primary_spec)
+        rows.append(_row_image(value, face, spec, palette, text))
+        types.append((value, face, spec))
     boxes = look.get('boxes')
     pad_x, pad_y = (round(size * .34), round(size * .12)) if boxes else (0, 0)
     gap = (pad_x * 2 + round(size * .2)) if look.get('inline') else pad_y * 2 + round(size * look.get('row_gap', 0))
@@ -224,17 +241,22 @@ def _assemble(item, profile, font_path, size, look, group):
         for (x0, y0, x1, y1), colour, (_, _, _, h) in zip(rects, boxes, rows):
             radius = round(h * (.22 if look.get('inline') else .08))
             pen.rounded_rectangle((x0 - pad_x, y0 - pad_y, x1 + pad_x, y1 + pad_y * .4), radius, fill=_color(palette, colour))
-    for (image, margin, _, _), (x, y, _, _) in zip(rows, rects):
+    placed = []
+    for (image, margin, _, _), (x, y, _, _), row in zip(rows, rects, types):
         canvas.alpha_composite(image, (round(x - margin), round(y - margin)))
-    return canvas, rects, font.size, has_detail
+        placed.append(row + ((round(x - margin) + margin, round(y - margin) + margin),))
+    return canvas, rects, font.size, has_detail, placed
 
 
-def _shape(canvas, rects, size, look, palette, has_detail=False, con=False):
-    """Draw the look's shape behind the text on a larger canvas."""
+def _shape(canvas, rects, size, look, palette, has_detail=False, con=False, crop=None):
+    """Draw the look's shape behind the text on a larger canvas.
+
+    Returns the image, where the canvas origin landed on it, and the crop used; pass that crop back
+    to cut a second drawing of the same component (one without type) identically."""
     name = look.get('shape')
     extras = look.get('extras', ())
     if not name and not extras:
-        return canvas
+        return canvas, (0, 0), None
     grow = round(size * 1.1)
     out = Image.new('RGBA', (canvas.width + grow * 2, canvas.height + grow * 2))
     pen = ImageDraw.Draw(out)
@@ -313,8 +335,10 @@ def _shape(canvas, rects, size, look, palette, has_detail=False, con=False):
         pen.ellipse((hole[0] - s * .08, hole[1] - s * .08, hole[0] + s * .08, hole[1] + s * .08), fill=ink)
     out.alpha_composite(canvas, (grow, grow))
     _extras(pen, rects, extras, s, palette, out, has_detail, con)
-    box = out.getchannel('A').getbbox()
-    return out.crop(box) if box else out
+    box = crop or out.getchannel('A').getbbox()
+    if not box:
+        return out, (grow, grow), None
+    return out.crop(box), (grow - box[0], grow - box[1]), box
 
 
 def _extras(pen, rects, extras, s, palette, out, has_detail, con):
@@ -384,13 +408,20 @@ def _extras(pen, rects, extras, s, palette, out, has_detail, con):
                           (bx0 + (bx1 - bx0) * .78, by0 + (by1 - by0) * .3)], fill=paper, width=w, joint='curve')
 
 
-def _content(item, profile, font_path, size):
+def _compose(item, profile, font_path, size, text=True, crop=None):
+    """The component drawn on its own canvas, its look, its rows' type and where the canvas origin landed."""
     group, name, look = _look(profile)
     if (group, name) == ('sticker', 'sticker') and profile['component_id'] == 'burst':
         look = {'rows': (_row('paper', ('accent', .12), ('ink', .22)), _row('paper', ('ink', .14)))}
-    canvas, rects, font_size, has_detail = _assemble(item, profile, font_path, size, look, group)
+    canvas, rects, font_size, has_detail, rows = _assemble(item, profile, font_path, size, look, group, text)
     con = item.text.lstrip().startswith(CONS)
-    return _shape(canvas, rects, font_size, look, profile['presets']['palette'], has_detail, con), look
+    image, origin, box = _shape(canvas, rects, font_size, look, profile['presets']['palette'], has_detail, con, crop)
+    return image, look, rows, origin, box
+
+
+def _content(item, profile, font_path, size):
+    image, look, *_ = _compose(item, profile, font_path, size)
+    return image, look
 
 
 def _tilted(image, kind, look):
@@ -439,6 +470,44 @@ def layout(draw, font_path, timeline, item, profile):
     box, _, scale = _fit(font_path, timeline, item, profile)
     pad = max(6, round(_base(timeline) * .016))
     return box, load_style_font(font_path, _size(timeline, profile, scale), profile), pad
+
+
+_BUNDLED_FONTS = Path(__file__).parent / 'fonts'
+
+
+def editable(font_path, timeline, item, profile):
+    """Split a resting component into its type and a frame-sized picture of everything else.
+
+    Editors that set type themselves (DaVinci Resolve's Fusion titles) rebuild the rows from
+    this. Each row gives its text, face, pixel size, tracking, fill, shadow and the frame point
+    where its baseline starts. None when the type cannot be rebuilt faithfully elsewhere: a
+    tilted component, an outlined row, or a face that only Clipen carries."""
+    kind = profile['component_id']
+    group, _, look = _look(profile)
+    if look.get('tilt', TILT.get(kind, 0) if group == 'sticker' else 0):
+        return None
+    (x, y, right, bottom), _, scale = _fit(font_path, timeline, item, profile)
+    size = _size(timeline, profile, scale)
+    image, look, rows, origin, box = _compose(item, profile, font_path, size)
+    if any(spec['stroke'] or spec['outer'] or Path(getattr(face, 'path', '')).parent == _BUNDLED_FONTS
+           for _, face, spec, _ in rows):
+        return None
+    bare, *_ = _compose(item, profile, font_path, size, text=False, crop=box)
+    # Where draw_graphic rests the component once its entrance has finished.
+    left, top = (x + ((right - x) - image.width) // 2, y + ((bottom - y) - image.height) // 2) if _pops(profile) else (x, y)
+    picture = Image.new('RGBA', (timeline.width, timeline.height))
+    picture.alpha_composite(bare, (max(0, left), max(0, top)))
+    palette = profile['presets']['palette']
+    types = []
+    for value, face, spec, (ox, oy) in rows:
+        family, style = face.getname()
+        shadow = _shadow(face, spec['shadow'], palette)
+        types.append({'text': value, 'family': family, 'style': style, 'size': face.size, 'track': spec['track'],
+                      'fill': list(_color(palette, spec['fill'])),
+                      'x': left + origin[0] + ox, 'baseline': top + origin[1] + oy - face.getbbox(value, anchor='ls')[1],
+                      'shadow': shadow and {'colour': list(shadow[0]), 'offset': 0 if spec['shadow'] == 'glow' else shadow[1],
+                                            'blur': shadow[2]}})
+    return {'rows': types, 'picture': picture if picture.getbbox() else None}
 
 
 def _pop(progress):
