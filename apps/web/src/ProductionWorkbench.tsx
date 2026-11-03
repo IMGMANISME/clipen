@@ -1,6 +1,6 @@
 import { PowerNotice } from './PowerNotice'
 import { useEffect, useId, useRef, useState } from 'react'
-import { exportProduction, exportToResolve, getProductionWorkbench, refineProduction, renderProduction, restoreProduction } from './api'
+import { convertResolveTitles, exportProduction, exportToResolve, getProductionWorkbench, refineProduction, renderProduction, restoreProduction } from './api'
 import type { FilmPreview, FilmVersion, ProductionWorkbenchState, ResolveExport } from './api'
 import { ProductionMusicPicker } from './ProductionMusicPicker'
 import { PromptHistory } from './PromptHistory'
@@ -27,6 +27,7 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
   const [noteOpen, setNoteOpen] = useState(false)
   const [exportUrl, setExportUrl] = useState('')
   const [resolved, setResolved] = useState<ResolveExport | null>(null)
+  const [converted, setConverted] = useState('')
   const [exporting, setExporting] = useState(false)
   const [historyId, setHistoryId] = useState('')
   const [copied, setCopied] = useState(false)
@@ -61,8 +62,13 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
   }
   function exportResolve() {
     setExporting(true)
-    void action(async () => { try { setResolved(await exportToResolve(csrf, projectId, runId)) } finally { setExporting(false) } },
+    void action(async () => { try { setResolved(await exportToResolve(csrf, projectId, runId)); setConverted('') } finally { setExporting(false) } },
       '已匯出到毛片資料夾，Finder 已打開匯出的資料夾。')
+  }
+  function convertTitles() {
+    if (!resolved) return
+    void action(async () => { const result = await convertResolveTitles(csrf, projectId, runId, resolved.folder); setConverted(result.drt) },
+      '已做好可改字的時間線，Finder 已打開它所在的資料夾。')
   }
   async function copy() {
     try { await navigator.clipboard.writeText(prompt); setCopied(true); window.setTimeout(() => setCopied(false), 2000) }
@@ -122,6 +128,16 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
           <li>如果 Resolve 說找不到素材（clips were not yet found），按「Locate」，選擇毛片資料夾。</li>
           {resolved.captions > 0 && <li>再選「檔案 &gt; 匯入 &gt; 字幕…」，選擇「字幕.srt」，拖到時間線的字幕軌。</li>}
         </ol>
+        {resolved.editable_overlays > 0 && <div className="resolve-titles">
+          <p>元件先以圖片放在時間線上。想在 Resolve 直接改元件的字，再做這三步（{resolved.editable_overlays} 個元件可以換）：</p>
+          <ol>
+            <li>在 Resolve 選「檔案 &gt; 匯出 &gt; 時間線…」，格式選「DaVinci Resolve Timeline Files (*.drt)」，直接按儲存。</li>
+            <li>回到這裡按「把元件換成可改字的標題」。</li>
+            <li>在 Resolve 選「檔案 &gt; 匯入 &gt; 時間線…」，選名稱有「（可改字）」的 .drt。選元件後，在右邊檢查器就能改字。</li>
+          </ol>
+          <button type="button" className="button secondary" disabled={busy || active} onClick={convertTitles}>把元件換成可改字的標題</button>
+          {converted && <p>已做好「{converted.split('/').pop()}」，放在匯出資料夾裡。</p>}
+        </div>}
         {resolved.notes.length > 0 && <details><summary>匯出時要留意的地方（{resolved.notes.length}）</summary><ul>{resolved.notes.map((note) => <li key={note}>{note}</li>)}</ul></details>}
         <p className="prompt-draft-hint">完整步驟在資料夾裡的「說明.txt」。請保持資料夾完整，時間線會用到裡面的檔案。</p>
       </div>}

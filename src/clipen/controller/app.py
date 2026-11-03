@@ -1129,6 +1129,15 @@ def create_app(
                 await run_in_threadpool(idle,coordinator.repository,project,run)
                 result=await run_in_threadpool(export_resolve,coordinator.repository,project,run)
                 await run_in_threadpool(reveal,Path(result['fcpxml']))
+            elif operation=='resolve_titles':
+                require_fields(payload,{'folder'})
+                from clipen.editing.resolve_export import convert_timeline, export_folder, reveal
+                exports=(await run_in_threadpool(export_folder,coordinator.repository,project)).resolve()
+                package=Path(str(payload['folder'])).resolve()
+                if package.parent!=exports:raise ProjectError('resolve_package_invalid','只能轉換這個專案匯出到「Clipen 匯出」的資料夾。',status_code=422)
+                target,titles=await run_in_threadpool(convert_timeline,package)
+                await run_in_threadpool(reveal,target)
+                result={'drt':str(target),'titles':titles}
             else:raise ProjectError('command_invalid','不支援這個編輯操作。',status_code=404)
             return JSONResponse(result)
         except ProjectError as error:return await project_error_response(error)

@@ -376,7 +376,7 @@ def _write(repository, project_id, package, name, timeline, video, cancel):
             continue
         for item in track.items:
             (captions if _is_caption(track, item, styles) else overlays).append((track, item))
-    rendered = []
+    rendered, editable = [], 0
     if overlays:
         directory = package / '元件'
         directory.mkdir()
@@ -398,12 +398,14 @@ def _write(repository, project_id, package, name, timeline, video, cancel):
                 target = directory / f'{number:03d} {label}.png'
                 shutil.move(str(image.path), target)
                 rendered.append((item, target, label))
+        editable = _editable_titles(directory, rendered, styles, timeline)
         still = build.format(timeline.width, timeline.height, None)
         for (item, target, label), lane in zip(rendered, _lanes([(i.start_frame, i.start_frame + i.duration_frames) for i, _, _ in rendered], 1, 1)):
             ref = build.asset(target, target.stem, Fraction(0), Fraction(0), video=still)
             build.connect('video', {'ref': ref, 'lane': str(lane), 'name': label, 'start': '0s',
                                     'duration': seconds(build.time(item.duration_frames))}, item.start_frame)
-        notes.append(f'畫面元件 {len(rendered)} 個做成透明 PNG，放在影片上層；位置和外觀與 Clipen 相同，彈出動畫不會保留，文字要改請在 Clipen 交給 AI 或在 Resolve 重做。')
+        notes.append(f'畫面元件 {len(rendered)} 個先以透明 PNG 放在影片上層，位置和外觀與 Clipen 相同，彈出動畫不會保留。'
+                     + (f'其中 {editable} 個可以換成能改字的 DaVinci 標題，做法見上面「讓元件文字可以修改」。' if editable else ''))
     if captions:
         lines = []
         for number, (_, item) in enumerate(sorted(captions, key=lambda pair: pair[1].start_frame), 1):
@@ -446,9 +448,67 @@ def _write(repository, project_id, package, name, timeline, video, cancel):
 
     fcpxml = package / f'{name}.fcpxml'
     build.write(fcpxml)
-    _guide(package, fcpxml, bool(captions), notes)
+    _guide(package, fcpxml, bool(captions), editable, notes)
     return {'folder': str(package), 'fcpxml': str(fcpxml), 'shots': len(video.items), 'burned': burned,
-            'overlays': len(rendered), 'captions': len(captions), 'music_layers': len(layers), 'notes': notes}
+            'overlays': len(rendered), 'editable_overlays': editable, 'captions': len(captions),
+            'music_layers': len(layers), 'notes': notes}
+
+
+def _editable_titles(directory: Path, rendered, styles, timeline) -> int:
+    """Record each component's type beside its PNG so a .drt from Resolve can carry it as editable titles."""
+    from clipen.rendering import program_creator
+    from clipen.rendering.titles import TitleCardRenderer, TitleRenderError
+    from .resolve_titles import MANIFEST
+    font_path = TitleCardRenderer._font_path()
+    manifest = {}
+    for item, target, _ in rendered:
+        profile = styles.get(item.style_id)
+        if not profile or profile.get('kind') != 'program_component' or not program_creator.is_creator(profile):
+            continue
+        try:
+            plan = program_creator.editable(font_path, timeline, item, profile)
+        except TitleRenderError:
+            plan = None
+        if plan is None:
+            continue
+        picture = None
+        if plan['picture']:
+            picture = f'{target.stem}（底圖）.png'
+            plan['picture'].save(directory / picture, 'PNG', optimize=True)
+        manifest[target.name] = {'rows': plan['rows'], 'picture': picture, 'width': timeline.width, 'height': timeline.height}
+    if manifest:
+        (directory / MANIFEST).write_text(json.dumps(manifest, ensure_ascii=False, indent=1), encoding='utf-8')
+    return len(manifest)
+
+
+RESOLVE_DEFAULT_FOLDER = Path.home() / 'Movies' / 'DaVinci Resolve'
+
+
+def convert_timeline(package: Path) -> tuple[Path, int]:
+    """Turn the newest .drt exported from this package's timeline into one with editable component titles.
+
+    Resolve saves exports to its own folder unless told otherwise, so both that folder and the
+    package are searched; a .drt counts when its clips point at this package's components."""
+    from .resolve_titles import MANIFEST, convert, uses
+    package = Path(package)
+    components = package / '元件'
+    if not (components / MANIFEST).is_file():
+        raise ProjectError('resolve_titles_missing', '這份匯出沒有可以換成文字的元件。', status_code=409)
+    candidates = [p for folder in (package, RESOLVE_DEFAULT_FOLDER) for p in folder.glob('*.drt')
+                  if '（可改字）' not in p.stem]
+    source = next((p for p in sorted(candidates, key=lambda p: p.stat().st_mtime, reverse=True) if uses(p, components)), None)
+    if source is None:
+        raise ProjectError('resolve_timeline_missing', '還找不到這份匯出的 .drt。請先在 DaVinci Resolve 用「檔案 > 匯出 > 時間線…」把時間線存成 .drt。', status_code=409)
+    target = _unique(package, f'{source.stem}（可改字）.drt')
+    temporary = target.with_suffix('.partial')
+    try:
+        replaced = convert(source, temporary)
+        if not replaced:
+            raise ProjectError('resolve_titles_unmatched', f'「{source.name}」裡找不到這份匯出的元件。請確認匯出的是從這個資料夾匯入的時間線。', status_code=409)
+        temporary.replace(target)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return target, replaced
 
 
 def reveal(path: Path) -> None:
@@ -457,7 +517,7 @@ def reveal(path: Path) -> None:
         subprocess.run(['/usr/bin/open', '-R', str(path)], stdin=subprocess.DEVNULL, capture_output=True, timeout=10, check=False)
 
 
-def _guide(package: Path, fcpxml: Path, captions: bool, notes: list[str]):
+def _guide(package: Path, fcpxml: Path, captions: bool, editable: int, notes: list[str]):
     steps = [
         '在 DaVinci Resolve 匯入',
         '',
@@ -471,6 +531,13 @@ def _guide(package: Path, fcpxml: Path, captions: bool, notes: list[str]):
               'App Store 版的 Resolve 只能讀取你打開過的資料夾，選一次毛片資料夾，素材和這裡的元件、音樂就都找得到。',
               '', '影片片段直接指向原始素材，前後保留可延長的長度。若搬動了素材，Resolve 會請你重新連結。',
               '這個資料夾裡的元件、音樂和已處理片段也被時間線使用，請保持資料夾完整。']
+    if editable:
+        steps += ['', '讓元件文字可以修改', '',
+                  f'元件先以圖片放在時間線上。其中 {editable} 個可以換成 DaVinci 的 Fusion 標題，選取後在右邊「檢查器」直接改字，樣式維持 Clipen 的樣子：',
+                  '1. 時間線匯入後，選「檔案 > 匯出 > 時間線…」（File > Export > Timeline），格式選「DaVinci Resolve Timeline Files (*.drt)」，直接按儲存。',
+                  '2. 回到 Clipen 的「到 DaVinci Resolve 自己剪」，按「把元件換成可改字的標題」。',
+                  '3. 回到 DaVinci，選「檔案 > 匯入 > 時間線…」，選這個資料夾裡名稱有「（可改字）」的 .drt。',
+                  '   改字只會改文字本身；底框、細線這類圖形是固定的圖片，字數差很多時可能要自己調整位置。']
     if notes:
         steps += ['', '需要留意', ''] + [f'・{note}' for note in notes]
     steps += ['', '時間線上的標記（Marker）記下了 Clipen 有、但 Resolve 無法直接帶入的處理，例如調色數值、轉場與淡入淡出。']

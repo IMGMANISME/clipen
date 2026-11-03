@@ -312,6 +312,14 @@ timecode 對齊來源時間，保留前後餘量），推近與重新構圖轉�
 避免原貌外流。調色、轉場、淡入淡出與對白處理無法經 FCPXML 帶入，留在時間線標記與
 `說明.txt`。
 
+元件也可以換成能在 Resolve 改字的標題（`editing/resolve_titles.py`）。Resolve 只從自己的
+`.drt` 時間線讀 Fusion 標題，不從 FCPXML 讀，所以分兩段：匯出時 `program_creator.editable`
+把每個 creator 元件拆成各行文字（字型、像素大小、字距、顏色、陰影與基線位置）和一張不含
+文字的底圖，記在元件資料夾的清單；使用者在 Resolve 把時間線存成 `.drt` 後，Clipen 把其中
+指向元件 PNG 的片段換成 Text+ Fusion 標題——各行 Text+ 疊在底圖上，文字欄位發佈到剪輯頁
+檢查器——另存一份「（可改字）」的 `.drt` 供匯入。傾斜、描邊或只有 Clipen 內建的字型無法
+在 Resolve 重現，這些元件維持圖片。
+
 ## 7. Skills
 
 Clipen 有兩類 Skill：AI 製作流程使用的製作 Skill（可由使用者自訂），以及舊的剪輯
