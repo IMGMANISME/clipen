@@ -1,9 +1,7 @@
 """Bounded dialogue-driven envelopes and inspectable stems for skill productions."""
 from array import array
-from fractions import Fraction
 import math
 import os
-from pathlib import Path
 import sys
 from types import SimpleNamespace
 import wave

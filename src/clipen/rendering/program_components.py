@@ -1,7 +1,6 @@
 """Deterministic in-picture graphics for versioned programme skill packages."""
 import math
 
-from PIL import ImageFont
 from .titles import TitleRenderError
 from .program_motion import FAMILIES, layout, motion_frames, draw_motion_graphic
 from .program_styles import skin, style_font, load_style_font, styled_text_length, draw_styled_graphic, type_outline

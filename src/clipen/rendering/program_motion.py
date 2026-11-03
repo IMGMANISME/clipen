@@ -1,7 +1,6 @@
 """Original broadcast graphics: bounded layouts and frame-driven entrance motion."""
 import math
 
-from PIL import ImageFont
 from .titles import TitleRenderError
 from .program_styles import skin, style_font, load_style_font, styled_text_length, draw_styled_graphic, draw_style_text, type_outline
 

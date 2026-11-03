@@ -590,24 +590,6 @@ class Qwen3ASRAdapter(_PersistentASRWorkerAdapter):
         )
 
 
-def _verify_executable(path: Path) -> Path:
-    candidate = Path(path)
-    if not candidate.is_absolute() or candidate.is_symlink():
-        raise TranscriptionError("asr_runtime_unavailable")
-    try:
-        info = os.lstat(candidate)
-        resolved = candidate.resolve(strict=True)
-    except OSError as error:
-        raise TranscriptionError("asr_runtime_unavailable") from error
-    if (
-        not stat.S_ISREG(info.st_mode)
-        or info.st_nlink != 1
-        or not os.access(resolved, os.X_OK)
-    ):
-        raise TranscriptionError("asr_runtime_unavailable")
-    return resolved
-
-
 def hash_model_directory(path: Path, *, maximum_bytes: int = 8 * 1024**3) -> str:
     root = Path(path)
     if root.is_symlink() or not root.is_dir():
