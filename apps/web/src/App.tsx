@@ -292,7 +292,7 @@ function ProjectHome({
               const source = project.directories.find((directory) => directory.role === 'source')
               return (
                 <button className="project-card" key={project.project_id} onClick={() => onOpen(project)}>
-                  <span className="project-cover" aria-hidden="true"><StudioIcon name="film" size={32} /></span>
+                  <ProjectCover projectId={project.project_id} version={project.last_activity_at ?? project.updated_at} />
                   <strong>{project.name}</strong>
                   <span className="project-next">
                     {source ? '開啟作品' : '下一步：選擇毛片資料夾'}
@@ -307,6 +307,19 @@ function ProjectHome({
 
       {!creating && <SkillLibrary csrf={csrf} />}
     </main>
+  )
+}
+
+/** A still from the project's own film or footage; the film icon stands in until one exists. */
+function ProjectCover({ projectId, version }: { projectId: string; version: string }) {
+  const [failed, setFailed] = useState<string | null>(null)
+  const showStill = failed !== version
+  return (
+    <span className={`project-cover ${showStill ? 'has-still' : ''}`} aria-hidden="true">
+      {showStill
+        ? <img src={`/api/projects/${projectId}/cover?v=${encodeURIComponent(version)}`} alt="" loading="lazy" onError={() => setFailed(version)} />
+        : <StudioIcon name="film" size={32} />}
+    </span>
   )
 }
 
