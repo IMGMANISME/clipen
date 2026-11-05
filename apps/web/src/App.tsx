@@ -567,7 +567,7 @@ function AnalysisSection({
         <div>
           <p className="eyebrow">02 · 分析</p>
           <h2 id="analysis-title">產生繁體中文逐字稿</h2>
-          <p>Clipen 會先用原始收音辨識；偏小聲或底噪較高的短片段會在本機做有限的語音增強比對。增強版不會覆蓋原音，兩版不一致時會保留原音文字並標記為需要核對。</p>
+          <p>在本機用原始收音辨識，不確定的段落會標出來讓你核對。</p>
         </div>
         {!active && !interrupted && (
           <button
@@ -703,13 +703,15 @@ function AnalysisSection({
           <div className="analysis-results">
             <div>
               <strong>{current.counts.issues ? '繁體中文逐字稿已完成，部分素材需要注意' : '繁體中文逐字稿已準備好'}</strong>
-              <p>已轉錄 {current.counts.transcribed} 個項目，{current.counts.no_speech} 個沒有人聲，{current.counts.no_audio} 個沒有音軌，{current.counts.issues} 個需要處理。</p>
               <p>
-                {current.counts.issues
-                  ? '先展開需要處理的素材，再抽查幾段成功逐字稿；其餘結果已保存，不必重新分析。'
-                  : '抽查幾段逐字稿即可；結果已保存，稍後建立剪輯計畫時會直接重用。'}
+                {[
+                  `${current.counts.transcribed} 個有逐字稿`,
+                  current.counts.no_speech ? `${current.counts.no_speech} 個沒有人聲` : null,
+                  current.counts.no_audio ? `${current.counts.no_audio} 個沒有音軌` : null,
+                  current.counts.issues ? `${current.counts.issues} 個需要處理` : null,
+                ].filter(Boolean).join(' · ')}
               </p>
-              <p>開始新的分析時，Clipen 會移除這份逐字稿與分析暫存；毛片與參考作品不會被刪除或修改。</p>
+              <p className="analysis-replace-note">重新分析會取代這份逐字稿，毛片不受影響。</p>
             </div>
             <span className="result-ready">分析完成</span>
           </div>
