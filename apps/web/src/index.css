@@ -482,6 +482,7 @@ input:focus, textarea:focus { border-color: var(--line-strong); box-shadow: 0 0 
 .analysis-results strong { display: block; margin-bottom: 5px; color: var(--text-2); font-size: 14px; }
 .analysis-results p { margin: 0; color: var(--text-2); font-size: 12px; }
 .analysis-results p + p { margin-top: 6px; }
+.analysis-results .analysis-replace-note { color: var(--text-3); font-size: 11px; }
 .transcript-results {
   --material-xs: clamp(10px, calc(8px + .18vw), 12px);
   --material-sm: clamp(11px, calc(8px + .24vw), 14px);
@@ -499,12 +500,6 @@ input:focus, textarea:focus { border-color: var(--line-strong); box-shadow: 0 0 
 .transcript-results-heading h3 { margin: 0 0 5px; font-size: 15px; }
 .transcript-results-heading p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
 .transcript-results-heading > span { flex: 0 0 auto; color: var(--text-2); font-size: 11px; font-weight: 700; }
-.review-guide { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; margin: 0 22px 18px; padding: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-3); list-style: none; }
-.review-guide li { display: flex; min-width: 0; gap: 9px; padding: 11px 12px; background: var(--surface-1); }
-.review-guide li > span { display: grid; flex: 0 0 auto; width: 21px; height: 21px; place-items: center; border-radius: 50%; color: var(--text-2); background: var(--surface-2); font-size: 9px; font-weight: 800; }
-.review-guide strong, .review-guide small { display: block; }
-.review-guide strong { color: var(--text-2); font-size: 10px; }
-.review-guide small { margin-top: 3px; color: var(--text-3); font-size: 9px; line-height: 1.4; }
 .review-filters { display: flex; align-items: flex-end; gap: 10px; padding: 12px 22px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--surface-1); }
 .review-filters label { display: grid; min-width: 150px; gap: 5px; margin: 0; }
 .review-filters label > span { color: var(--text-2); font-size: 9px; font-weight: 720; }
@@ -667,7 +662,6 @@ input:focus, textarea:focus { border-color: var(--line-strong); box-shadow: 0 0 
 .save-success { color: var(--text-2); }
 .load-transcript { justify-self: start; }
 @media (max-width: 860px) {
-  .review-guide { grid-template-columns: minmax(0, 1fr); }
   .review-filters { align-items: stretch; flex-direction: column; }
   .review-filters label { width: 100%; }
   .review-filters > span { margin: 2px 0 0; }
@@ -684,7 +678,6 @@ input:focus, textarea:focus { border-color: var(--line-strong); box-shadow: 0 0 
 /* The stage sidebar can make this panel narrow even on a wide monitor, so the
    editor responds to its own usable width instead of the browser viewport. */
 @container material-results (max-width: 720px) {
-  .review-guide { grid-template-columns: minmax(0, 1fr); }
   .review-filters { align-items: stretch; flex-wrap: wrap; }
   .review-filters label { flex: 1 1 180px; min-width: 0; }
   .review-filters > span { flex: 1 0 100%; margin: 2px 0 0; }
@@ -699,7 +692,6 @@ input:focus, textarea:focus { border-color: var(--line-strong); box-shadow: 0 0 
 
 @container material-results (max-width: 500px) {
   .transcript-results-heading { gap: 10px; padding-inline: 16px; }
-  .review-guide { margin-inline: 16px; }
   .review-filters { padding-inline: 16px; }
   .transcript-item > summary { padding-inline: 16px; }
   .transcript-item-meta { margin-left: 0; }
@@ -729,7 +721,6 @@ input:focus, textarea:focus { border-color: var(--line-strong); box-shadow: 0 0 
 .annotation-field input,
 .annotation-field select,
 .transcript-segments.editable textarea { font-size: var(--material-sm); }
-.review-guide strong,
 .review-filters select,
 .transcript-item-main > span,
 .transcript-item-meta,
@@ -742,7 +733,6 @@ input:focus, textarea:focus { border-color: var(--line-strong); box-shadow: 0 0 
 .confirm-transcript,
 .transcript-discarded-message strong,
 .annotation-actions p { font-size: var(--material-xs); }
-.review-guide small,
 .review-filters label > span,
 .review-filters > span,
 .annotation-summary span,

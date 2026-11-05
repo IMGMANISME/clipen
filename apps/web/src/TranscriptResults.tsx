@@ -224,16 +224,10 @@ export function TranscriptResults({
       <div className="transcript-results-heading">
         <div>
           <h3 id="transcript-results-title">挑重要素材，補充剪輯線索</h3>
-          <p>不必消除所有「辨識不確定」。只處理你想放進成片、或 AI 容易誤解的片段。</p>
+          <p>只處理想放進成片、或 AI 容易誤解的片段，其餘交給 AI 判斷。</p>
         </div>
         {page && <span>共 {page.total.toLocaleString()} 支素材</span>}
       </div>
-
-      <ol className="review-guide" aria-label="素材核對方式">
-        <li><span>1</span><div><strong>展開重要片段</strong><small>先聽原音、看完整毛片</small></div></li>
-        <li><span>2</span><div><strong>只補確定資訊</strong><small>人物、地點與旅行時間都可留白</small></div></li>
-        <li><span>3</span><div><strong>保存後繼續</strong><small>其餘素材交由 AI 自行判斷</small></div></li>
-      </ol>
 
       {page && (
         <div className="review-filters" aria-label="篩選素材">
@@ -252,7 +246,7 @@ export function TranscriptResults({
               <option value="reviewed">已處理</option>
             </select>
           </label>
-          <span>符合條件：{page.total.toLocaleString()} 支</span>
+          {(tripDay !== null || reviewState !== 'all') && <span>符合條件：{page.total.toLocaleString()} 支</span>}
         </div>
       )}
 
@@ -271,9 +265,15 @@ export function TranscriptResults({
               const annotation = annotations[key]
               const hasTranscript = ['transcribed', 'needs_review'].includes(item.status)
               const userState = item.user_state ?? 'pending'
-              const sourceTime = item.source && item.preview_start_pts
+              // Most clips speak from their first frame, so only a later start is worth showing.
+              const startTime = item.source && item.preview_start_pts
                 ? formatSourceTime(item.preview_start_pts, item.source.time_base)
                 : null
+              const sourceTime = startTime === '0:00.000' ? null : startTime
+              const origin = [
+                item.role === 'reference' ? '參考作品' : null,
+                item.stream_index > 1 ? `音軌 ${item.stream_index}` : null,
+              ].filter(Boolean).join(' · ')
               return (
                 <details
                   className={`transcript-item status-${item.status} user-${userState}`}
@@ -283,10 +283,7 @@ export function TranscriptResults({
                   <summary>
                     <div className="transcript-item-main">
                       <strong>{item.display_name}</strong>
-                      <span>
-                        {item.role === 'source' ? '毛片' : '參考作品'}
-                        {item.stream_index >= 0 ? ` · 音軌 ${item.stream_index}` : ''}
-                      </span>
+                      {origin && <span>{origin}</span>}
                       {annotation?.state === 'ready' && annotation.annotation && (
                         <div className="annotation-summary">
                           {annotation.annotation.material.usage !== 'normal' && <span>{usageCopy[annotation.annotation.material.usage]}</span>}
@@ -303,7 +300,7 @@ export function TranscriptResults({
                       {sourceTime && <span>{sourceTime} 起</span>}
                       {item.trip_day && <span className="trip-day-badge">第 {item.trip_day} 天</span>}
                       {item.transcript_discarded && <span className="user-state state-discarded">逐字稿已移除</span>}
-                      <span className={`user-state state-${userState}`}>{userStateCopy[userState]}</span>
+                      {userState !== 'pending' && <span className={`user-state state-${userState}`}>{userStateCopy[userState]}</span>}
                       <span className="transcript-status">{statusCopy[item.status]}</span>
                     </div>
                   </summary>

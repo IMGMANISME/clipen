@@ -73,12 +73,12 @@ export function EvidenceSection({ projectId, csrf, inventoryId }: { projectId: s
   const availableCalls = Math.max(0, (summary?.limits.ai_calls_per_run ?? 3) - (latest?.observations.length ?? 0))
   return <section className="analysis-section evidence-section" aria-labelledby="evidence-title">
     <div className="analysis-heading"><div><p className="eyebrow">畫面與聲音證據</p><h2 id="evidence-title">先看取樣，再決定是否交給 AI</h2></div></div>
-    <p>本機擷取不消耗 AI 額度，也不修改毛片；未變更的成果會重用。每個影片會先依片長選擇候選畫面，略過視覺近似的縮圖，再從其他時間點有限度補取；最後保留 1～48 張代表畫面。音訊能量只檢查前 120 秒。這不會逐幀掃描影片，也還不是語意理解或完整影片理解。本機語音辨識若正在執行，擷取會等待資源。</p>
+    <p>在本機取樣代表畫面與音量，不花 AI 額度，也不改動毛片。</p>
     {error && <div role="alert"><p>{error}</p><button className="button secondary" type="button" onClick={() => setRetry(v => v + 1)}>重新讀取狀態</button></div>}
     {!summary && !error && <p role="status">正在讀取證據分析狀態…</p>}
     {summary?.blocked_reason && <p>{summary.blocked_reason}</p>}
     {summary?.scope && <div className="evidence-actions">
-      <span>{summary.scope.total} 個影音串流 · 每支影片動態取樣，最多 {summary.limits.frames_per_stream} 張</span>
+      <span>{summary.scope.total} 個影音串流</span>
       <button className="button primary" type="button" disabled={busy || running} onClick={() => void act('start')}>{latest ? '更新本機證據' : '擷取本機證據'}</button>
       {running && <button className="button secondary" type="button" disabled={busy} onClick={() => void act('cancel')}>停止分析</button>}
       {latest && !latest.stale && ['interrupted', 'cancelled'].includes(latest.state) && <button className="button secondary" type="button" disabled={busy || running} onClick={() => void act('resume')}>接續本機擷取</button>}
@@ -89,10 +89,11 @@ export function EvidenceSection({ projectId, csrf, inventoryId }: { projectId: s
       {latest.state === 'running' && <progress value={latest.completed_count} max={latest.total} aria-label="本機證據擷取進度" />}
       {latest.error_code && <p>{errors[latest.error_code] ?? '未完成，已保存的成果仍保留。'}</p>}
       {latest.stale && <p role="alert">以下是舊素材範圍的結果，不能再送出 AI 觀察。請重新擷取。</p>}
-      <p>AI 觀察剩餘 {availableCalls} 次；每次最多 8 張縮圖、120 秒。Token 用量不等於帳號 Quota 百分比，無法保證固定額度成本。</p>
+      <p>AI 觀察剩餘 {availableCalls} 次</p>
       <details className="evidence-samples">
       <summary>查看取樣畫面與技術資訊</summary>
       <div>
+      <p>每支影片依片長取樣，略過相似畫面，保留 1～{summary.limits.frames_per_stream} 張代表畫面；音量只量前 120 秒，不逐幀掃描，也不是完整的影片理解。未變更的成果會重用；本機語音辨識執行中時，擷取會等它。每次 AI 觀察最多 8 張縮圖、120 秒；Token 用量不等於帳號 Quota 百分比，無法保證固定額度成本。</p>
       {latest.total > latest.page_size && <nav className="evidence-actions" aria-label="證據結果分頁">
         <button className="button secondary" type="button" disabled={offset === 0 || busy} onClick={() => setOffset(v => Math.max(0, v - latest.page_size))}>上一頁</button>
         <span>第 {Math.floor(offset / latest.page_size) + 1} / {Math.ceil(latest.total / latest.page_size)} 頁</span>
