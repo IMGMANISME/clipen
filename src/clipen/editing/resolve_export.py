@@ -485,13 +485,24 @@ def _editable_titles(directory: Path, rendered, styles, timeline) -> int:
 RESOLVE_DEFAULT_FOLDER = Path.home() / 'Movies' / 'DaVinci Resolve'
 
 
+def _timeline_folders(package: Path) -> list[Path]:
+    """Where a .drt saved from this package's timeline may land: the package, Resolve's own folder,
+    and, for a package in「Clipen 匯出」, that folder and the footage folder around it, since the
+    save dialog often opens beside the footage the timeline was relinked to."""
+    from clipen.media.discovery import EXPORT_FOLDER
+    folders = [package, RESOLVE_DEFAULT_FOLDER]
+    if package.parent.name == EXPORT_FOLDER:
+        folders += [package.parent, package.parent.parent]
+    return folders
+
+
 def _exported_timeline(package: Path, since: float = 0.) -> Path | None:
     """The newest .drt saved from this package's timeline after since (a time stamp).
 
-    Resolve saves exports to its own folder unless told otherwise, so both that folder and the
-    package are searched; a .drt counts when its clips point at this package's components."""
+    A .drt counts when its clips point at this package's components, so other films' timelines
+    in the same folders are passed over."""
     from .resolve_titles import uses
-    candidates = [p for folder in (package, RESOLVE_DEFAULT_FOLDER) for p in folder.glob('*.drt') if '（可改字）' not in p.stem]
+    candidates = [p for folder in _timeline_folders(package) for p in folder.glob('*.drt') if '（可改字）' not in p.stem]
     candidates = [p for p in candidates if p.stat().st_mtime > since]
     return next((p for p in sorted(candidates, key=lambda p: p.stat().st_mtime, reverse=True) if uses(p, package / '元件')), None)
 
