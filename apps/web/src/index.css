@@ -1493,6 +1493,8 @@ video { background: #000; }
 .project-card { border-color: var(--line); background: var(--surface-1); box-shadow: none; }
 .project-card:hover { border-color: var(--line-strong); background: var(--surface-2); }
 .project-cover { height: 140px; color: var(--text-3); background: var(--surface-0); }
+.project-cover.has-still { overflow: hidden; }
+.project-cover img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .project-next { color: var(--text-2); }
 .project-time { color: var(--text-3); font-family: var(--mono); font-size: 11px; }
 

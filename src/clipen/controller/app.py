@@ -735,6 +735,18 @@ def create_app(
         except ProjectError as error:
             return await project_error_response(error)
 
+    async def project_cover(request: Request) -> Response:
+        # A still cut from the project's own footage for its card on the home page.
+        try:
+            from clipen.rendering import ProjectCoverRepository
+            path = await run_in_threadpool(
+                ProjectCoverRepository(require_workspace().repository).cover,
+                request.path_params["project_id"],
+            )
+            return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "private, no-store"})
+        except ProjectError as error:
+            return await project_error_response(error)
+
     async def edit_agent_status(request: Request) -> Response:
         try:
             result = await run_in_threadpool(
@@ -1340,6 +1352,7 @@ def create_app(
                 delete_project,
                 methods=["POST"],
             ),
+            Route("/api/projects/{project_id}/cover", project_cover, methods=["GET"]),
             Route(
                 "/api/projects/{project_id}/preview/{render_id}/media",
                 preview_render_media,
