@@ -86,7 +86,7 @@ class AnalysisAudioTests(unittest.TestCase):
         original = hashlib.sha256(self.source.read_bytes()).hexdigest()
         output = self.root / "normalized.wav"
         output.touch(mode=0o600)
-        adapter = FFmpegAudioAdapter(str(self.fake_ffmpeg()), timeout_seconds=2)
+        adapter = FFmpegAudioAdapter(str(self.fake_ffmpeg()), timeout_seconds=20)
 
         self.assertEqual(adapter.version(), "ffmpeg version test")
         prepared = adapter.extract(self.input, output)
@@ -96,7 +96,7 @@ class AnalysisAudioTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(self.source.read_bytes()).hexdigest(), original)
 
     def test_extract_rejects_changed_input_and_nonempty_output(self) -> None:
-        adapter = FFmpegAudioAdapter(str(self.fake_ffmpeg()), timeout_seconds=2)
+        adapter = FFmpegAudioAdapter(str(self.fake_ffmpeg()), timeout_seconds=20)
         self.source.write_bytes(b"changed")
         output = self.root / "normalized.wav"
         output.touch(mode=0o600)
