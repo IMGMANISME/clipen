@@ -173,6 +173,18 @@ class ResolveExportTests(unittest.TestCase):
         self.assertEqual((target.parent,target.name,titles),(package,'film（可改字）.drt',1))
         with zipfile.ZipFile(target) as archive:self.assertIn('<PrettyType>Fusion Title</PrettyType>',archive.read('SeqContainer/s.xml').decode())
 
+    def test_a_drt_saved_beside_the_footage_is_found(self):
+        from clipen.editing.resolve_export import convert_timeline
+        from clipen.editing.resolve_titles import MANIFEST
+        footage=self.destination/'footage';package=footage/'Clipen 匯出'/'film DaVinci Resolve';components=package/'元件';components.mkdir(parents=True)
+        row={'text':'京成','family':'PingFang TC','style':'Regular','size':26,'track':0,'fill':[255,255,255,255],'x':10,'baseline':40,'shadow':None}
+        (components/MANIFEST).write_text(json.dumps({'001 京成.png':{'rows':[row],'picture':None,'width':640,'height':360}}),encoding='utf-8')
+        with zipfile.ZipFile(footage/'film.drt','w') as archive:
+            archive.writestr('SeqContainer/s.xml',f'<Sm2TiVideoClip DbId="a"><Start>3</Start><Duration>30</Duration><MediaFilePath>{components}/001 京成.png</MediaFilePath></Sm2TiVideoClip>')
+        with patch('clipen.editing.resolve_export.RESOLVE_DEFAULT_FOLDER',self.destination/'Movies'):
+            target,titles=convert_timeline(package)
+        self.assertEqual((target,titles),(package/'film（可改字）.drt',1))
+
     def test_saving_the_drt_in_resolve_is_enough(self):
         import threading
         from clipen.editing.resolve_export import watch_timeline
