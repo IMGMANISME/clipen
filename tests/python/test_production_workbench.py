@@ -88,7 +88,7 @@ class ProductionWorkbenchTests(unittest.TestCase):
         restore={'revision_id':before.revision_id,'summary':'還原標題'}
         with self.assertRaises(ProjectError):edit(self.repository,self.project,self.run,'restore_revision',restore,changed.revision_id,'busy')
         self.stop()
-        # Changes go through review notes; the workbench never edits the film directly.
+        # Other changes go through review notes; the workbench only rewords graphics directly.
         with self.assertRaises(ProjectError) as rejected:
             edit(self.repository,self.project,self.run,'edit_text',{'item_id':'header','start_frame':0,'duration_frames':60,'text':'我修好的標題','style_id':'title.caption','summary':'修改標題'},changed.revision_id,'user-text')
         self.assertEqual(rejected.exception.code,'tool_not_allowed')
@@ -105,6 +105,31 @@ class ProductionWorkbenchTests(unittest.TestCase):
         exported=tools_for(self.repository,self.project,self.run).production_call('export_edit',{}).payload
         path=self.f.root/'projects'/self.project/'agent-production'/self.run/'exports'/(exported['revision_id']+'.json')
         self.assertEqual(json.loads(path.read_text())['timeline'],current.timeline.to_payload())
+    def test_user_rewords_a_component_and_keeps_its_look(self):
+        self.f.call('add_program_component',element_id='header',item_id='agent-video-0001',component_id='headline',start_offset_frames=0,duration_frames=60,text='原來的標題',x=.08,y=.25,evidence='測試畫面標註',summary='元件')
+        before=self.repository.current_revision(self.project,self.run)
+        budget=self.repository.get(self.project,self.run).tool_calls
+        self.stop()
+        def reword(arguments,mutation,expected=None):
+            return edit(self.repository,self.project,self.run,'set_component_text',arguments,expected or self.repository.current_revision(self.project,self.run).revision_id,mutation)
+        for arguments,code in (({'element_id':'header','text':'  '},'component_text_empty'),({'element_id':'header','text':'兩\n行'},'component_text_overflow'),
+                               ({'element_id':'header','text':'長'*80},'component_text_overflow'),({'element_id':'header','text':'原來的標題'},'component_text_unchanged'),
+                               ({'element_id':'agent-video-0001','text':'鏡頭'},'component_not_found')):
+            with self.assertRaises(ProjectError) as rejected:reword(arguments,'bad-'+code+str(len(arguments['text'])))
+            self.assertEqual(rejected.exception.code,code)
+        reword({'element_id':'header','text':' 我改好的標題 ','detail':'補充一行'},'user-reword')
+        current=self.repository.current_revision(self.project,self.run)
+        item=lambda revision:next(i for t in revision.timeline.tracks for i in t.items if i.item_id=='header')
+        self.assertEqual(item(current).text,'我改好的標題\n補充一行')
+        self.assertEqual((item(current).style_id,item(current).start_frame,item(current).duration_frames),(item(before).style_id,item(before).start_frame,item(before).duration_frames))
+        self.assertEqual(self.repository.get(self.project,self.run).tool_calls,budget)
+        self.assertEqual(state(self.repository,self.project,self.run)['history'][0]['label'],'手動修改：元件文字')
+        # A stale version is refused rather than overwriting what changed since.
+        with self.assertRaises(ProjectError):reword({'element_id':'header','text':'再改'},'stale',before.revision_id)
+        # The AI never sees this tool; it revises graphics through its own component tools.
+        with self.assertRaises(ProjectError) as hidden:self.f.call('set_component_text',element_id='header',text='AI 改的')
+        self.assertEqual(hidden.exception.code,'tool_not_allowed')
+
     def test_refine_keeps_timeline_and_frozen_style_and_is_idempotent(self):
         before=self.repository.current_revision(self.project,self.run);frozen=self.repository.production_session(self.project,self.run)['skill'];self.stop()
         run,created=self.repository.request_refinement(self.project,self.run,'refine-one',before.revision_id,'保留鏡頭，只修改字幕。')

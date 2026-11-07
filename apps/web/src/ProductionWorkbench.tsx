@@ -1,7 +1,8 @@
 import { PowerNotice } from './PowerNotice'
 import { useEffect, useId, useRef, useState } from 'react'
-import { convertResolveTitles, exportProduction, getResolveTimelineStatus, exportToResolve, getProductionWorkbench, refineProduction, renderProduction, restoreProduction } from './api'
+import { convertResolveTitles, exportProduction, getResolveTimelineStatus, exportToResolve, getProductionWorkbench, refineProduction, renderProduction, restoreProduction, setComponentText } from './api'
 import type { FilmPreview, FilmVersion, ProductionWorkbenchState, ResolveExport, ResolveTimelineStatus } from './api'
+import { ComponentTexts } from './ComponentTexts'
 import { ProductionMusicPicker } from './ProductionMusicPicker'
 import { PromptHistory } from './PromptHistory'
 import { usePromptDraft } from './usePromptDraft'
@@ -12,7 +13,7 @@ import { overallInstruction } from './reviewDraft'
 
 type Props = { visible: boolean; runProvider?: string; projectId: string; csrf: string; runId: string; revisionId: string; active: boolean; onChanged: () => void; musicId: string; previews: Array<FilmPreview | null | undefined>; onMusicChange: (id: string) => void }
 const MAX_INSTRUCTION = 8000
-/** Review the film, note what to change, and hand the notes to the AI. Fine manual editing belongs in an editing app. */
+/** Review the film, reword its graphics, note what else to change and hand the notes to the AI. Fine manual editing belongs in an editing app. */
 export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionId, active, onChanged, musicId, onMusicChange, previews, runProvider }: Props) {
   const provider = useProvider()
   // A revision may hand the draft to the AI Clipen was started with.
@@ -112,6 +113,9 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
       {data.sent_notes.instruction && <pre>{data.sent_notes.instruction}</pre>}
       {!data.sent_notes.instruction?.includes('審片注記') && data.sent_notes.items.length > 0 && <ol>{data.sent_notes.items.map((item) => <li key={item.reference_id}>{describeNote(item, data.revision.timeline).line}</li>)}</ol>}
     </details>}
+    {/* Keyed by version, so what was typed against an older version is dropped. */}
+    {data && <ComponentTexts key={data.revision.revision_id} timeline={data.revision.timeline} disabled={busy || active}
+      onSave={(elementId, text, detail) => action(() => setComponentText(csrf, projectId, runId, data.revision.revision_id, elementId, text, detail), '已改好元件的字。輸出這一版影片後就能看到。')} />}
     <details className="workbench-versions-panel" onToggle={(event) => { if (!event.currentTarget.open) versionPlayer.current?.pause() }}><summary>版本紀錄與還原</summary>
       <p className="workbench-versions-note">每次 AI 製作或修改結束、每次還原，各算一個版本。</p>
       {data?.history.length ? <ol className="workbench-versions">{data.history.map((version) => {
@@ -127,7 +131,7 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
       <button type="button" className="button secondary" disabled={!historyId || busy || active} onClick={() => void action(() => restoreProduction(csrf, projectId, runId, data!.revision.revision_id, historyId), '已還原。輸出這一版影片後就能審片。')}>還原選定版本</button>
     </details>
     <details className="workbench-export"><summary>到 DaVinci Resolve 自己剪</summary>
-      <p>在 Clipen 裡，修改都是記注記交給 AI。要自己動手逐格剪，就匯出到 DaVinci Resolve：時間線直接使用原始素材，元件做成透明圖片疊在上層，字幕是可編輯的字幕軌，配樂也一起帶過去。匯出會放在毛片資料夾裡的「Clipen 匯出」，不會被當成新素材。</p>
+      <p>在 Clipen 裡，除了改元件的字，修改都是記注記交給 AI。要自己動手逐格剪，就匯出到 DaVinci Resolve：時間線直接使用原始素材，元件做成透明圖片疊在上層，字幕是可編輯的字幕軌，配樂也一起帶過去。匯出會放在毛片資料夾裡的「Clipen 匯出」，不會被當成新素材。</p>
       <button type="button" className="button secondary" disabled={busy || active || !data} onClick={exportResolve}>{exporting ? '匯出中…' : '匯出到 DaVinci Resolve'}</button>
       {exporting && <p className="prompt-draft-hint">有馬賽克或變速的片段需要先輸出，可能要一點時間。</p>}
       {resolved && <div className="resolve-result" role="status">

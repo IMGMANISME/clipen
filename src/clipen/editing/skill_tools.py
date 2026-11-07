@@ -195,6 +195,43 @@ class SkillTools:
         return self._save(replace(timeline, tracks=tracks), args["summary"], element_id=item.item_id,
                           anchor_item_id=shot.item_id, inspection_required="Check actual target, faces, timing and usefulness in preview.")
 
+    def _set_component_text(self, args):
+        """A person rewords one programme graphic; its look, place, timing and evidence stay as they were."""
+        from .production_media import load_text_styles
+        element, text, detail = args.get("element_id"), args.get("text"), args.get("detail", "")
+        if not isinstance(element, str) or not isinstance(text, str) or not isinstance(detail, str):
+            raise ProjectError("agent_input_invalid", "元件文字格式不正確。", status_code=422)
+        text, detail = text.strip(), detail.strip()
+        timeline = self._timeline()
+        item = next((i for t in timeline.tracks if t.track_id == "program-components" or t.track_id.startswith("program-components-")
+                     for i in t.items if i.item_id == element), None)
+        profile = load_text_styles(self.repository.projects, self.project_id).get(item.style_id, {}) if isinstance(item, TextClip) else {}
+        if profile.get("kind") != "program_component":
+            raise ProjectError("component_not_found", "找不到這個畫面元件，影片可能已經更新，請重新讀取。", status_code=404)
+        if not text:
+            raise ProjectError("component_text_empty", "元件的主要文字不能空白。", status_code=422)
+        if "\n" in text or "\n" in detail:
+            raise ProjectError("component_text_overflow", "主要文字與補充文字各寫一行，換行由元件處理。", status_code=422)
+        component = next((c for c in self._skill_value()["components"] if c["component_id"] == profile.get("component_id")), None)
+        limit = component["max_characters"] if component else 48
+        if len(text) > limit or len(detail) > 48:
+            raise ProjectError("component_text_overflow", f"這個元件的主要文字最多 {limit} 個字，補充文字最多 48 個字。", status_code=422)
+        changed = replace(item, text=text + ("\n" + detail if detail else ""))
+        if changed.text == item.text:
+            raise ProjectError("component_text_unchanged", "文字沒有變動。", status_code=422)
+        from PIL import Image, ImageDraw
+        from clipen.rendering.program_components import draw_program_component
+        from clipen.rendering.titles import TitleCardRenderer, TitleRenderError
+        font = TitleCardRenderer._font_path()
+        if font is None:
+            raise ProjectError("preview_title_font_missing", "缺少可用的中文字型。", status_code=409)
+        try:
+            draw_program_component(ImageDraw.Draw(Image.new("RGBA", (timeline.width, timeline.height))), font, timeline, changed, profile, 8)
+        except TitleRenderError as error:
+            message = "這套字型無法顯示部分字元，請換個寫法或使用等價標點。" if error.code == "program_component_missing_glyph" else "文字放不進這個元件，請縮短一些。"
+            raise ProjectError(error.code, message, status_code=422) from error
+        return self._change_item(changed, args.get("summary") or "使用者修改元件文字")
+
     def _component_issues(self):
         from PIL import Image, ImageDraw
         from clipen.rendering.program_components import component_bounds
