@@ -1,7 +1,7 @@
 import { PowerNotice } from './PowerNotice'
 import { useEffect, useId, useRef, useState } from 'react'
-import { convertResolveTitles, exportProduction, exportToResolve, getProductionWorkbench, refineProduction, renderProduction, restoreProduction } from './api'
-import type { FilmPreview, FilmVersion, ProductionWorkbenchState, ResolveExport } from './api'
+import { convertResolveTitles, exportProduction, getResolveTimelineStatus, exportToResolve, getProductionWorkbench, refineProduction, renderProduction, restoreProduction } from './api'
+import type { FilmPreview, FilmVersion, ProductionWorkbenchState, ResolveExport, ResolveTimelineStatus } from './api'
 import { ProductionMusicPicker } from './ProductionMusicPicker'
 import { PromptHistory } from './PromptHistory'
 import { usePromptDraft } from './usePromptDraft'
@@ -27,7 +27,8 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
   const [noteOpen, setNoteOpen] = useState(false)
   const [exportUrl, setExportUrl] = useState('')
   const [resolved, setResolved] = useState<ResolveExport | null>(null)
-  const [converted, setConverted] = useState('')
+  const [timeline, setTimeline] = useState<ResolveTimelineStatus | null>(null)
+  const [titlesOpen, setTitlesOpen] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [historyId, setHistoryId] = useState('')
   const [copied, setCopied] = useState(false)
@@ -62,14 +63,23 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
   }
   function exportResolve() {
     setExporting(true)
-    void action(async () => { try { setResolved(await exportToResolve(csrf, projectId, runId)); setConverted('') } finally { setExporting(false) } },
+    void action(async () => { try { setResolved(await exportToResolve(csrf, projectId, runId)); setTimeline(null) } finally { setExporting(false) } },
       '已匯出到毛片資料夾，Finder 已打開匯出的資料夾。')
   }
   function convertTitles() {
     if (!resolved) return
-    void action(async () => { const result = await convertResolveTitles(csrf, projectId, runId, resolved.folder); setConverted(result.drt) },
+    void action(async () => { await convertResolveTitles(csrf, projectId, runId, resolved.folder); setTimeline(await getResolveTimelineStatus(csrf, projectId, runId, resolved.folder)) },
       '已做好可改字的時間線，Finder 已打開它所在的資料夾。')
   }
+  // While the steps are open, keep checking for the .drt saved in Resolve so the person sees it land.
+  useEffect(() => {
+    if (!resolved || !titlesOpen || !visible) return
+    let disposed = false
+    const check = () => void getResolveTimelineStatus(csrf, projectId, runId, resolved.folder).then((next) => { if (!disposed) setTimeline(next) }).catch(() => { /* Keep the last status. */ })
+    check()
+    const timer = window.setInterval(check, 3000)
+    return () => { disposed = true; window.clearInterval(timer) }
+  }, [resolved, titlesOpen, visible, csrf, projectId, runId])
   async function copy() {
     try { await navigator.clipboard.writeText(prompt); setCopied(true); window.setTimeout(() => setCopied(false), 2000) }
     catch { setError('無法複製到剪貼簿，請直接選取文字複製。') }
@@ -127,16 +137,14 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
           <li>如果 Resolve 說找不到素材（clips were not yet found），按「Locate」，選擇毛片資料夾。</li>
           {resolved.captions > 0 && <li>再選「檔案 &gt; 匯入 &gt; 字幕…」，選擇「字幕.srt」，拖到時間線的字幕軌。</li>}
         </ol>
-        {resolved.editable_overlays > 0 && <details className="resolve-titles">
+        {resolved.editable_overlays > 0 && <details className="resolve-titles" onToggle={(event) => setTitlesOpen(event.currentTarget.open)}>
           <summary>想在 Resolve 改元件的字（需要時再做）</summary>
           <p>匯入後元件已經和 Clipen 一模一樣，只是以圖片呈現。要改字時，再做兩步，{resolved.editable_overlays} 個元件會一起換成可以改字的標題：</p>
           <ol>
             <li>在 Resolve 選「檔案 &gt; 匯出 &gt; 時間線…」，格式選「DaVinci Resolve Timeline Files (*.drt)」，按儲存。Clipen 會自動做好可改字的版本，並在 Finder 打開它。</li>
             <li>在 Resolve 選「檔案 &gt; 匯入 &gt; 時間線…」，選名稱有「（可改字）」的 .drt。選取元件後，在右邊檢查器改字。</li>
           </ol>
-          <p className="prompt-draft-hint">Finder 沒有自動打開的話（例如中途關過 Clipen），按這裡手動轉換：</p>
-          <button type="button" className="button ghost" disabled={busy || active} onClick={convertTitles}>把元件換成可改字的標題</button>
-          {converted && <p>已做好「{converted.split('/').pop()}」，放在匯出資料夾裡。</p>}
+          <ResolveTimeline status={timeline} disabled={busy || active} onConvert={convertTitles} />
         </details>}
         {resolved.notes.length > 0 && <details><summary>匯出時要留意的地方（{resolved.notes.length}）</summary><ul>{resolved.notes.map((note) => <li key={note}>{note}</li>)}</ul></details>}
         <p className="prompt-draft-hint">完整步驟在資料夾裡的「說明.txt」。請保持資料夾完整，時間線會用到裡面的檔案。</p>
@@ -146,4 +154,19 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
     </details>
     </div>
   </section>
+}
+
+const fileName = (path: string) => path.split('/').pop() ?? path
+/** Whether Clipen has found the .drt saved in Resolve, and where it looks while it has not. */
+function ResolveTimeline({ status, disabled, onConvert }: { status: ResolveTimelineStatus | null; disabled: boolean; onConvert: () => void }) {
+  if (!status) return <p className="prompt-draft-hint" role="status">正在找 Resolve 存出的 .drt…</p>
+  if (status.state === 'converted' && status.converted) return <p className="resolve-timeline is-ready" role="status">已做好「{fileName(status.converted)}」，放在這份匯出的資料夾裡。在 Resolve 匯入它就能改字。</p>
+  if (status.state === 'found' && status.source) return <div className="resolve-timeline" role="status">
+    <p>找到「{fileName(status.source)}」，還沒做成可改字的版本。Clipen 開著時通常幾秒內會自動完成；沒有的話按這裡：</p>
+    <button type="button" className="button ghost" disabled={disabled} onClick={onConvert}>把元件換成可改字的標題</button>
+  </div>
+  return <div className="resolve-timeline" role="status">
+    <p>還沒找到這份時間線的 .drt。存到下面任一個地方，Clipen 就會找到：</p>
+    <ul>{status.folders.map((folder) => <li key={folder.path}>{folder.label}<small>{folder.path}</small></li>)}</ul>
+  </div>
 }

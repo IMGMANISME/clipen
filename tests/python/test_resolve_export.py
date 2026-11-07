@@ -185,6 +185,28 @@ class ResolveExportTests(unittest.TestCase):
             target,titles=convert_timeline(package)
         self.assertEqual((target,titles),(package/'film（可改字）.drt',1))
 
+    def test_status_says_where_clipen_looks_and_what_it_found(self):
+        from clipen.editing.resolve_export import timeline_status
+        footage=self.destination/'footage';package=footage/'Clipen 匯出'/'film DaVinci Resolve';components=package/'元件';components.mkdir(parents=True)
+        resolve_folder=self.destination/'Movies'
+        with patch('clipen.editing.resolve_export.RESOLVE_DEFAULT_FOLDER',resolve_folder):
+            status=timeline_status(package)
+            self.assertEqual(status['state'],'waiting')
+            self.assertEqual([folder['path'] for folder in status['folders']],[str(package),str(resolve_folder),str(footage/'Clipen 匯出'),str(footage)])
+            self.assertEqual((status['source'],status['converted']),(None,None))
+            source=footage/'film.drt'
+            with zipfile.ZipFile(source,'w') as archive:archive.writestr('SeqContainer/s.xml',f'<MediaFilePath>{components}/001 京成.png</MediaFilePath>')
+            os.utime(source,(100,100))
+            self.assertEqual((timeline_status(package)['state'],timeline_status(package)['source']),('found',str(source)))
+            # The「._」files macOS writes on exFAT drives are neither saves nor editable copies.
+            (package/'._film（可改字）.drt').write_bytes(b'x');(footage/'._film.drt').write_bytes(b'x')
+            self.assertEqual((timeline_status(package)['state'],timeline_status(package)['converted']),('found',None))
+            copy=package/'film（可改字）.drt';copy.write_bytes(b'x');os.utime(copy,(200,200))
+            self.assertEqual((timeline_status(package)['state'],timeline_status(package)['converted']),('converted',str(copy)))
+            # A newer save of the timeline needs converting again.
+            os.utime(source,(300,300))
+            self.assertEqual(timeline_status(package)['state'],'found')
+
     def test_saving_the_drt_in_resolve_is_enough(self):
         import threading
         from clipen.editing.resolve_export import watch_timeline
@@ -230,6 +252,12 @@ class ResolveExportTests(unittest.TestCase):
                 code,_,body=request('POST',path,{'folder':str(package)},mutation);self.assertEqual(code,200,body)
                 self.assertEqual(encoding.loads(body),{'drt':str(package/'film（可改字）.drt'),'titles':3})
                 reveal.assert_called_once_with(package/'film（可改字）.drt')
+            status_path=path.replace('resolve_titles','resolve_status')
+            with patch('clipen.editing.resolve_export.timeline_status',return_value={'state':'waiting'}) as status:
+                code,_,body=request('POST',status_path,{'folder':str(self.f.root/'source')},mutation);self.assertEqual(code,422,body)
+                status.assert_not_called()
+                code,_,body=request('POST',status_path,{'folder':str(package)},mutation);self.assertEqual((code,encoding.loads(body)),(200,{'state':'waiting'}))
+                status.assert_called_once_with(package.resolve())
         finally:coordinator.close()
 
     def test_source_time_follows_the_file_timecode(self):
