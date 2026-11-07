@@ -66,6 +66,12 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
     setConfirming(false)
     void action(async () => { await refineProduction(csrf, projectId, runId, data.revision.revision_id, text, musicId || undefined, data.references?.version ?? 0); setInstruction(''); setConsent(false) }, 'AI 開始修改了。')
   }
+  // A hand edit renders its new version right away, so the player shows the change without another click.
+  async function renderAfter(edit: Promise<unknown>) {
+    const result = await edit as { revision?: { revision_id?: string } }
+    const next = result.revision?.revision_id
+    if (next) await renderProduction(csrf, projectId, runId, next).catch(() => { /* The render button stays available. */ })
+  }
   function render() {
     if (data) void action(() => renderProduction(csrf, projectId, runId, data.revision.revision_id), '開始輸出這一版，好了就能播放。')
   }
@@ -123,13 +129,15 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
         </div>}</Menu>
       </div>
     </header>
-    {data && !video && playable && <p className="rv-stale">播放的是{earlierVersion ? `版本 ${earlierVersion.number} ` : '上一版'}的影片，剛改的地方要{rendering ? '等輸出完成' : '按「輸出這一版」'}才看得到。</p>}
+    {data && !video && playable && <p className={`rv-stale${rendering ? ' is-rendering' : ''}`}>{rendering
+      ? <><span className="rv-pulse" />正在輸出新版本，大約一兩分鐘，好了會自動換成新影片。現在播的是{earlierVersion ? `版本 ${earlierVersion.number}` : '上一版'}。</>
+      : <>現在播的是{earlierVersion ? `版本 ${earlierVersion.number} ` : '上一版'}的影片，還看不到剛改的地方。按「輸出這一版」更新。</>}</p>}
     {error && <p className="rv-alert" role="alert">{error}<button type="button" className="rv-icon" aria-label="關閉" onClick={() => setError('')}>×</button></p>}
     {message && <p className="rv-toast" role="status">{message}</p>}
     {data && <ReviewNotes visible={visible} projectId={projectId} csrf={csrf} runId={runId} data={data} video={playable} disabled={busy || active} stage={comparing}
       onChanged={(references) => setData((value) => value ? { ...value, references } : value)} onDirty={setNoteOpen}
-      onSaveComponent={(draft) => action(() => editComponent(csrf, projectId, runId, data.revision.revision_id, draft), '改好了。輸出這一版就能在影片裡看到。')}
-      onRemoveComponent={(elementId) => action(() => removeComponent(csrf, projectId, runId, data.revision.revision_id, elementId), '元件刪掉了，需要的話可以從「版本」還原。')} />}
+      onSaveComponent={(draft) => action(() => renderAfter(editComponent(csrf, projectId, runId, data.revision.revision_id, draft)), '存好了，正在輸出新影片。')}
+      onRemoveComponent={(elementId) => action(() => renderAfter(removeComponent(csrf, projectId, runId, data.revision.revision_id, elementId)), '元件刪掉了，正在輸出新影片。可以從「版本」還原。')} />}
     {data && <footer className="rv-composer">
       {active ? <p className="rv-working"><span className="rv-pulse" />AI 正在修改這支片，好了會自動更新。</p> : <>
         <textarea aria-label="這一版還要怎麼改？" rows={1} value={instruction} maxLength={MAX_INSTRUCTION} onChange={(e) => setInstruction(e.target.value)}

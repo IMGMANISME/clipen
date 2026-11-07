@@ -164,6 +164,41 @@ class ProductionWorkbenchTests(unittest.TestCase):
         labels=[v['label'] for v in state(self.repository,self.project,self.run)['history'][:4]]
         self.assertEqual(labels,['手動修改：移除節目元件','手動修改：修改元件','手動修改：修改元件','手動修改：修改元件'])
 
+    def test_user_resizes_and_recolours_a_component(self):
+        from PIL import Image, ImageDraw
+        from clipen.editing.production_media import load_text_styles
+        from clipen.rendering.program_components import component_bounds, draw_program_component
+        from clipen.rendering.titles import TitleCardRenderer
+        self.f.call('add_program_component',element_id='header',item_id='agent-video-0001',component_id='headline',start_offset_frames=0,duration_frames=60,text='標題',x=.08,y=.2,evidence='測試畫面標註',summary='元件')
+        self.stop()
+        current=lambda:self.repository.current_revision(self.project,self.run)
+        item=lambda:next(i for t in current().timeline.tracks for i in t.items if i.item_id=='header')
+        original=item().style_id
+        def change(arguments,mutation):
+            return edit(self.repository,self.project,self.run,'edit_component',{'element_id':'header',**arguments},current().revision_id,mutation)
+        font=TitleCardRenderer._font_path();timeline=current().timeline
+        box=lambda profile:component_bounds(ImageDraw.Draw(Image.new('RGBA',(1,1))),font,timeline,item(),profile)[0]
+        designed=box(load_text_styles(self.f.projects,self.project)[original])
+        change({'scale':1.4,'colors':{'accent':'#FF0000'}},'bigger-red')
+        profile=load_text_styles(self.f.projects,self.project)[item().style_id]
+        self.assertEqual((profile['scale'],profile['colors'],profile['presets']['palette']['accent'][:3]),(1.4,{'accent':'#ff0000'},[255,0,0]))
+        bigger=box(profile)
+        # It grows from its top-left corner.
+        self.assertEqual(bigger[:2],designed[:2]);self.assertGreater(bigger[2]-bigger[0],(designed[2]-designed[0])*1.3)
+        picture=Image.new('RGBA',(timeline.width,timeline.height),(0,0,0,0))
+        draw_program_component(ImageDraw.Draw(picture),font,timeline,item(),profile,20)
+        self.assertIsNotNone(picture.getbbox())
+        # Back to the designed size and the style's colours gives the graphic its original identity.
+        change({'scale':1,'colors':{}},'reset')
+        self.assertEqual(item().style_id,original)
+        for arguments,code in (({'scale':3},'component_scale_invalid'),({'colors':{'accent':'red'}},'component_color_invalid'),
+                               ({'colors':{'shadow':'#000000'}},'component_color_invalid'),({'x':.6,'scale':1.6},'program_component_overflow')):
+            with self.assertRaises(ProjectError) as rejected:change(arguments,'bad-'+code+str(arguments))
+            self.assertEqual(rejected.exception.code,code)
+        editing=state(self.repository,self.project,self.run)['component_editing']
+        self.assertEqual(set(editing['visual_styles'][0]['colors']),{'accent','paper','ink'})
+        self.assertEqual((editing['components']['header']['scale'],editing['components']['header']['colors']),(1,{}))
+
     def test_refine_keeps_timeline_and_frozen_style_and_is_idempotent(self):
         before=self.repository.current_revision(self.project,self.run);frozen=self.repository.production_session(self.project,self.run)['skill'];self.stop()
         run,created=self.repository.request_refinement(self.project,self.run,'refine-one',before.revision_id,'保留鏡頭，只修改字幕。')
