@@ -464,7 +464,8 @@ def _editable_titles(directory: Path, rendered, styles, timeline) -> int:
     manifest = {}
     for item, target, _ in rendered:
         profile = styles.get(item.style_id)
-        if not profile or profile.get('kind') != 'program_component' or not program_creator.is_creator(profile):
+        # A graphic a person resized stays a picture: Resolve's titles would come back at the designed size.
+        if not profile or profile.get('kind') != 'program_component' or not program_creator.is_creator(profile) or profile.get('scale', 1) != 1:
             continue
         try:
             plan = program_creator.editable(font_path, timeline, item, profile)

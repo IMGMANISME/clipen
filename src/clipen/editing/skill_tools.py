@@ -11,6 +11,9 @@ from .agent_models import ToolResult
 from .production_catalog import COMPONENT_FIELDS
 from clipen.skills.visual_styles import style_presets, public_styles, font_presets, public_font_styles
 
+# The colours a person may change on a graphic: its accent, its light and its dark colour.
+COMPONENT_COLORS = frozenset({"accent", "paper", "ink"})
+
 
 
 @dataclass(frozen=True)
@@ -189,8 +192,9 @@ class SkillTools:
     def _component_draft(self, args):
         """A programme graphic as a person's changes would leave it, checked but not saved.
 
-        args holds element_id plus any of text, detail, x, y, visual_style_id, font_style_id,
-        start_offset_frames and duration_frames; anything left out keeps its current value.
+        args holds element_id plus any of text, detail, x, y, scale, colors ({accent, paper, ink}
+        as #rrggbb), visual_style_id, font_style_id, start_offset_frames and duration_frames;
+        anything left out keeps its current value.
         Returns the changed clip, its style profile and the clip as it is now."""
         from clipen.finishing.models import digest
         from .production_media import load_text_styles
@@ -231,8 +235,24 @@ class SkillTools:
             raise ProjectError("component_time_out_of_bounds", "元件要待在同一個鏡頭裡，至少顯示 0.2 秒。", status_code=422)
         visual_style, presets = style_presets(skill, args.get("visual_style_id", profile.get("visual_style_id")))
         font_style, presets = font_presets(skill, presets, args.get("font_style_id", profile.get("font_style_id")))
-        changed_profile = {**profile, "presets": presets, "visual_style_id": visual_style, "font_style_id": font_style,
-                           "x": x, "y": y, "start_offset_frames": start}
+        scale = args.get("scale", profile.get("scale", 1))
+        if isinstance(scale, bool) or not isinstance(scale, (int, float)) or not .6 <= scale <= 1.6:
+            raise ProjectError("component_scale_invalid", "元件大小要在 60% 到 160% 之間。", status_code=422)
+        colors = args.get("colors", profile.get("colors", {}))
+        if not isinstance(colors, dict) or not set(colors) <= COMPONENT_COLORS or not all(
+                isinstance(v, str) and len(v) == 7 and v[0] == "#" and all(c in "0123456789abcdefABCDEF" for c in v[1:]) for v in colors.values()):
+            raise ProjectError("component_color_invalid", "顏色格式不正確。", status_code=422)
+        # A person's colours replace the style's, keeping each colour's own transparency.
+        for name, value in colors.items():
+            presets["palette"][name] = [int(value[1:3], 16), int(value[3:5], 16), int(value[5:7], 16), presets["palette"][name][3]]
+        changed_profile = {key: value for key, value in profile.items() if key not in {"scale", "colors"}}
+        changed_profile.update({"presets": presets, "visual_style_id": visual_style, "font_style_id": font_style,
+                                "x": x, "y": y, "start_offset_frames": start})
+        # Designed size and the style's colours are left out, so untouched graphics keep their identity.
+        if round(float(scale), 2) != 1:
+            changed_profile["scale"] = round(float(scale), 2)
+        if colors:
+            changed_profile["colors"] = {name: value.lower() for name, value in sorted(colors.items())}
         style_id = "agent.component." + digest(changed_profile)[:24]
         draft = replace(item, text=text + ("\n" + detail if detail else ""), start_frame=shot.start_frame + start,
                         duration_frames=duration, style_id=style_id)
@@ -247,7 +267,7 @@ class SkillTools:
         except TitleRenderError as error:
             message = ("這套字型無法顯示部分字元，請換個寫法或換字體。" if error.code == "program_component_missing_glyph"
                        else "缺少這套字型，請換一套字體。" if error.code == "program_font_unavailable"
-                       else "元件超出畫面了，請縮短文字或往左上移一點。")
+                       else "元件超出畫面了，請縮小一點、縮短文字或往左上移。")
             raise ProjectError(error.code, message, status_code=422) from error
         return draft, changed_profile, item
 
@@ -299,8 +319,12 @@ class SkillTools:
                     "component_id": profile["component_id"], "name": names.get(profile["component_id"], profile["component_id"]),
                     "max_characters": limits.get(profile["component_id"], 48), "x": profile.get("x"), "y": profile.get("y"),
                     "visual_style_id": profile.get("visual_style_id"), "font_style_id": profile.get("font_style_id"),
+                    "scale": profile.get("scale", 1), "colors": profile.get("colors", {}),
                     "shot_start_frame": shot.start_frame, "shot_duration_frames": shot.duration_frames}
-        return {"components": result, "visual_styles": [{"id": v["visual_style_id"], "name": v["name"]} for v in public_styles(skill)],
+        def palette(identifier):
+            colours = style_presets(skill, identifier)[1]["palette"]
+            return {name: "#%02x%02x%02x" % tuple(colours[name][:3]) for name in sorted(COMPONENT_COLORS)}
+        return {"components": result, "visual_styles": [{"id": v["visual_style_id"], "name": v["name"], "colors": palette(v["visual_style_id"])} for v in public_styles(skill)],
                 "font_styles": [{"id": f["font_style_id"], "name": f["name"]} for f in public_font_styles(skill)]}
 
     def _component_issues(self):

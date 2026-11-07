@@ -6,6 +6,8 @@ import { X, Y, clamp, componentChanged } from './componentEdit'
 import type { ComponentEdit, Values } from './componentEdit'
 import { clock, parseClock } from './reviewModel'
 
+const colorNames: Array<['accent' | 'paper' | 'ink', string]> = [['accent', '主色'], ['paper', '亮色'], ['ink', '暗色']]
+
 /** A text field that commits a parsed value on Enter or leaving it, so typing is never clamped mid-word. */
 function Field({ label, value, format, parse, onCommit, disabled, suffix }: { label: string; value: number; format: (value: number) => string; parse: (text: string) => number; onCommit: (value: number) => void; disabled: boolean; suffix?: string }) {
   const [text, setText] = useState<string | null>(null)
@@ -27,6 +29,7 @@ export function ComponentInspector({ edit, settings, editing, fps, busy, disable
   const update = (next: Partial<Values>) => onChange({ ...edit, ...next })
   const enter = (e: KeyboardEvent<HTMLInputElement>) => { if (e.key === 'Enter' && changed && valid) onSave() }
   const moved = edit.x !== edit.saved.x || edit.y !== edit.saved.y
+  const palette = editing.visual_styles.find((style) => style.id === edit.visual)?.colors ?? { accent: '#e9b44c', paper: '#ffffff', ink: '#111111' }
   return <div className="rv-inspector">
     <div className="rv-panel-head"><h4>{settings.name}</h4><span className="rv-time">{clock((shotStart + edit.start) / fps)}</span>
       <button type="button" className="rv-icon" aria-label="關閉" onClick={onCancel}>×</button></div>
@@ -38,6 +41,18 @@ export function ComponentInspector({ edit, settings, editing, fps, busy, disable
         {editing.visual_styles.map((style) => <option key={style.id} value={style.id}>{style.name}</option>)}</select></label>}
       {editing.font_styles.length > 1 && <label>字體<select value={edit.font} disabled={disabled || busy} onChange={(e) => update({ font: e.target.value })}>
         {editing.font_styles.map((font) => <option key={font.id} value={font.id}>{font.name}</option>)}</select></label>}
+    </div>
+    <div className="rv-look">
+      <label className="rv-scale">大小<span className="rv-counter">{Math.round(edit.scale * 100)}%</span>
+        <input type="range" min={60} max={160} step={5} value={Math.round(edit.scale * 100)} disabled={disabled || busy} aria-label="元件大小"
+          onChange={(e) => update({ scale: Number(e.target.value) / 100 })} /></label>
+      <div className="rv-colors" role="group" aria-label="顏色">
+        {colorNames.map(([name, label]) => <label key={name} className="rv-swatch" title={label}>
+          <input type="color" value={edit.colors[name] ?? palette[name]} disabled={disabled || busy} aria-label={label}
+            onChange={(e) => update({ colors: { ...edit.colors, [name]: e.target.value } })} />
+          <span style={{ background: edit.colors[name] ?? palette[name] }} />{label}</label>)}
+        {(Object.keys(edit.colors).length > 0 || edit.scale !== 1) && <button type="button" className="rv-link" onClick={() => update({ colors: {}, scale: 1 })}>恢復樣式原樣</button>}
+      </div>
     </div>
     <div className="rv-pair">
       <Field label="出現" value={(shotStart + edit.start) / fps} format={(value) => clock(value, true)} parse={parseClock} disabled={disabled || busy}

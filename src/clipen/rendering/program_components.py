@@ -1,6 +1,8 @@
 """Deterministic in-picture graphics for versioned programme skill packages."""
 import math
 
+from PIL import Image, ImageDraw
+
 from .titles import TitleRenderError
 from .program_motion import FAMILIES, layout, motion_frames, draw_motion_graphic
 from .program_styles import skin, style_font, load_style_font, styled_text_length, draw_styled_graphic, type_outline
@@ -20,7 +22,7 @@ def animation_boundaries(item, profile):
             (*range(entry+1), *range(item.duration_frames-exit_frames, item.duration_frames+1))}
 
 
-def component_bounds(draw, font_path, timeline, item, profile):
+def _bounds(draw, font_path, timeline, item, profile):
     if program_creator.is_creator(profile):
         return program_creator.layout(draw, font_path, timeline, item, profile)
     if program_identities.identity(profile):
@@ -48,13 +50,13 @@ def component_bounds(draw, font_path, timeline, item, profile):
     return (x, y, x+box_width, y+box_height), font, pad
 
 
-def draw_program_component(draw, font_path, timeline, item, profile, relative_frame=None):
+def _draw(draw, font_path, timeline, item, profile, relative_frame=None):
     if program_creator.is_creator(profile):
         return program_creator.draw_graphic(draw, font_path, timeline, item, profile, relative_frame)
     identity = program_identities.identity(profile)
     if profile["component_id"] in FAMILIES and not identity:
         return draw_motion_graphic(draw, font_path, timeline, item, profile, relative_frame)
-    bounds, font, pad = component_bounds(draw, font_path, timeline, item, profile)
+    bounds, font, pad = _bounds(draw, font_path, timeline, item, profile)
     motion = profile["presets"]["motion"]
     relative = motion["entry_frames"] if relative_frame is None else relative_frame
     entering = min(1., max(0., (relative+1)/motion["entry_frames"]))
@@ -124,3 +126,58 @@ def draw_program_component(draw, font_path, timeline, item, profile, relative_fr
                   (tip[0]-size*math.cos(angle+.45), tip[1]-size*math.sin(angle+.45))]
         draw.polygon(points, fill=color("accent"))
     return bounds
+
+
+class _Canvas:
+    """A timeline seen at another size, so every style's own proportions scale with it."""
+    def __init__(self, timeline, width, height):
+        self._timeline, self.width, self.height = timeline, width, height
+
+    def __getattr__(self, name):
+        return getattr(self._timeline, name)
+
+
+def _scaled(timeline, profile):
+    """For a graphic a person resized: a larger or smaller canvas to draw it on, and where to place
+    that canvas so the graphic keeps its top-left corner. None at its designed size."""
+    scale = profile.get("scale", 1)
+    if scale == 1:
+        return None
+    canvas = _Canvas(timeline, max(2, round(timeline.width*scale)), max(2, round(timeline.height*scale)))
+    return canvas, (round(timeline.width*profile["x"]) - round(canvas.width*profile["x"]),
+                    round(timeline.height*profile["y"]) - round(canvas.height*profile["y"]))
+
+
+def component_bounds(draw, font_path, timeline, item, profile):
+    """The graphic's box on the picture, after any size a person chose."""
+    scaled = _scaled(timeline, profile)
+    if scaled is None:
+        return _bounds(draw, font_path, timeline, item, profile)
+    canvas, (dx, dy) = scaled
+    (left, top, right, bottom), font, pad = _bounds(draw, font_path, canvas, item, profile)
+    box = (left+dx, top+dy, right+dx, bottom+dy)
+    # Enlarged, it must still clear the picture's edge and the subtitles at the bottom.
+    if box[0] < 0 or box[1] < 0 or box[2] > timeline.width*.97 or box[3] > timeline.height*.8:
+        raise TitleRenderError("program_component_overflow")
+    return box, font, pad
+
+
+def draw_program_component(draw, font_path, timeline, item, profile, relative_frame=None):
+    scaled = _scaled(timeline, profile)
+    if scaled is None:
+        return _draw(draw, font_path, timeline, item, profile, relative_frame)
+    canvas, (dx, dy) = scaled
+    component_bounds(draw, font_path, timeline, item, profile)
+    # Drawn at its new size on a canvas of its own, so type stays sharp instead of being resampled.
+    layer = Image.new("RGBA", (canvas.width, canvas.height), (0, 0, 0, 0))
+    result = _draw(ImageDraw.Draw(layer), font_path, canvas, item, profile, relative_frame)
+    target = draw._image
+    sx, sy, tx, ty = max(0, -dx), max(0, -dy), max(0, dx), max(0, dy)
+    width, height = min(layer.width-sx, target.width-tx), min(layer.height-sy, target.height-ty)
+    if width > 0 and height > 0:
+        piece = layer.crop((sx, sy, sx+width, sy+height))
+        if target.mode == "RGBA":
+            target.alpha_composite(piece, (tx, ty))
+        else:
+            target.paste(piece, (tx, ty), piece)
+    return result
