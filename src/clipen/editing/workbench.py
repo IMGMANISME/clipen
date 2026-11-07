@@ -7,8 +7,8 @@ from .agent_tools import EditAgentTools
 from .production_media import AgentAudioStore
 from .refinement_references import public_state, sent
 
-# Changes go through review notes to the AI; the user picks which version is current and may reword graphics.
-USER_TOOLS = frozenset({'restore_revision','set_component_text'})
+# Changes go through review notes to the AI; the user picks which version is current and edits graphics directly.
+USER_TOOLS = frozenset({'restore_revision','set_component_text','edit_component','remove_program_component'})
 
 def idle(repository, project_id, run_id):
     run=repository.get(project_id,run_id)
@@ -38,12 +38,14 @@ def state(repository, project_id, run_id):
             preview=db.execute("SELECT render_id FROM preview_renders WHERE timeline_id=? AND state='succeeded' ORDER BY created_at DESC LIMIT 1",(version['revision_id'],)).fetchone()
             version['preview_url']=f"/api/projects/{project_id}/preview/{preview['render_id']}/media" if preview else None
     intent=(repository.production_session(project_id,run_id) or {}).get('intent',{})
-    return {'revision':revision.to_public(include_timeline=True),'history':history,'references':public_state(intent,revision.timeline),'sent_notes':sent(intent),'audio_assets':AgentAudioStore(repository.projects,project_id).public_assets()}
+    try:editing=tools_for(repository,project_id,run_id)._component_editing()
+    except (ProjectError,KeyError,StopIteration):editing={'components':{},'visual_styles':[],'font_styles':[]}
+    return {'revision':revision.to_public(include_timeline=True),'component_editing':editing,'history':history,'references':public_state(intent,revision.timeline),'sent_notes':sent(intent),'audio_assets':AgentAudioStore(repository.projects,project_id).public_assets()}
 
 def edit(repository, project_id, run_id, name, arguments, expected, mutation_id):
     idle(repository,project_id,run_id)
     if name not in USER_TOOLS:
-        raise ProjectError('tool_not_allowed','請用審片注記交給 AI 修改；這裡只能還原版本或改元件文字。',status_code=422)
+        raise ProjectError('tool_not_allowed','請用審片注記交給 AI 修改；這裡只能還原版本或編輯元件。',status_code=422)
     tools=tools_for(repository,project_id,run_id)
     try:
         result=tools.call(name,{**arguments,'expected_revision_id':expected,'mutation_id':mutation_id})

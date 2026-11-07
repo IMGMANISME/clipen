@@ -176,49 +176,66 @@ class SkillTools:
             message='缺少這套字型或字型檔校驗失敗，請重新安裝對應版本。' if error.code=='program_font_unavailable' else '目前字型無法顯示部分字元，請使用可用字型或等價標點。' if error.code=='program_component_missing_glyph' else '文字超出元件版面，請縮短文字或調整位置。'
             raise ProjectError(error.code,message,status_code=422) from error
         atomic_json(text_style_path(self.repository.projects, self.project_id), styles)
-        tracks = tuple(replace(t, items=tuple(i for i in t.items if i.item_id != item.item_id)) for t in timeline.tracks if not (t.track_id == "program-components" or t.track_id.startswith("program-components-")))
         previous = [i for t in timeline.tracks if (t.track_id == "program-components" or t.track_id.startswith("program-components-")) for i in t.items if i.item_id != item.item_id]
         from .production_limits import limits_for
         if len(previous) >= limits_for(self).components:
             raise ProjectError("component_limit", "已達本次製作的畫面元件上限。", status_code=422)
         # Separate overlay lanes preserve the domain rule: clips on one track
         # cannot overlap. Spatial collisions remain delivery findings below.
-        lanes = []
-        for element in sorted(previous+[item], key=lambda i: (i.start_frame, i.item_id)):
-            lane = next((lane for lane in lanes if lane[-1].start_frame+lane[-1].duration_frames <= element.start_frame), None)
-            if lane is None:
-                lane = []
-                lanes.append(lane)
-            lane.append(element)
-        tracks += tuple(Track("program-components" if n == 0 else f"program-components-{n+1}",
-                              TrackKind.TITLE, tuple(lane)) for n, lane in enumerate(lanes))
+        tracks = self._component_lanes(item)
         return self._save(replace(timeline, tracks=tracks), args["summary"], element_id=item.item_id,
                           anchor_item_id=shot.item_id, inspection_required="Check actual target, faces, timing and usefulness in preview.")
 
-    def _set_component_text(self, args):
-        """A person rewords one programme graphic; its look, place, timing and evidence stay as they were."""
+    def _component_draft(self, args):
+        """A programme graphic as a person's changes would leave it, checked but not saved.
+
+        args holds element_id plus any of text, detail, x, y, visual_style_id, font_style_id,
+        start_offset_frames and duration_frames; anything left out keeps its current value.
+        Returns the changed clip, its style profile and the clip as it is now."""
+        from clipen.finishing.models import digest
         from .production_media import load_text_styles
-        element, text, detail = args.get("element_id"), args.get("text"), args.get("detail", "")
-        if not isinstance(element, str) or not isinstance(text, str) or not isinstance(detail, str):
-            raise ProjectError("agent_input_invalid", "元件文字格式不正確。", status_code=422)
-        text, detail = text.strip(), detail.strip()
+        if not isinstance(args, dict) or not isinstance(args.get("element_id"), str):
+            raise ProjectError("agent_input_invalid", "元件設定格式不正確。", status_code=422)
         timeline = self._timeline()
         item = next((i for t in timeline.tracks if t.track_id == "program-components" or t.track_id.startswith("program-components-")
-                     for i in t.items if i.item_id == element), None)
+                     for i in t.items if i.item_id == args["element_id"]), None)
         profile = load_text_styles(self.repository.projects, self.project_id).get(item.style_id, {}) if isinstance(item, TextClip) else {}
         if profile.get("kind") != "program_component":
             raise ProjectError("component_not_found", "找不到這個畫面元件，影片可能已經更新，請重新讀取。", status_code=404)
+        saved_text, _, saved_detail = item.text.partition("\n")
+        text, detail = args.get("text", saved_text), args.get("detail", saved_detail)
+        if not isinstance(text, str) or not isinstance(detail, str):
+            raise ProjectError("agent_input_invalid", "元件文字格式不正確。", status_code=422)
+        text, detail = text.strip(), detail.strip()
         if not text:
             raise ProjectError("component_text_empty", "元件的主要文字不能空白。", status_code=422)
         if "\n" in text or "\n" in detail:
             raise ProjectError("component_text_overflow", "主要文字與補充文字各寫一行，換行由元件處理。", status_code=422)
-        component = next((c for c in self._skill_value()["components"] if c["component_id"] == profile.get("component_id")), None)
+        skill = self._skill_value()
+        component = next((c for c in skill["components"] if c["component_id"] == profile.get("component_id")), None)
         limit = component["max_characters"] if component else 48
         if len(text) > limit or len(detail) > 48:
             raise ProjectError("component_text_overflow", f"這個元件的主要文字最多 {limit} 個字，補充文字最多 48 個字。", status_code=422)
-        changed = replace(item, text=text + ("\n" + detail if detail else ""))
-        if changed.text == item.text:
-            raise ProjectError("component_text_unchanged", "文字沒有變動。", status_code=422)
+        def number(key, low, high):
+            value = args.get(key, profile.get(key))
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not low <= value <= high:
+                raise ProjectError("component_unsafe_position", "元件要留在畫面安全範圍內，並避開底部字幕。", status_code=422)
+            return round(float(value), 4)
+        x, y = number("x", .055, .65), number("y", .055, .68)
+        shot = next((i for i in self._video().items if i.item_id == profile.get("anchor_item_id")), None)
+        if shot is None:
+            raise ProjectError("component_anchor_missing", "這個元件所在的鏡頭已經不在影片裡。", status_code=409)
+        start = args.get("start_offset_frames", item.start_frame - shot.start_frame)
+        duration = args.get("duration_frames", item.duration_frames)
+        if any(isinstance(v, bool) or not isinstance(v, int) for v in (start, duration)) or start < 0 or duration < 6 or start + duration > shot.duration_frames:
+            raise ProjectError("component_time_out_of_bounds", "元件要待在同一個鏡頭裡，至少顯示 0.2 秒。", status_code=422)
+        visual_style, presets = style_presets(skill, args.get("visual_style_id", profile.get("visual_style_id")))
+        font_style, presets = font_presets(skill, presets, args.get("font_style_id", profile.get("font_style_id")))
+        changed_profile = {**profile, "presets": presets, "visual_style_id": visual_style, "font_style_id": font_style,
+                           "x": x, "y": y, "start_offset_frames": start}
+        style_id = "agent.component." + digest(changed_profile)[:24]
+        draft = replace(item, text=text + ("\n" + detail if detail else ""), start_frame=shot.start_frame + start,
+                        duration_frames=duration, style_id=style_id)
         from PIL import Image, ImageDraw
         from clipen.rendering.program_components import draw_program_component
         from clipen.rendering.titles import TitleCardRenderer, TitleRenderError
@@ -226,11 +243,65 @@ class SkillTools:
         if font is None:
             raise ProjectError("preview_title_font_missing", "缺少可用的中文字型。", status_code=409)
         try:
-            draw_program_component(ImageDraw.Draw(Image.new("RGBA", (timeline.width, timeline.height))), font, timeline, changed, profile, 8)
+            draw_program_component(ImageDraw.Draw(Image.new("RGBA", (timeline.width, timeline.height))), font, timeline, draft, changed_profile, 8)
         except TitleRenderError as error:
-            message = "這套字型無法顯示部分字元，請換個寫法或使用等價標點。" if error.code == "program_component_missing_glyph" else "文字放不進這個元件，請縮短一些。"
+            message = ("這套字型無法顯示部分字元，請換個寫法或換字體。" if error.code == "program_component_missing_glyph"
+                       else "缺少這套字型，請換一套字體。" if error.code == "program_font_unavailable"
+                       else "元件超出畫面了，請縮短文字或往左上移一點。")
             raise ProjectError(error.code, message, status_code=422) from error
-        return self._change_item(changed, args.get("summary") or "使用者修改元件文字")
+        return draft, changed_profile, item
+
+    def _edit_component(self, args):
+        """A person changes one programme graphic: wording, place, look, typeface or timing."""
+        from .production_media import atomic_json, load_text_styles, text_style_path
+        draft, profile, item = self._component_draft(args)
+        if (draft.text, draft.start_frame, draft.duration_frames, draft.style_id) == (item.text, item.start_frame, item.duration_frames, item.style_id):
+            raise ProjectError("component_unchanged", "沒有任何變動。", status_code=422)
+        styles = load_text_styles(self.repository.projects, self.project_id)
+        styles[draft.style_id] = profile
+        atomic_json(text_style_path(self.repository.projects, self.project_id), styles)
+        return self._save(replace(self._timeline(), tracks=self._component_lanes(draft)), args.get("summary") or "使用者修改元件")
+
+    def _component_lanes(self, item):
+        """The timeline's tracks with item placed: graphics that overlap in time sit on separate lanes."""
+        timeline = self._timeline()
+        components = lambda track: track.track_id == "program-components" or track.track_id.startswith("program-components-")
+        tracks = tuple(t for t in timeline.tracks if not components(t))
+        previous = [i for t in timeline.tracks if components(t) for i in t.items if i.item_id != item.item_id]
+        lanes = []
+        for element in sorted(previous+[item], key=lambda i: (i.start_frame, i.item_id)):
+            lane = next((lane for lane in lanes if lane[-1].start_frame+lane[-1].duration_frames <= element.start_frame), None)
+            if lane is None:
+                lane = []
+                lanes.append(lane)
+            lane.append(element)
+        return tracks + tuple(Track("program-components" if n == 0 else f"program-components-{n+1}", TrackKind.TITLE, tuple(lane))
+                              for n, lane in enumerate(lanes))
+
+    def _component_editing(self):
+        """What the review page needs to edit graphics: each one's settings and the run's styles."""
+        from .production_media import load_text_styles
+        skill = self._skill_value()
+        styles = load_text_styles(self.repository.projects, self.project_id)
+        shots = {i.item_id: i for i in self._video().items}
+        limits = {c["component_id"]: c["max_characters"] for c in skill["components"]}
+        names = {c["component_id"]: c.get("name", c["component_id"]) for c in skill["components"]}
+        result = {}
+        for track in self._timeline().tracks:
+            if not (track.track_id == "program-components" or track.track_id.startswith("program-components-")):
+                continue
+            for item in track.items:
+                profile = styles.get(item.style_id, {})
+                shot = shots.get(profile.get("anchor_item_id"))
+                if profile.get("kind") != "program_component" or shot is None:
+                    continue
+                result[item.item_id] = {
+                    "component_id": profile["component_id"], "name": names.get(profile["component_id"], profile["component_id"]),
+                    "max_characters": limits.get(profile["component_id"], 48), "x": profile.get("x"), "y": profile.get("y"),
+                    "visual_style_id": profile.get("visual_style_id"), "font_style_id": profile.get("font_style_id"),
+                    "shot_start_frame": shot.start_frame, "shot_duration_frames": shot.duration_frames}
+        return {"components": result, "visual_styles": [{"id": v["visual_style_id"], "name": v["name"]} for v in public_styles(skill)],
+                "font_styles": [{"id": f["font_style_id"], "name": f["name"]} for f in public_font_styles(skill)]}
 
     def _component_issues(self):
         from PIL import Image, ImageDraw

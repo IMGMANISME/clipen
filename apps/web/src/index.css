@@ -1557,7 +1557,7 @@ video { background: #000; }
 .rv-studio { display: grid; grid-template-columns: minmax(0, 1fr) 340px; grid-template-areas: 'stage panel' 'timeline timeline'; gap: 14px; min-width: 0; }
 .rv-stage { grid-area: stage; display: grid; place-items: center; min-width: 0; overflow: hidden; border-radius: 12px; background: #000; }
 .rv-stage > video, .rv-compare video { display: block; width: 100%; max-height: calc(100vh - 480px); min-height: 220px; aspect-ratio: 16 / 9; object-fit: contain; background: #000; }
-.rv-still { position: relative; display: grid; place-items: center; width: 100%; max-height: calc(100vh - 480px); min-height: 220px; }
+.rv-still { position: relative; display: grid; place-items: center; width: 100%; touch-action: none; }
 .rv-still img { width: 100%; height: 100%; object-fit: contain; display: block; transition: opacity .15s; user-select: none; }
 .rv-still.is-loading img { opacity: .55; }
 .rv-still-wait { color: var(--text-3); font-size: 13px; }
@@ -1594,6 +1594,25 @@ video { background: #000; }
 .rv-inspector input, .rv-note-form textarea, .rv-note-form select, .rv-range input { width: 100%; min-height: 40px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; color: var(--text); background: var(--surface-0); font: inherit; font-size: 14px; outline: none; }
 .rv-note-form textarea { resize: vertical; line-height: 1.6; }
 .rv-inspector input:focus, .rv-note-form textarea:focus, .rv-range input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.rv-inspector select { width: 100%; min-height: 40px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; color: var(--text); background: var(--surface-0); font: inherit; font-size: 13px; }
+.rv-inspector label { position: relative; }
+.rv-inspector { gap: 10px; }
+.rv-inspector > .rv-row:last-child { position: sticky; bottom: -14px; z-index: 1; margin: auto -14px -14px; padding: 10px 14px 14px; border-top: 1px solid var(--line); background: var(--surface-1); }
+.rv-counter { position: absolute; top: 0; right: 0; color: var(--text-3); font: 11px var(--mono); }
+.rv-counter.is-over { color: var(--danger); }
+.rv-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+.rv-pair:empty { display: none; }
+.rv-field { display: flex; align-items: center; gap: 6px; }
+.rv-field input { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.rv-field em { color: var(--text-3); font-size: 12px; font-style: normal; }
+.rv-link { margin-left: 6px; padding: 0; border: 0; color: var(--accent); background: none; font: inherit; cursor: pointer; }
+.rv-link:hover { text-decoration: underline; }
+.rv-text-button.is-danger { margin-left: auto; color: var(--danger); }
+.rv-text-button.is-danger:hover:not(:disabled) { color: var(--danger); background: var(--danger-soft); }
+.rv-grab { position: absolute; border: 1.5px solid var(--accent); border-radius: 6px; background: rgba(233, 180, 76, .08); box-shadow: 0 0 0 9999px rgba(0, 0, 0, .1); cursor: grab; touch-action: none; outline: none; }
+.rv-grab:active { cursor: grabbing; background: rgba(233, 180, 76, .16); }
+.rv-grab:focus-visible { box-shadow: 0 0 0 3px var(--accent-soft), 0 0 0 9999px rgba(0, 0, 0, .1); }
+.rv-grab::after { content: ''; position: absolute; top: -5px; left: -5px; width: 8px; height: 8px; border-radius: 2px; background: var(--accent); }
 .rv-range summary { color: var(--text-3); font-size: 12px; cursor: pointer; }
 .rv-range .rv-row { margin-top: 8px; flex-wrap: nowrap; }
 .rv-range input { width: 9em; flex: 0 0 auto; }
@@ -1655,7 +1674,7 @@ video { background: #000; }
 @media (max-width: 1000px) {
   .rv-studio { grid-template-columns: minmax(0, 1fr); grid-template-areas: 'stage' 'timeline' 'panel'; }
   .rv-panel { height: auto; min-height: 0; max-height: none; }
-  .rv-stage > video, .rv-compare video, .rv-still { max-height: 56vh; min-height: 0; }
+  .rv-stage > video, .rv-compare video { max-height: 56vh; min-height: 0; }
 }
 @media (max-width: 640px) {
   .rv-composer { flex-wrap: wrap; }

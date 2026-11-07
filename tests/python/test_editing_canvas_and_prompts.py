@@ -84,7 +84,7 @@ class CanvasAndPromptTests(unittest.TestCase):
         self.assertEqual(self.repository.current_revision(self.project, self.run), before)
         self.assertEqual(self.repository.get(self.project, self.run), budget)
 
-    def test_a_still_can_preview_unsaved_component_wording(self):
+    def test_a_still_can_preview_unsaved_component_settings(self):
         self.f.component(element_id='live-label', start_offset_frames=0, duration_frames=60, text='原標註')
         self.f.real_media()
         before = self.repository.current_revision(self.project, self.run)
@@ -95,11 +95,16 @@ class CanvasAndPromptTests(unittest.TestCase):
             return original(renderer, draw, font_module, font, timeline, item, offset)
         with patch('clipen.editing.visual_preview.MediaPreviewRepository', return_value=self.f.tools.media), \
              patch.object(TitleCardRenderer, '_draw_card', record):
-            frame(self.repository, self.project, self.run, before.revision_id, 30, {'element_id': 'live-label', 'text': '新標註'})
-            for invalid in ({'element_id': 'live-label', 'text': ' '}, {'element_id': 'live-label', 'text': 'x' * 201}, 'text'):
+            moved = frame(self.repository, self.project, self.run, before.revision_id, 30, {'element_id': 'live-label', 'text': '新標註', 'x': .3, 'y': .3})
+            still = frame(self.repository, self.project, self.run, before.revision_id, 30, {'element_id': 'live-label'})
+            for invalid in ({'element_id': 'live-label', 'text': ' '}, {'element_id': 'live-label', 'x': .9}, {'element_id': 'missing'}, 'text'):
                 with self.assertRaises(ProjectError): frame(self.repository, self.project, self.run, before.revision_id, 30, invalid)
-        self.assertIn('新標註', drawn); self.assertNotIn('原標註', drawn)
-        # Previewing never saves the wording.
+            # Past the graphic's end there is nothing to drag.
+            self.assertIsNone(frame(self.repository, self.project, self.run, before.revision_id, 30, {'element_id': 'live-label', 'duration_frames': 20})['component_box'])
+        self.assertTrue(any(text.startswith('新標註') for text in drawn))
+        self.assertAlmostEqual(moved['component_box']['x'], .3, places=2)
+        self.assertGreater(moved['component_box']['x'], still['component_box']['x'])
+        # Previewing never saves anything.
         self.assertEqual(self.repository.current_revision(self.project, self.run), before)
 
     def test_canvas_seeks_into_the_selected_clip_using_source_pts(self):

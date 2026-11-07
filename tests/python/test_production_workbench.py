@@ -113,7 +113,7 @@ class ProductionWorkbenchTests(unittest.TestCase):
         def reword(arguments,mutation,expected=None):
             return edit(self.repository,self.project,self.run,'set_component_text',arguments,expected or self.repository.current_revision(self.project,self.run).revision_id,mutation)
         for arguments,code in (({'element_id':'header','text':'  '},'component_text_empty'),({'element_id':'header','text':'兩\n行'},'component_text_overflow'),
-                               ({'element_id':'header','text':'長'*80},'component_text_overflow'),({'element_id':'header','text':'原來的標題'},'component_text_unchanged'),
+                               ({'element_id':'header','text':'長'*80},'component_text_overflow'),({'element_id':'header','text':'原來的標題'},'component_unchanged'),
                                ({'element_id':'agent-video-0001','text':'鏡頭'},'component_not_found')):
             with self.assertRaises(ProjectError) as rejected:reword(arguments,'bad-'+code+str(len(arguments['text'])))
             self.assertEqual(rejected.exception.code,code)
@@ -129,6 +129,40 @@ class ProductionWorkbenchTests(unittest.TestCase):
         # The AI never sees this tool; it revises graphics through its own component tools.
         with self.assertRaises(ProjectError) as hidden:self.f.call('set_component_text',element_id='header',text='AI 改的')
         self.assertEqual(hidden.exception.code,'tool_not_allowed')
+
+    def test_user_moves_restyles_retimes_and_removes_a_component(self):
+        from clipen.editing.production_media import load_text_styles
+        self.f.call('add_program_component',element_id='header',item_id='agent-video-0001',component_id='headline',start_offset_frames=0,duration_frames=60,text='原來的標題',x=.08,y=.25,evidence='測試畫面標註',summary='元件')
+        self.f.call('add_program_component',element_id='later',item_id='agent-video-0001',component_id='headline',start_offset_frames=70,duration_frames=30,text='後面的標題',x=.08,y=.25,evidence='測試畫面標註',summary='元件')
+        self.stop()
+        current=lambda:self.repository.current_revision(self.project,self.run)
+        item=lambda key:next(i for t in current().timeline.tracks for i in t.items if i.item_id==key)
+        def change(arguments,mutation):
+            return edit(self.repository,self.project,self.run,'edit_component',{'element_id':'header',**arguments},current().revision_id,mutation)
+        editing=state(self.repository,self.project,self.run)['component_editing']
+        self.assertEqual((editing['components']['header']['x'],editing['components']['header']['y']),(.08,.25))
+        self.assertTrue(editing['visual_styles']) ; self.assertTrue(editing['font_styles'])
+        before=item('header')
+        change({'x':.3,'y':.4},'move')
+        profile=load_text_styles(self.f.projects,self.project)[item('header').style_id]
+        self.assertEqual((profile['x'],profile['y'],item('header').text),(.3,.4,'原來的標題'))
+        other=next(v['id'] for v in editing['visual_styles'] if v['id']!=profile['visual_style_id'])
+        change({'visual_style_id':other},'restyle')
+        self.assertEqual(load_text_styles(self.f.projects,self.project)[item('header').style_id]['visual_style_id'],other)
+        # Moving it later so it overlaps the next graphic puts them on separate lanes.
+        change({'start_offset_frames':50,'duration_frames':40},'retime')
+        self.assertEqual((item('header').start_frame,item('header').duration_frames),(before.start_frame+50,40))
+        lanes=[t for t in current().timeline.tracks if t.track_id.startswith('program-components')]
+        self.assertEqual(len(lanes),2)
+        for arguments,code in (({'x':.9},'component_unsafe_position'),({'start_offset_frames':0,'duration_frames':10**6},'component_time_out_of_bounds'),
+                               ({'duration_frames':2},'component_time_out_of_bounds'),({'visual_style_id':'nope'},'visual_style_unavailable'),
+                               ({'font_style_id':'nope'},'font_style_unavailable'),({},'component_unchanged')):
+            with self.assertRaises(ProjectError) as rejected:change(arguments,'bad-'+code+str(arguments))
+            self.assertEqual(rejected.exception.code,code)
+        edit(self.repository,self.project,self.run,'remove_program_component',{'element_id':'header','summary':'使用者刪除元件'},current().revision_id,'remove')
+        self.assertFalse(any(i.item_id=='header' for t in current().timeline.tracks for i in t.items))
+        labels=[v['label'] for v in state(self.repository,self.project,self.run)['history'][:4]]
+        self.assertEqual(labels,['手動修改：移除節目元件','手動修改：修改元件','手動修改：修改元件','手動修改：修改元件'])
 
     def test_refine_keeps_timeline_and_frozen_style_and_is_idempotent(self):
         before=self.repository.current_revision(self.project,self.run);frozen=self.repository.production_session(self.project,self.run)['skill'];self.stop()
