@@ -42,6 +42,11 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
   const prompt = data ? composePrompt(instruction, notes, data.revision.timeline) : ''
   const current = data?.history.find((version) => version.revision_id === revision)
   const seconds = data ? data.revision.timeline.duration_frames * data.revision.timeline.frame_rate.den / data.revision.timeline.frame_rate.num : 0
+  // Until this version is rendered, play the last film when its length matches, so rewording a
+  // graphic never leaves the page without something to watch; note times still line up.
+  const earlier = video ? null : previews.find((preview) => preview?.state === 'succeeded' && preview.revision_id !== revision) ?? null
+  const earlierVersion = data?.history.find((version) => version.revision_id === earlier?.revision_id)
+  const playable = video ?? (earlier && earlierVersion?.duration_seconds != null && Math.abs(earlierVersion.duration_seconds - seconds) < .05 ? earlier : null)
   async function action(work: () => Promise<unknown>, success: string): Promise<boolean> {
     if (busy || active || !data) return false
     setBusy(true); setError(''); setMessage('')
@@ -118,9 +123,10 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
         </div>}</Menu>
       </div>
     </header>
+    {data && !video && playable && <p className="rv-stale">播放的是{earlierVersion ? `版本 ${earlierVersion.number} ` : '上一版'}的影片，剛改的地方要{rendering ? '等輸出完成' : '按「輸出這一版」'}才看得到。</p>}
     {error && <p className="rv-alert" role="alert">{error}<button type="button" className="rv-icon" aria-label="關閉" onClick={() => setError('')}>×</button></p>}
     {message && <p className="rv-toast" role="status">{message}</p>}
-    {data && <ReviewNotes visible={visible} projectId={projectId} csrf={csrf} runId={runId} data={data} video={video} disabled={busy || active} stage={comparing}
+    {data && <ReviewNotes visible={visible} projectId={projectId} csrf={csrf} runId={runId} data={data} video={playable} disabled={busy || active} stage={comparing}
       onChanged={(references) => setData((value) => value ? { ...value, references } : value)} onDirty={setNoteOpen}
       onSaveComponent={(elementId, text, detail) => action(() => setComponentText(csrf, projectId, runId, data.revision.revision_id, elementId, text, detail), '改好了。輸出這一版就能在影片裡看到。')} />}
     {data && <footer className="rv-composer">
