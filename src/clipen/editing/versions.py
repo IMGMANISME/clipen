@@ -15,13 +15,14 @@ _STOP_REASONS = {
     'provider_authentication_required': '登入過期時停下', 'provider_stopped_early': 'AI 提早結束',
     'delivery_blocked': '交付檢查未通過', 'provider_network_error': '連線中斷時停下',
 }
-# Labels for manual edits saved by earlier Clipen versions.
+# Labels for manual edits: rewording a graphic now, and the edits earlier Clipen versions allowed.
 _MANUAL = {'edit_text': '文字與時間', 'configure_text_style': '文字外觀', 'remove_item': '刪除元素', 'trim_clip': '裁切片段',
            'reorder_clips': '重排片段', 'split_clip': '分割片段', 'replace_clip_source': '替換來源', 'insert_clip': '插入片段',
            'set_source_audio': '原音', 'set_color_grade': '調色', 'set_mosaic': '馬賽克', 'set_transition': '轉場',
            'set_fade': '淡入淡出', 'remove_clip_effect': '移除效果', 'place_audio': '音樂與音效', 'remove_audio': '移除聲音',
            'add_program_component': '新增節目元件', 'update_program_component': '修改節目元件',
-           'remove_program_component': '移除節目元件', 'restyle_program_components': '更換元件風格與字體'}
+           'remove_program_component': '移除節目元件', 'restyle_program_components': '更換元件風格與字體',
+           'set_component_text': '元件文字'}
 
 
 def _name(provider_id):

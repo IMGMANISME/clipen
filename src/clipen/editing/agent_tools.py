@@ -80,6 +80,9 @@ class EditAgentTools(SkillTools, EvidenceTools, ProductionTools):
             "undo_revision": self._undo_revision,
             "finish_edit": self._finish_edit,
         }
+        if getattr(self, "_user_edit", False):
+            # Only a person can reword a graphic directly; the AI revises through its own component tools.
+            handlers["set_component_text"] = self._set_component_text
         handler = (lambda args: self.production_call(name,args)) if name in EXTRA_NAMES else handlers.get(name)
         if handler is None:
             raise ProjectError("tool_not_allowed", "這個工具未獲 Clipen 授權。", status_code=404)

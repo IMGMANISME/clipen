@@ -958,6 +958,10 @@ export function getProductionWorkbench(projectId: string, runId: string): Promis
 export function restoreProduction(csrf: string, projectId: string, runId: string, expectedRevision: string, revisionId: string): Promise<unknown> {
   return command(`/api/projects/${projectId}/production/${runId}/workbench/edit`, csrf, { tool: 'restore_revision', arguments: { revision_id: revisionId, summary: '使用者還原影片版本' }, expected_revision_id: expectedRevision, mutation_id: crypto.randomUUID() })
 }
+/** Reword one on-screen graphic; its look, place and timing stay the same. */
+export function setComponentText(csrf: string, projectId: string, runId: string, expectedRevision: string, elementId: string, text: string, detail: string): Promise<unknown> {
+  return command(`/api/projects/${projectId}/production/${runId}/workbench/edit`, csrf, { tool: 'set_component_text', arguments: { element_id: elementId, text, detail, summary: '使用者修改元件文字' }, expected_revision_id: expectedRevision, mutation_id: crypto.randomUUID() })
+}
 export function renderProduction(csrf: string, projectId: string, runId: string, expectedRevision: string): Promise<unknown> {
   return command(`/api/projects/${projectId}/production/${runId}/workbench/render`, csrf, { expected_revision_id: expectedRevision })
 }
