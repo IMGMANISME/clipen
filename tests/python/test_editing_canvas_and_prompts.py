@@ -10,6 +10,7 @@ import test_skill_production as fixtures
 from clipen.editing import EditAgentRepository, EditAgentCoordinator
 from clipen.editing.prompt_history import history, save
 from clipen.editing.visual_preview import frame
+from clipen.rendering.titles import TitleCardRenderer
 from clipen.projects import ProjectError
 
 
@@ -83,6 +84,24 @@ class CanvasAndPromptTests(unittest.TestCase):
         self.assertEqual(self.repository.current_revision(self.project, self.run), before)
         self.assertEqual(self.repository.get(self.project, self.run), budget)
 
+    def test_a_still_can_preview_unsaved_component_wording(self):
+        self.f.component(element_id='live-label', start_offset_frames=0, duration_frames=60, text='原標註')
+        self.f.real_media()
+        before = self.repository.current_revision(self.project, self.run)
+        drawn = []
+        original = TitleCardRenderer._draw_card
+        def record(renderer, draw, font_module, font, timeline, item, offset):
+            drawn.append(item.text)
+            return original(renderer, draw, font_module, font, timeline, item, offset)
+        with patch('clipen.editing.visual_preview.MediaPreviewRepository', return_value=self.f.tools.media), \
+             patch.object(TitleCardRenderer, '_draw_card', record):
+            frame(self.repository, self.project, self.run, before.revision_id, 30, {'element_id': 'live-label', 'text': '新標註'})
+            for invalid in ({'element_id': 'live-label', 'text': ' '}, {'element_id': 'live-label', 'text': 'x' * 201}, 'text'):
+                with self.assertRaises(ProjectError): frame(self.repository, self.project, self.run, before.revision_id, 30, invalid)
+        self.assertIn('新標註', drawn); self.assertNotIn('原標註', drawn)
+        # Previewing never saves the wording.
+        self.assertEqual(self.repository.current_revision(self.project, self.run), before)
+
     def test_canvas_seeks_into_the_selected_clip_using_source_pts(self):
         current = self.repository.current_revision(self.project, self.run)
         self.f.real_media()
@@ -134,6 +153,6 @@ class CanvasAndPromptTests(unittest.TestCase):
             current = self.repository.current_revision(self.project,self.run)
             with patch('clipen.editing.visual_preview.frame',return_value={'frame':30}) as render:
                 code, _, body = request('POST',frame_path,{'expected_revision_id':current.revision_id,'frame':30},mutation)
-                self.assertEqual(code,200,body); self.assertEqual(render.call_args.args[3:5],(current.revision_id,30))
+                self.assertEqual(code,200,body); self.assertEqual(render.call_args.args[3:6],(current.revision_id,30,None))
         finally:
             coordinator.close()
