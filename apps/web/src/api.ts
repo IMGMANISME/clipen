@@ -1002,8 +1002,9 @@ export function saveProductionPrompt(csrf: string, projectId: string, kind: 'pro
 }
 
 export type EditingFrame = { revision_id: string; frame: number; source_item_id: string; image_data_url: string; scope: string }
-export function getEditingFrame(csrf: string, projectId: string, runId: string, revisionId: string, frame: number, signal?: AbortSignal): Promise<EditingFrame> {
-  return request(`/api/projects/${projectId}/production/${runId}/workbench/frame`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Clipen-CSRF': csrf }, body: JSON.stringify({ expected_revision_id: revisionId, frame }), signal })
+/** One still of the current version; textOverride previews a graphic's unsaved wording. */
+export function getEditingFrame(csrf: string, projectId: string, runId: string, revisionId: string, frame: number, signal?: AbortSignal, textOverride?: { element_id: string; text: string }): Promise<EditingFrame> {
+  return request(`/api/projects/${projectId}/production/${runId}/workbench/frame`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Clipen-CSRF': csrf }, body: JSON.stringify({ expected_revision_id: revisionId, frame, ...(textOverride ? { text_override: textOverride } : {}) }), signal })
 }
 
 export type RefinementReference = {

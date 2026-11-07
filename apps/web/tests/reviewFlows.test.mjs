@@ -126,7 +126,7 @@ test('editing another note cannot replace an outdated draft; remarking retains i
   assert.equal(edit.props.disabled, true)
   edit.props.onClick() // Also check the handler guard, independent of disabled styling.
   assert.deepEqual(JSON.parse(h.values.get(draftKey)), oldDraft)
-  find(tree, (node) => node.type === 'button' && node.props.children?.join?.('') === '在 0:00 記一筆').props.onClick()
+  find(tree, (node) => node.type === 'button' && node.props.className?.includes('rv-mark')).props.onClick()
   const relocated = JSON.parse(h.values.get(draftKey))
   assert.equal(relocated.revisionId, 'new')
   assert.equal(relocated.form.note, oldDraft.form.note)
@@ -136,7 +136,7 @@ test('explicitly discarding an outdated draft allows editing saved notes again',
   const h = harness(t, { values: new Map([[draftKey, JSON.stringify(oldDraft)]]) })
   const props = { visible: true, projectId: 'project', runId: 'run', csrf: 'token', video: null, disabled: false, onChanged() {}, onDirty() {}, data }
   const render = () => h.render(() => h.load('ReviewNotes').ReviewNotes(props))
-  find(render(), (node) => node.type === 'button' && node.props.children === '放棄這份草稿').props.onClick()
+  find(render(), (node) => node.type === 'button' && node.props.children === '不要了').props.onClick()
   assert.equal(h.values.has(draftKey), false)
   const edit = find(render(), (node) => node.type === 'button' && node.props.children === '修改')
   assert.equal(edit.props.disabled, false)
@@ -144,19 +144,21 @@ test('explicitly discarding an outdated draft allows editing saved notes again',
   assert.equal(JSON.parse(h.values.get(draftKey)).form.referenceId, note.reference_id)
 })
 
-test('collapsing the history panel pauses its preview without restoring a revision', async (t) => {
-  const h = harness(t, { api: { async getProductionWorkbench() { return data } } })
+test('looking at an older version from the menu never restores it', async (t) => {
+  const restored = []
+  const h = harness(t, { api: { async getProductionWorkbench() { return data }, async restoreProduction(...args) { restored.push(args) } } })
   const props = { visible: true, projectId: 'project', runId: 'run', revisionId: 'new', csrf: 'token', active: false, musicId: '', previews: [], onChanged() {}, onMusicChange() {} }
   const render = () => h.render(() => h.load('ProductionWorkbench').ProductionWorkbench(props))
   render()
   await h.flushEffects()
-  find(render(), (node) => node.type === 'button' && node.props.children?.join?.('') === '預覽版本 1').props.onClick()
-  const tree = render()
-  let pauses = 0
-  find(tree, (node) => node.type === 'video').props.ref.current = { pause() { pauses++ } }
-  const panel = find(tree, (node) => node.type === 'details' && node.props.className === 'workbench-versions-panel')
-  panel.props.onToggle({ currentTarget: { open: true } })
-  assert.equal(pauses, 0)
-  panel.props.onToggle({ currentTarget: { open: false } })
-  assert.equal(pauses, 1)
+  const menu = find(render(), (node) => node.props?.label === '版本')
+  let closed = 0
+  find(menu.props.children(() => { closed++ }), (node) => node.type === 'button' && node.props.children === '看看').props.onClick()
+  assert.equal(closed, 1)
+  const studio = () => find(render(), (node) => typeof node.props?.onSaveComponent === 'function')
+  const stage = studio().props.stage
+  assert.equal(find(stage, (node) => node.type === 'video').props.src, '/preview/one')
+  find(stage, (node) => node.type === 'button' && node.props.children === '回到目前').props.onClick()
+  assert.equal(studio().props.stage, undefined)
+  assert.deepEqual(restored, [])
 })

@@ -21,12 +21,18 @@ from clipen.rendering.titles import TitleCardRenderer, TitleRenderError
 from .production_media import load_text_styles
 
 
-def frame(repository, project_id, run_id, expected_revision_id, frame_number):
+def frame(repository, project_id, run_id, expected_revision_id, frame_number, text_override=None):
+    """One still of the current version; text_override ({element_id, text}) previews unsaved wording."""
     revision=repository.current_revision(project_id,run_id);timeline=revision.timeline
     if revision.revision_id!=expected_revision_id:raise ProjectError('revision_conflict','影片已更新，正在重新讀取編輯畫面。',status_code=409)
     if isinstance(frame_number,bool) or not isinstance(frame_number,int) or not 0<=frame_number<timeline.duration_frames:
         raise ProjectError('frame_invalid','預覽時間不在影片內。',status_code=422)
     items=[i for t in timeline.tracks if t.kind is TrackKind.TITLE for i in t.items]
+    if text_override is not None:
+        if not isinstance(text_override,dict) or not isinstance(text_override.get('element_id'),str) or not isinstance(text_override.get('text'),str) or len(text_override['text'])>200:
+            raise ProjectError('frame_invalid','預覽文字格式不正確。',status_code=422)
+        if not text_override['text'].strip():raise ProjectError('component_text_empty','元件的主要文字不能空白。',status_code=422)
+        items=[replace(i,text=text_override['text']) if i.item_id==text_override['element_id'] else i for i in items]
     styles=load_text_styles(repository.projects,project_id)
     clip=next((i for t in timeline.tracks if t.kind is TrackKind.VIDEO for i in t.items if i.start_frame<=frame_number<i.start_frame+i.duration_frames),None)
     if clip is None:raise ProjectError('frame_invalid','這個時間沒有畫面片段。',status_code=422)

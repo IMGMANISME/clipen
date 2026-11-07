@@ -3,9 +3,9 @@ import type { PointerEvent } from 'react'
 import type { EditAgentTimeline } from './api'
 import { clips, clock } from './reviewModel'
 
-type Span = { id: string; start: number; end: number; label: string }
+type Span = { id: string; start: number; end: number; label: string; selectable?: boolean }
 type Note = { id: string; at: number | null; label: string; kind: string }
-type Props = { timeline: EditAgentTimeline; now: number; notes: Note[]; video: string | null; onSeek: (seconds: number) => void }
+type Props = { timeline: EditAgentTimeline; now: number; notes: Note[]; video: string | null; onSeek: (seconds: number) => void; selected?: string | null; onSelect?: (id: string) => void }
 
 const HEAD = 72
 const STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 300]
@@ -42,7 +42,7 @@ function useThumbnails(source: string | null, times: number[]) {
 }
 
 /** An editing-app timeline under the review player: ruler, tracks, clips, note markers and a playhead. */
-export function ReviewTimeline({ timeline, now, notes, video, onSeek }: Props) {
+export function ReviewTimeline({ timeline, now, notes, video, onSeek, selected = null, onSelect }: Props) {
   const fps = timeline.frame_rate.num / timeline.frame_rate.den
   const total = Math.max(1, timeline.duration_frames)
   const seconds = total / fps
@@ -64,7 +64,8 @@ export function ReviewTimeline({ timeline, now, notes, video, onSeek }: Props) {
   const shots: Span[] = clips(timeline).map((item, index) => ({ id: item.item_id, start: item.start_frame, end: item.start_frame + item.duration_frames, label: `鏡頭 ${index + 1}` }))
   const text = (subtitles: boolean): Span[] => timeline.tracks
     .filter((track) => (track.kind === 'title' || track.kind === 'graphic') && (track.track_id === 'agent-subtitles') === subtitles)
-    .flatMap((track) => track.items).map((item) => ({ id: item.item_id, start: item.start_frame, end: item.start_frame + item.duration_frames, label: (item.text ?? '').replace(/\s+/g, ' ') }))
+    .flatMap((track) => track.items.map((item) => ({ id: item.item_id, start: item.start_frame, end: item.start_frame + item.duration_frames, label: (item.text ?? '').replace(/\s+/g, ' '),
+      selectable: Boolean(onSelect) && track.track_id.startsWith('program-components') })))
   const music: Span[] = clips(timeline).flatMap((clip) => (clip.effects ?? []).filter((effect) => effect.effect_id === 'audio.layers')
     .flatMap((effect) => (effect.parameters.layers ?? []) as Array<Record<string, unknown>>)
     .map((layer, index) => {
@@ -108,7 +109,12 @@ export function ReviewTimeline({ timeline, now, notes, video, onSeek }: Props) {
     </div>
     <div className="nle-scroll" ref={scroller}>
       <div className="nle-canvas" style={{ width: width + HEAD }}
-        onPointerDown={(event) => { if ((event.target as HTMLElement).closest('.nle-heads, .nle-marker')) return; dragging.current = true; event.currentTarget.setPointerCapture(event.pointerId); scrub(event) }}
+        onPointerDown={(event) => {
+          if ((event.target as HTMLElement).closest('.nle-heads, .nle-marker')) return
+          // A graphic is picked for editing rather than scrubbed through.
+          const pick = (event.target as HTMLElement).closest<HTMLElement>('[data-pick]')
+          if (pick && onSelect) { onSelect(pick.dataset.pick ?? ''); return }
+          dragging.current = true; event.currentTarget.setPointerCapture(event.pointerId); scrub(event) }}
         onPointerMove={(event) => { if (dragging.current) scrub(event) }}
         onPointerUp={() => { dragging.current = false }}>
         <div className="nle-ruler">
@@ -122,8 +128,8 @@ export function ReviewTimeline({ timeline, now, notes, video, onSeek }: Props) {
         {tracks.map((track) => <div className={`nle-track is-${track.kind}`} key={track.id}>
           <div className="nle-heads"><strong>{track.name}</strong><span>{track.label}</span></div>
           <div className="nle-lane" style={{ width }}>
-            {track.spans.map((span, index) => <div key={span.id} className="nle-clip" style={{ left: x(span.start), width: Math.max(2, x(span.end) - x(span.start)), ...(track.kind === 'shot' && thumbs[index] ? { backgroundImage: `url(${thumbs[index]})` } : {}) }}
-              title={`${clock(span.start / fps)}–${clock(span.end / fps)} ${span.label}`}>
+            {track.spans.map((span, index) => <div key={span.id} className={`nle-clip${span.selectable ? ' is-pickable' : ''}${span.id === selected ? ' is-selected' : ''}`} data-pick={span.selectable ? span.id : undefined} style={{ left: x(span.start), width: Math.max(2, x(span.end) - x(span.start)), ...(track.kind === 'shot' && thumbs[index] ? { backgroundImage: `url(${thumbs[index]})` } : {}) }}
+              title={`${clock(span.start / fps)}–${clock(span.end / fps)} ${span.label}${span.selectable ? '（點一下改字）' : ''}`}>
               {x(span.end) - x(span.start) > 44 && <span>{span.label}</span>}
             </div>)}
           </div>

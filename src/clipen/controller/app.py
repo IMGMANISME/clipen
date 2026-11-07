@@ -889,9 +889,9 @@ def create_app(
                 from clipen.editing.refinement_references import update
                 result=await run_in_threadpool(update,coordinator.repository,project,run,payload['expected_revision_id'],payload['expected_version'],payload['mutation_id'],payload.get('reference'),payload.get('delete_id'))
             elif operation=='frame':
-                require_fields(payload,{'expected_revision_id','frame'})
+                require_fields(payload,{'expected_revision_id','frame'},{'text_override'})
                 from clipen.editing.visual_preview import frame
-                result=await run_in_threadpool(frame,coordinator.repository,project,run,payload['expected_revision_id'],payload['frame'])
+                result=await run_in_threadpool(frame,coordinator.repository,project,run,payload['expected_revision_id'],payload['frame'],payload.get('text_override'))
             elif operation=='render':
                 require_fields(payload,{'expected_revision_id'})
                 result=await run_in_threadpool(coordinator.workbench_render,project,run,payload['expected_revision_id'])
