@@ -1387,6 +1387,9 @@ legend { color: var(--text-2); font-size: 12px; font-weight: 600; padding-inline
 .resolve-result ol, .resolve-result ul { margin: 0; padding-left: 20px; display: grid; gap: 4px; line-height: 1.6; }
 .resolve-titles { display: grid; gap: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
 .resolve-titles .button { justify-self: start; }
+.resolve-timeline { display: grid; gap: 8px; padding: 10px 12px; border-radius: 8px; border: 1px dashed var(--line-strong); }
+.resolve-timeline.is-ready { border-style: solid; border-color: transparent; background: var(--ok-soft); }
+.resolve-timeline small { display: block; color: var(--muted); font-family: var(--mono); font-size: 11px; overflow-wrap: anywhere; }
 .version-preview video { display: block; width: 100%; max-height: 60vh; background: var(--surface-0); border-radius: 10px; }
 @media (max-width: 640px) {
   .review-player { padding: 8px; }

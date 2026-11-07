@@ -973,6 +973,11 @@ export function exportToResolve(csrf: string, projectId: string, runId: string):
 export function convertResolveTitles(csrf: string, projectId: string, runId: string, folder: string): Promise<{ drt: string; titles: number }> {
   return command(`/api/projects/${projectId}/production/${runId}/workbench/resolve_titles`, csrf, { folder })
 }
+export type ResolveTimelineStatus = { state: 'waiting' | 'found' | 'converted'; folders: Array<{ label: string; path: string }>; source: string | null; converted: string | null }
+/** Where Clipen looks for this package's .drt, and whether the editable copy is ready. */
+export function getResolveTimelineStatus(csrf: string, projectId: string, runId: string, folder: string): Promise<ResolveTimelineStatus> {
+  return command(`/api/projects/${projectId}/production/${runId}/workbench/resolve_status`, csrf, { folder })
+}
 export async function exportProduction(csrf: string, projectId: string, runId: string): Promise<{ download_url: string }> {
   return command(`/api/projects/${projectId}/production/${runId}/workbench/export`, csrf, {})
 }

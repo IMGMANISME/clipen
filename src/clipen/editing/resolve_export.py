@@ -502,9 +502,30 @@ def _exported_timeline(package: Path, since: float = 0.) -> Path | None:
     A .drt counts when its clips point at this package's components, so other films' timelines
     in the same folders are passed over."""
     from .resolve_titles import uses
-    candidates = [p for folder in _timeline_folders(package) for p in folder.glob('*.drt') if '（可改字）' not in p.stem]
+    # Skip dot files such as the「._」copies macOS leaves beside files on exFAT drives.
+    candidates = [p for folder in _timeline_folders(package) for p in folder.glob('*.drt')
+                  if '（可改字）' not in p.stem and not p.name.startswith('.')]
     candidates = [p for p in candidates if p.stat().st_mtime > since]
     return next((p for p in sorted(candidates, key=lambda p: p.stat().st_mtime, reverse=True) if uses(p, package / '元件')), None)
+
+
+def timeline_status(package: Path) -> dict:
+    """Where Clipen looks for this package's .drt, the newest one it found, and the editable copy.
+
+    state is waiting (nothing saved yet), found (a .drt is newer than any editable copy) or
+    converted (the editable copy covers the newest save)."""
+    package = Path(package)
+    names = ['這份匯出的資料夾', 'Resolve 預設的資料夾', '「Clipen 匯出」資料夾', '毛片資料夾']
+    folders = [{'label': label, 'path': str(folder)} for label, folder in zip(names, _timeline_folders(package))]
+    source = _exported_timeline(package)
+    copies = sorted((p for p in package.glob('*（可改字）.drt') if not p.name.startswith('.')), key=lambda p: p.stat().st_mtime, reverse=True)
+    converted = copies[0] if copies else None
+    if converted is not None and (source is None or converted.stat().st_mtime >= source.stat().st_mtime):
+        state = 'converted'
+    else:
+        state = 'found' if source is not None else 'waiting'
+    return {'state': state, 'folders': folders,
+            'source': str(source) if source else None, 'converted': str(converted) if converted else None}
 
 
 def convert_timeline(package: Path, source: Path | None = None) -> tuple[Path, int]:
