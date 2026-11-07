@@ -1,7 +1,7 @@
 import { PowerNotice } from './PowerNotice'
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { convertResolveTitles, exportProduction, getResolveTimelineStatus, exportToResolve, getProductionWorkbench, refineProduction, renderProduction, restoreProduction, setComponentText } from './api'
+import { convertResolveTitles, exportProduction, getResolveTimelineStatus, exportToResolve, getProductionWorkbench, refineProduction, renderProduction, restoreProduction, editComponent, removeComponent } from './api'
 import type { FilmPreview, FilmVersion, ProductionWorkbenchState, ResolveExport, ResolveTimelineStatus } from './api'
 import { ProductionMusicPicker } from './ProductionMusicPicker'
 import { usePromptDraft } from './usePromptDraft'
@@ -128,7 +128,8 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
     {message && <p className="rv-toast" role="status">{message}</p>}
     {data && <ReviewNotes visible={visible} projectId={projectId} csrf={csrf} runId={runId} data={data} video={playable} disabled={busy || active} stage={comparing}
       onChanged={(references) => setData((value) => value ? { ...value, references } : value)} onDirty={setNoteOpen}
-      onSaveComponent={(elementId, text, detail) => action(() => setComponentText(csrf, projectId, runId, data.revision.revision_id, elementId, text, detail), '改好了。輸出這一版就能在影片裡看到。')} />}
+      onSaveComponent={(draft) => action(() => editComponent(csrf, projectId, runId, data.revision.revision_id, draft), '改好了。輸出這一版就能在影片裡看到。')}
+      onRemoveComponent={(elementId) => action(() => removeComponent(csrf, projectId, runId, data.revision.revision_id, elementId), '元件刪掉了，需要的話可以從「版本」還原。')} />}
     {data && <footer className="rv-composer">
       {active ? <p className="rv-working"><span className="rv-pulse" />AI 正在修改這支片，好了會自動更新。</p> : <>
         <textarea aria-label="這一版還要怎麼改？" rows={1} value={instruction} maxLength={MAX_INSTRUCTION} onChange={(e) => setInstruction(e.target.value)}

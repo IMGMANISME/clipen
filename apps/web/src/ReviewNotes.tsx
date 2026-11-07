@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { getEditingFrame, getProductionWorkbench, updateProductionReference } from './api'
-import type { EditAgentTimeline, FilmPreview, ProductionWorkbenchState, RefinementReference, ReferenceState } from './api'
+import { getProductionWorkbench, updateProductionReference } from './api'
+import type { ComponentDraft, FilmPreview, ProductionWorkbenchState, RefinementReference, ReferenceState } from './api'
+import { ComponentInspector, StillFrame } from './ComponentEditor'
+import { componentDraft, openComponent } from './componentEdit'
+import type { ComponentEdit } from './componentEdit'
 import { readNoteDraft } from './reviewDraft'
 import { ReviewTimeline } from './ReviewTimeline'
 import { clips, clock, describeNote, kindLabel, noteKinds, parseClock, placeholders, selfExplained, targetsAt } from './reviewModel'
@@ -10,17 +13,15 @@ import type { NoteDraft, NoteForm as Form } from './reviewDraft'
 type Props = {
   visible: boolean; projectId: string; csrf: string; runId: string; data: ProductionWorkbenchState; video: FilmPreview | null; disabled: boolean
   onChanged: (state: ReferenceState) => void; onDirty: (dirty: boolean) => void
-  /** Saves a graphic's new wording; resolves true once it is saved. */
-  onSaveComponent: (elementId: string, text: string, detail: string) => Promise<boolean>
+  /** Save or remove a graphic; each resolves true once done. */
+  onSaveComponent: (draft: ComponentDraft) => Promise<boolean>
+  onRemoveComponent: (elementId: string) => Promise<boolean>
   /** Shown in place of the player, e.g. an older version being compared. */
   stage?: ReactNode
 }
-type Selection = { id: string; start: number; end: number; text: string; detail: string; savedText: string; savedDetail: string }
 
-const split = (value = '') => { const [text = '', ...rest] = value.split('\n'); return { text, detail: rest.join(' ') } }
-
-/** Watch the film, note what to change, and reword its graphics: player, side panel and timeline. */
-export function ReviewNotes({ visible, projectId, csrf, runId, data, video, disabled, onChanged, onDirty, onSaveComponent, stage }: Props) {
+/** Watch the film, note what to change, and edit its graphics: player, side panel and timeline. */
+export function ReviewNotes({ visible, projectId, csrf, runId, data, video, disabled, onChanged, onDirty, onSaveComponent, onRemoveComponent, stage }: Props) {
   const timeline = data.revision.timeline
   const fps = timeline.frame_rate.num / timeline.frame_rate.den
   const state = data.references ?? { version: 0, items: [] }
@@ -32,7 +33,9 @@ export function ReviewNotes({ visible, projectId, csrf, runId, data, video, disa
   const form = draft?.revisionId === data.revision.revision_id ? draft.form : null
   const outdated = draft && !form ? draft.form : null
   const [now, setNow] = useState(form?.at ?? 0)
-  const [selection, setSelection] = useState<Selection | null>(null)
+  const [selection, setSelection] = useState<ComponentEdit | null>(null)
+  const editing = data.component_editing
+  const settings = selection ? editing?.components[selection.id] : undefined
   function setForm(value: Form | null) {
     const next = value ? { revisionId: data.revision.revision_id, form: value } : null
     setDraft(next)
@@ -61,13 +64,12 @@ export function ReviewNotes({ visible, projectId, csrf, runId, data, video, disa
     setForm({ referenceId: '', at, end: '', kind: outdated?.kind ?? 'change', target: '', note: outdated?.note ?? '', gain: outdated?.gain ?? -12, fill: outdated?.fill ?? true, layer: '' })
   }
   function select(id: string) {
-    const item = timeline.tracks.flatMap((track) => track.items).find((entry) => entry.item_id === id)
-    if (!item || form) return
+    if (form) return
+    const edit = openComponent(timeline, editing, id)
+    if (!edit) { setError('這個元件不能直接編輯，請記一筆注記交給 AI。'); return }
     player.current?.pause()
-    const saved = split(item.text)
-    setError('')
-    setSelection({ id, start: item.start_frame, end: item.start_frame + item.duration_frames, ...saved, savedText: saved.text, savedDetail: saved.detail })
-    seek((item.start_frame + item.duration_frames / 2) / fps)
+    setError(''); setSelection(edit)
+    seek((editing!.components[id].shot_start_frame + edit.start + edit.duration / 2) / fps)
   }
   function step(seconds: number) {
     // Stepping pauses so the mark lands where the user stopped; an open note follows the playhead.
@@ -114,10 +116,10 @@ export function ReviewNotes({ visible, projectId, csrf, runId, data, video, disa
       try { const latest = await getProductionWorkbench(projectId, runId); if (latest.references) onChanged(latest.references) } catch { /* Keep the draft on failure. */ }
     } finally { setBusy(false) }
   }
-  async function saveSelection() {
+  async function finish(work: () => Promise<boolean>) {
     if (!selection || busy) return
     setBusy(true); setError('')
-    try { if (await onSaveComponent(selection.id, selection.text.trim(), selection.detail.trim())) setSelection(null) }
+    try { if (await work()) setSelection(null) }
     finally { setBusy(false) }
   }
   const endSeconds = form?.end.trim() ? parseClock(form.end) : null
@@ -143,23 +145,13 @@ export function ReviewNotes({ visible, projectId, csrf, runId, data, video, disa
     } })
   }
   const notes = state.items.map((item) => ({ item, ...describeNote(item, timeline) })).sort((a, b) => (a.at ?? Infinity) - (b.at ?? Infinity))
-  const changed = selection && (selection.text.trim() !== selection.savedText || selection.detail.trim() !== selection.savedDetail)
-  const preview = selection ? { element_id: selection.id, text: selection.text.trim() + (selection.detail.trim() ? `\n${selection.detail.trim()}` : '') } : undefined
+  // While a graphic is open, show the frame in the middle of where it would appear.
+  const editFrame = selection && settings ? Math.min(timeline.duration_frames - 1, settings.shot_start_frame + selection.start + Math.floor(selection.duration / 2)) : frame
 
   let panel: ReactNode
-  if (selection) panel = <div className="rv-inspector">
-    <div className="rv-panel-head"><h4>改元件的字</h4><span className="rv-time">{clock(selection.start / fps)}</span>
-      <button type="button" className="rv-icon" aria-label="關閉" onClick={() => setSelection(null)}>×</button></div>
-    <label>主要文字<input value={selection.text} maxLength={48} autoFocus disabled={disabled || busy} onChange={(e) => setSelection({ ...selection, text: e.target.value })}
-      onKeyDown={(e) => { if (e.key === 'Enter' && changed && selection.text.trim()) void saveSelection() }} /></label>
-    <label>補充文字<input value={selection.detail} maxLength={48} placeholder="可不填" disabled={disabled || busy} onChange={(e) => setSelection({ ...selection, detail: e.target.value })}
-      onKeyDown={(e) => { if (e.key === 'Enter' && changed && selection.text.trim()) void saveSelection() }} /></label>
-    <div className="rv-row">
-      <button type="button" className="button primary" disabled={disabled || busy || !changed || !selection.text.trim()} onClick={() => void saveSelection()}>{busy ? '儲存中…' : '儲存'}</button>
-      <button type="button" className="button ghost" onClick={() => setSelection(null)}>取消</button>
-    </div>
-    <p className="rv-hint">左邊就是改完的樣子。外觀、位置和時間都不變，也不用 AI 額度。</p>
-  </div>
+  if (selection && settings && editing) panel = <ComponentInspector edit={selection} settings={settings} editing={editing} fps={fps} busy={busy} disabled={disabled}
+    onChange={setSelection} onCancel={() => setSelection(null)} onSave={() => void finish(() => onSaveComponent(componentDraft(selection)))}
+    onRemove={() => void finish(() => onRemoveComponent(selection.id))} />
   else if (form) panel = <fieldset className="rv-note-form" disabled={disabled || busy}>
     <div className="rv-panel-head"><h4>{form.referenceId ? '修改注記' : '記一筆'}</h4><span className="rv-time">{clock(form.at, true)}</span>
       <button type="button" className="rv-icon" aria-label="取消" onClick={() => setForm(null)}>×</button></div>
@@ -201,7 +193,8 @@ export function ReviewNotes({ visible, projectId, csrf, runId, data, video, disa
   return <section className="rv-studio" aria-label="審片">
     <div className="rv-stage">
       {stage ?? (selection || !video
-        ? <FrameViewer projectId={projectId} csrf={csrf} runId={runId} revisionId={data.revision.revision_id} timeline={timeline} frame={frame} override={preview} />
+        ? <StillFrame projectId={projectId} csrf={csrf} runId={runId} revisionId={data.revision.revision_id} timeline={timeline} frame={editFrame}
+          component={selection ? componentDraft(selection) : undefined} onMove={selection ? (x, y) => setSelection({ ...selection, x, y }) : undefined} />
         : <video ref={player} controls preload="metadata" src={video.media_url} aria-label="審片用影片" onLoadedMetadata={(e) => { e.currentTarget.currentTime = now }} onTimeUpdate={(e) => setNow(e.currentTarget.currentTime)} onSeeked={(e) => setNow(e.currentTarget.currentTime)} />)}
     </div>
     <aside className="rv-panel">
@@ -212,29 +205,4 @@ export function ReviewNotes({ visible, projectId, csrf, runId, data, video, disa
       onSeek={(seconds) => { seek(seconds); if (form) setForm({ ...form, at: seconds }) }}
       notes={notes.map(({ item, at, target: label }) => ({ id: item.reference_id, at, label: `${kindLabel[item.kind]} ${label}`, kind: item.kind }))} />
   </section>
-}
-
-type FrameProps = { projectId: string; csrf: string; runId: string; revisionId: string; timeline: EditAgentTimeline; frame: number; override?: { element_id: string; text: string } }
-/** A still of the current version, rendered on demand; with an override it shows unsaved wording. */
-function FrameViewer({ projectId, csrf, runId, revisionId, timeline, frame, override }: FrameProps) {
-  const fps = timeline.frame_rate.num / timeline.frame_rate.den
-  const overrideKey = override ? `${override.element_id}\u0000${override.text}` : ''
-  const key = `${revisionId}:${frame}:${overrideKey}`
-  // The last answer, kept on screen (dimmed) while the next one renders.
-  const [shown, setShown] = useState({ key: '', image: '', error: '' })
-  useEffect(() => {
-    const abort = new AbortController()
-    const timer = window.setTimeout(() => {
-      const [element_id, text] = overrideKey ? overrideKey.split('\u0000') : []
-      void getEditingFrame(csrf, projectId, runId, revisionId, frame, abort.signal, overrideKey && text.trim() ? { element_id, text } : undefined)
-        .then((value) => { if (!abort.signal.aborted) setShown({ key, image: value.image_data_url, error: '' }) })
-        .catch((e) => { if (!abort.signal.aborted) setShown((last) => ({ ...last, key, error: e instanceof Error ? e.message : '暫時無法讀取畫面。' })) })
-    }, 350)
-    return () => { window.clearTimeout(timer); abort.abort() }
-  }, [csrf, projectId, runId, revisionId, frame, overrideKey, key])
-  const { image, error } = shown
-  return <div className={`rv-still${shown.key !== key && image ? ' is-loading' : ''}`} style={{ aspectRatio: `${timeline.canvas.width}/${timeline.canvas.height}` }}>
-    {image ? <img src={image} alt={`${clock(frame / fps)} 的畫面`} draggable={false} /> : <span className="rv-still-wait">正在取得畫面…</span>}
-    {error && <p className="rv-still-error" role="alert">{error}</p>}
-  </div>
 }

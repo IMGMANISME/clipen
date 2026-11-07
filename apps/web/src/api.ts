@@ -950,7 +950,13 @@ export type ProductionWorkbenchState = {
   sent_notes?: { instruction: string | null; created_at: string | null; items: RefinementReference[] } | null
   history: FilmVersion[]
   audio_assets: MusicAsset[]
+  component_editing?: ComponentEditing
 }
+/** A graphic's editable settings, as the review page shows them. */
+export type ComponentSettings = { component_id: string; name: string; max_characters: number; x: number; y: number; visual_style_id: string; font_style_id: string; shot_start_frame: number; shot_duration_frames: number }
+export type ComponentEditing = { components: Record<string, ComponentSettings>; visual_styles: Array<{ id: string; name: string }>; font_styles: Array<{ id: string; name: string }> }
+/** Unsaved changes to one graphic; anything left out stays as it is. */
+export type ComponentDraft = { element_id: string; text?: string; detail?: string; x?: number; y?: number; visual_style_id?: string; font_style_id?: string; start_offset_frames?: number; duration_frames?: number }
 export function getProductionWorkbench(projectId: string, runId: string): Promise<ProductionWorkbenchState> {
   return request(`/api/projects/${projectId}/production/${runId}/workbench`)
 }
@@ -959,8 +965,11 @@ export function restoreProduction(csrf: string, projectId: string, runId: string
   return command(`/api/projects/${projectId}/production/${runId}/workbench/edit`, csrf, { tool: 'restore_revision', arguments: { revision_id: revisionId, summary: '使用者還原影片版本' }, expected_revision_id: expectedRevision, mutation_id: crypto.randomUUID() })
 }
 /** Reword one on-screen graphic; its look, place and timing stay the same. */
-export function setComponentText(csrf: string, projectId: string, runId: string, expectedRevision: string, elementId: string, text: string, detail: string): Promise<unknown> {
-  return command(`/api/projects/${projectId}/production/${runId}/workbench/edit`, csrf, { tool: 'set_component_text', arguments: { element_id: elementId, text, detail, summary: '使用者修改元件文字' }, expected_revision_id: expectedRevision, mutation_id: crypto.randomUUID() })
+export function editComponent(csrf: string, projectId: string, runId: string, expectedRevision: string, draft: ComponentDraft): Promise<unknown> {
+  return command(`/api/projects/${projectId}/production/${runId}/workbench/edit`, csrf, { tool: 'edit_component', arguments: { ...draft, summary: '使用者修改元件' }, expected_revision_id: expectedRevision, mutation_id: crypto.randomUUID() })
+}
+export function removeComponent(csrf: string, projectId: string, runId: string, expectedRevision: string, elementId: string): Promise<unknown> {
+  return command(`/api/projects/${projectId}/production/${runId}/workbench/edit`, csrf, { tool: 'remove_program_component', arguments: { element_id: elementId, summary: '使用者刪除元件' }, expected_revision_id: expectedRevision, mutation_id: crypto.randomUUID() })
 }
 export function renderProduction(csrf: string, projectId: string, runId: string, expectedRevision: string): Promise<unknown> {
   return command(`/api/projects/${projectId}/production/${runId}/workbench/render`, csrf, { expected_revision_id: expectedRevision })
@@ -1001,10 +1010,10 @@ export function saveProductionPrompt(csrf: string, projectId: string, kind: 'pro
   return command(`/api/projects/${projectId}/production/prompts`, csrf, { request_id: crypto.randomUUID(), kind, text })
 }
 
-export type EditingFrame = { revision_id: string; frame: number; source_item_id: string; image_data_url: string; scope: string }
-/** One still of the current version; textOverride previews a graphic's unsaved wording. */
-export function getEditingFrame(csrf: string, projectId: string, runId: string, revisionId: string, frame: number, signal?: AbortSignal, textOverride?: { element_id: string; text: string }): Promise<EditingFrame> {
-  return request(`/api/projects/${projectId}/production/${runId}/workbench/frame`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Clipen-CSRF': csrf }, body: JSON.stringify({ expected_revision_id: revisionId, frame, ...(textOverride ? { text_override: textOverride } : {}) }), signal })
+export type EditingFrame = { revision_id: string; frame: number; source_item_id: string; image_data_url: string; scope: string; component_box?: { x: number; y: number; width: number; height: number } | null }
+/** One still of the current version; with a component draft it shows that graphic's unsaved settings and where it sits. */
+export function getEditingFrame(csrf: string, projectId: string, runId: string, revisionId: string, frame: number, signal?: AbortSignal, component?: ComponentDraft): Promise<EditingFrame> {
+  return request(`/api/projects/${projectId}/production/${runId}/workbench/frame`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Clipen-CSRF': csrf }, body: JSON.stringify({ expected_revision_id: revisionId, frame, ...(component ? { component } : {}) }), signal })
 }
 
 export type RefinementReference = {
