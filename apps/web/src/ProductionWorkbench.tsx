@@ -120,7 +120,7 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
       <div className="rv-title"><h3>審片</h3>{data && <span>{current ? `已儲存 · ${when(current.created_at)}` : '目前的影片'} · {clock(seconds)}</span>}</div>
       <div className="rv-tools">
         {data && !video && !rendering && <button type="button" className="button primary" disabled={locked} onClick={render}>輸出這一版</button>}
-        <Menu label="修改紀錄" disabled={!data}>{(close) => <>{data?.ai_usage && <p className="rv-usage-total" title={usageText(data.ai_usage).detail}>這部片 AI 總共用了 <strong>{usageText(data.ai_usage).short}</strong><span>{usageText(data.ai_usage).detail}</span></p>}
+        <Menu label="修改紀錄" disabled={!data}>{(close) => <>{data?.ai_usage && <p className="rv-usage-total" title={usageText(data.ai_usage).detail}>這部片 AI 總用量 <strong>{usageText(data.ai_usage).short}</strong><span>{usageText(data.ai_usage).detail}</span></p>}
           <ol className="rv-versions" aria-label="修改紀錄，最新的在最上面">{data?.history.map((version, index) => {
           const now = index === 0 && version.revision_id === revision
           const same = !now && version.revision_id === revision
@@ -129,7 +129,7 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
               <strong title={versionTitle(version)}>{versionTitle(version)}</strong>
               {version.kind !== 'manual' && version.kind !== 'restore' && version.changes && <small>{version.changes}</small>}
               <small className="rv-usage" title={version.usage ? usageText(version.usage).detail : undefined}>{(version.kind === 'ai_complete' || version.kind === 'ai_partial')
-                ? version.usage ? `AI 用量 ${usageText(version.usage).short}` : 'AI 用量沒有記錄'
+                ? version.usage ? `AI 用量：${usageText(version.usage).short}` : 'AI 用量沒有記錄'
                 : '手動，不用 AI 額度'}</small></div>
             {!now && <div className="rv-row">
               {same ? <span className="rv-version-same">和現在一樣</span> : <>

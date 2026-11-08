@@ -34,8 +34,8 @@ export function tokens(count: number) {
 }
 /** One line on what an AI request used, and the detail behind it. */
 export function usageText(usage: { input_tokens: number; cached_input_tokens: number; output_tokens: number }) {
-  return { short: `${tokens(usage.input_tokens + usage.output_tokens)} tokens`,
-    detail: `輸入 ${tokens(usage.input_tokens)}（其中快取 ${tokens(usage.cached_input_tokens)}）· 輸出 ${tokens(usage.output_tokens)}` }
+  return { short: `輸入 ${tokens(usage.input_tokens)} · 輸出 ${tokens(usage.output_tokens)} tokens`,
+    detail: `輸入 ${tokens(usage.input_tokens)}（其中 ${tokens(usage.cached_input_tokens)} 來自快取）· 輸出 ${tokens(usage.output_tokens)} · 合計 ${tokens(usage.input_tokens + usage.output_tokens)}` }
 }
 /** One line saying what a version is: what was changed, by whom, or which moment it went back to. */
 export function versionTitle(version: { kind: string; label: string; detail: string | null; changes?: string | null; restored_from?: string }) {
