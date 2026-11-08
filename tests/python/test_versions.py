@@ -3,7 +3,7 @@ import json
 import sqlite3
 import unittest
 
-from clipen.editing.versions import versions
+from clipen.editing.versions import film_usage, versions
 
 
 def database(events):
@@ -40,6 +40,27 @@ class VersionTests(unittest.TestCase):
         self.assertEqual(listed[2]['detail'], '換配樂')
         # A stop that changed nothing (the last refinement) adds no version.
         self.assertNotIn('超過時間', ' '.join(v['label'] for v in listed))
+
+
+    def test_each_ai_version_carries_the_tokens_it_used(self):
+        use = lambda n: {'input_tokens': n * 10, 'cached_input_tokens': n * 8, 'output_tokens': n}
+        db = database([
+            ('run_created', {}), ('revision_created', {'revision_id': 'r0'}), ('revision_created', {'revision_id': 'r1'}),
+            # A stopped attempt reports its tokens before its version is listed...
+            ('provider_failed', {'error_code': 'provider_usage_limit', 'usage': use(5)}),
+            ('run_resumed', {}), ('revision_created', {'revision_id': 'r2'}), ('run_finished', {}),
+            # ...a finished one just after.
+            ('provider_finished', {'usage': use(3)}),
+            ('refinement_requested', {'instruction': '沒改到東西', 'base_revision_id': 'r2'}),
+            ('provider_failed', {'error_code': 'provider_timed_out', 'usage': use(7)}),
+            ('refinement_requested', {'instruction': '換配樂', 'base_revision_id': 'r2'}),
+            ('revision_created', {'revision_id': 'r3'}), ('run_finished', {}), ('provider_finished', {'usage': use(2)}),
+            ('revision_created', {'revision_id': 'r4'}), ('tool_completed', {'tool': 'edit_component', 'authority': 'user'}),
+        ])
+        listed = {v['revision_id']: v.get('usage') for v in versions(db, 'run', 'claude')}
+        self.assertEqual(listed, {'r1': use(5), 'r2': use(3), 'r3': use(2), 'r4': None})
+        # The film's total also counts the attempt that changed nothing.
+        self.assertEqual(film_usage(db, 'run'), use(17))
 
 
 if __name__ == '__main__':

@@ -1670,6 +1670,9 @@ video { background: #000; }
 .rv-versions em { padding: 0 6px; border-radius: 5px; color: var(--accent); background: var(--accent-soft); font-size: 11px; font-style: normal; font-weight: 600; }
 .rv-versions li.is-current { background: var(--accent-soft); }
 .rv-versions .rv-row { flex: none; }
+.rv-usage-total { display: grid; gap: 2px; margin: 0 0 6px; padding: 10px 12px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.rv-usage-total span { color: var(--text-3); font-size: 12px; }
+.rv-versions small.rv-usage { color: var(--text-3); font-variant-numeric: tabular-nums; }
 .rv-version-same { color: var(--text-3); font-size: 12px; }
 .rv-return-what { margin: 0; padding: 10px 12px; border-radius: 8px; background: var(--surface-3); font-weight: 600; }
 .rv-music { width: min(380px, calc(100vw - 48px)); }

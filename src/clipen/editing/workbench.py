@@ -26,11 +26,12 @@ def tools_for(repository, project_id, run_id):
 
 def state(repository, project_id, run_id):
     revision=repository.current_revision(project_id,run_id)
-    from .versions import versions
+    from .versions import film_usage, versions
     with repository.projects.connect(project_id) as db:
         # One entry per complete edit; the AI's per-step revisions stay internal.
         from .production_media import load_text_styles
         history=versions(db,run_id,repository.get(project_id,run_id).provider,load_text_styles(repository.projects,project_id),revision.revision_id)
+        usage=film_usage(db,run_id)
         for version in history:
             row=db.execute('SELECT payload_json FROM edit_agent_revisions WHERE revision_id=? AND run_id=?',(version['revision_id'],run_id)).fetchone()
             if row:
@@ -41,7 +42,7 @@ def state(repository, project_id, run_id):
     intent=(repository.production_session(project_id,run_id) or {}).get('intent',{})
     try:editing=tools_for(repository,project_id,run_id)._component_editing()
     except (ProjectError,KeyError,StopIteration):editing={'components':{},'visual_styles':[],'font_styles':[]}
-    return {'revision':revision.to_public(include_timeline=True),'component_editing':editing,'history':history,'references':public_state(intent,revision.timeline),'sent_notes':sent(intent),'audio_assets':AgentAudioStore(repository.projects,project_id).public_assets()}
+    return {'revision':revision.to_public(include_timeline=True),'component_editing':editing,'history':history,'ai_usage':usage,'references':public_state(intent,revision.timeline),'sent_notes':sent(intent),'audio_assets':AgentAudioStore(repository.projects,project_id).public_assets()}
 
 def edit(repository, project_id, run_id, name, arguments, expected, mutation_id):
     idle(repository,project_id,run_id)

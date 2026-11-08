@@ -26,6 +26,17 @@ export function when(iso: string, now = new Date()) {
   const days = Math.round((day(now) - day(at)) / 86400000)
   return days === 0 ? `今天 ${time}` : days === 1 ? `昨天 ${time}` : `${at.getMonth() + 1}/${at.getDate()} ${time}`
 }
+/** A token count people can read: 4,213 · 45.2 萬 · 1.7 億. */
+export function tokens(count: number) {
+  if (count >= 1e8) return `${(count / 1e8).toFixed(count >= 1e9 ? 0 : 1)} 億`
+  if (count >= 1e4) return `${(count / 1e4).toFixed(count >= 1e6 ? 0 : 1)} 萬`
+  return count.toLocaleString('en-US')
+}
+/** One line on what an AI request used, and the detail behind it. */
+export function usageText(usage: { input_tokens: number; cached_input_tokens: number; output_tokens: number }) {
+  return { short: `${tokens(usage.input_tokens + usage.output_tokens)} tokens`,
+    detail: `輸入 ${tokens(usage.input_tokens)}（其中快取 ${tokens(usage.cached_input_tokens)}）· 輸出 ${tokens(usage.output_tokens)}` }
+}
 /** One line saying what a version is: what was changed, by whom, or which moment it went back to. */
 export function versionTitle(version: { kind: string; label: string; detail: string | null; changes?: string | null; restored_from?: string }) {
   if (version.kind === 'restore') return version.restored_from ? `回到${when(version.restored_from)} 的樣子` : '回到較早的樣子'
