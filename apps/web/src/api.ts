@@ -956,10 +956,12 @@ export type ProductionWorkbenchState = { ai_usage?: TokenUsage | null;
 }
 /** A graphic's editable settings, as the review page shows them. */
 export type ComponentColors = { accent?: string; paper?: string; ink?: string }
-export type ComponentSettings = { component_id: string; custom?: boolean; name: string; max_characters: number; x: number; y: number; scale: number; colors: ComponentColors; visual_style_id: string; font_style_id: string; shot_start_frame: number; shot_duration_frames: number }
+/** Words and colours a free design marked as editable, with the values its design gives them. */
+export type DesignField = { key: string; label: string; value: string }
+export type ComponentSettings = { component_id: string; custom?: boolean; fields?: { texts: DesignField[]; colors: DesignField[] }; edits?: { texts?: Record<string, string>; colors?: Record<string, string> }; name: string; max_characters: number; x: number; y: number; scale: number; colors: ComponentColors; visual_style_id: string; font_style_id: string; shot_start_frame: number; shot_duration_frames: number }
 export type ComponentEditing = { components: Record<string, ComponentSettings>; visual_styles: Array<{ id: string; name: string; colors: Required<ComponentColors> }>; font_styles: Array<{ id: string; name: string }> }
 /** Unsaved changes to one graphic; anything left out stays as it is. */
-export type ComponentDraft = { element_id: string; text?: string; detail?: string; x?: number; y?: number; scale?: number; colors?: ComponentColors; visual_style_id?: string; font_style_id?: string; start_offset_frames?: number; duration_frames?: number }
+export type ComponentDraft = { element_id: string; text?: string; detail?: string; texts?: Record<string, string>; x?: number; y?: number; scale?: number; colors?: ComponentColors | Record<string, string>; visual_style_id?: string; font_style_id?: string; start_offset_frames?: number; duration_frames?: number }
 export function getProductionWorkbench(projectId: string, runId: string): Promise<ProductionWorkbenchState> {
   return request(`/api/projects/${projectId}/production/${runId}/workbench`)
 }

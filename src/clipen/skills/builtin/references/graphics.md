@@ -92,6 +92,7 @@ handwriting（自然手寫）使用作者原版辰宇落雁體 1.0 等寬版；c
 - 頁面就是整個畫面（window.clipen.width × height，例如 1920×1080）。只畫元件本身，其餘保持透明，讓素材透出來。
 - 時間由 Clipen 控制：CSS 動畫與 Web Animations 會逐格精準播放；用程式畫的話，定義 `window.clipenFrame = (frame, seconds) => {...}`，在裡面畫出那一格。requestAnimationFrame 迴圈、計時器與真實時鐘不會前進。第 0 格是元件出現的第一格。
 - 沒有網路：圖片與圖形請內嵌（data: URL、inline SVG）。字體可用系統字體名稱（PingFang TC、Hiragino Sans、Helvetica Neue…），或 `@font-face { src: url(https://clipen.local/fonts/iansui.ttf) }`、chenyu.ttf 兩款手寫字。
+- 標出使用者可以自己改的地方：主要文字放在加了 `data-clipen-text="鍵名"` 的元素裡（可加 `data-clipen-label="主標"` 當顯示名稱），元素內只放純文字；主要顏色寫成 `:root` 上的 `--clipen-名稱` 變數（例如 `--clipen-主色`、`--clipen-字色`），再用 `var(--clipen-主色)` 套用。使用者在審片頁改的字與顏色會在頁面腳本執行前套上；要逐字拆開做動畫時，在 DOMContentLoaded 之後依元素目前的文字拆。沒有標出時，使用者只能請你重做。
 - 只有技術檢查：頁面要能載入、程式不出錯、每格 10 秒內畫完、確實畫出東西、200 KB 以內。
 - 工具會回傳元件疊在實際素材上的畫面。一定要看：字是否清楚、有沒有擋到臉或字幕、是否服務這一刻。不滿意就用 update_custom_component 改，只需要給要變的欄位。
 - 自由元件匯出到 DaVinci Resolve 時是圖片，不能在 Resolve 裡改字；restyle_program_components 不會動到它們。
