@@ -509,29 +509,61 @@ class SkillTools:
         editable = {kind: [f["label"] for f in profile["fields"][kind]] for kind in ("texts", "colors")}
         result = self._save(replace(timeline, tracks=self._component_lanes(item)), args["summary"], element_id=item.item_id,
                             anchor_item_id=shot.item_id, editable_by_people=editable,
-                            inspection_required="Look at the still: legibility, faces, subtitles, and whether it serves this moment.",
+                            inspection_required="Look at both images: the resting still for legibility, faces and subtitles; the frame sheet (entry to exit, labelled by frame) for whether the motion reads and ends cleanly.",
                             **({} if any(editable.values()) else {"notes": ["沒有標出可編輯的文字或顏色，使用者只能請你重做。用 data-clipen-text 與 --clipen-* 顏色變數標出主要文字和顏色。"]}))
         return ToolResult(result.payload, self._custom_still(result.payload["revision"]["revision_id"], item))
 
     def _custom_still(self, revision_id, item):
-        """The graphic over the actual footage at its resting frame, for the Agent to look at."""
+        """What the Agent looks at after saving: the graphic at rest over the actual footage, large enough
+        to judge legibility, and a sheet of frames from entry to exit, so it can judge the motion too."""
         import base64
+        from io import BytesIO
+        from PIL import Image, ImageDraw, ImageFont
+        from clipen.rendering import custom_components
         from .visual_preview import frame
-        path = self._workdir("custom-components") / f"{item.item_id}-{revision_id[-12:]}.jpg"
-        try:
-            still = frame(self.repository, self.project_id, self.run_id, revision_id, item.start_frame + item.duration_frames // 2)
-            path.write_bytes(base64.b64decode(still["image_data_url"].split(",", 1)[1]))
-        except ProjectError:
-            # Footage offline: show the design alone on grey, so there is still something to look at.
-            from PIL import Image, ImageDraw
-            from clipen.rendering import custom_components
-            timeline = self._timeline()
-            picture = Image.new("RGBA", (timeline.width, timeline.height), (128, 128, 128, 255))
-            custom_components.draw(ImageDraw.Draw(picture), timeline, item, load_style(self, item.style_id))
-            picture = picture.convert("RGB")
-            picture.thumbnail((960, 960))
-            picture.save(path, "JPEG", quality=88)
-        return (path,)
+        timeline = self._timeline()
+        fps = timeline.frame_rate.numerator / timeline.frame_rate.denominator
+        last = item.duration_frames - 1
+        # Dense through the entry, where most motion is, then the middle and the exit.
+        moments = sorted({0, min(last, round(fps * .1)), min(last, round(fps * .25)), min(last, round(fps * .5)),
+                          item.duration_frames // 2, max(0, last - round(fps * .3)), max(0, last - round(fps * .1)), last})
+        offline = False
+
+        def picture(relative):
+            nonlocal offline
+            if not offline:
+                try:
+                    still = frame(self.repository, self.project_id, self.run_id, revision_id, item.start_frame + relative)
+                    with Image.open(BytesIO(base64.b64decode(still["image_data_url"].split(",", 1)[1]))) as image:
+                        return image.convert("RGB")
+                except ProjectError:
+                    offline = True  # Footage not connected: the design alone on grey still shows the motion.
+            image = Image.new("RGBA", (timeline.width, timeline.height), (128, 128, 128, 255))
+            custom_components.draw(ImageDraw.Draw(image), timeline, item, load_style(self, item.style_id), relative)
+            image = image.convert("RGB")
+            image.thumbnail((960, 960))
+            return image
+
+        folder = self._workdir("custom-components")
+        name = f"{item.item_id}-{revision_id[-12:]}"
+        resting = picture(item.duration_frames // 2)
+        still = folder / f"{name}.jpg"
+        resting.save(still, "JPEG", quality=88)
+        tiles = [(relative, picture(relative)) for relative in moments]
+        width = 320
+        height = round(width * tiles[0][1].height / tiles[0][1].width)
+        columns = 4
+        rows = (len(tiles) + columns - 1) // columns
+        sheet = Image.new("RGB", (columns * width, rows * (height + 22)), (16, 16, 18))
+        label = ImageFont.load_default(size=15)
+        draw = ImageDraw.Draw(sheet)
+        for index, (relative, image) in enumerate(tiles):
+            x, y = index % columns * width, index // columns * (height + 22)
+            sheet.paste(image.resize((width, height)), (x, y + 22))
+            draw.text((x + 6, y + 3), f"frame {relative}  +{relative / fps:.2f}s", fill=(230, 230, 230), font=label)
+        frames = folder / f"{name}-motion.jpg"
+        sheet.save(frames, "JPEG", quality=80)
+        return (still, frames)
 
     def _production_remove_program_component(self, args):
         timeline = self._timeline()
