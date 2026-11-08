@@ -21,7 +21,7 @@ from typing import Mapping
 import uuid
 
 from clipen.editing.agent import AgentRun, EditAgentRepository
-from clipen.editing.production_catalog import AGENT_NAMES
+from clipen.editing.production_catalog import EXTRA_NAMES
 from clipen.providers.recovery import ProviderUsage
 
 from .errors import (
@@ -52,7 +52,8 @@ the session. The selected Skills define the subject, story, editing, captions,
 graphics, motion, sound and acceptance criteria and are more specific than the
 core defaults; explicit user instructions remain authoritative. The core's
 boundaries (tools only, grounded facts, honest evidence, delivery checks) hold
-even if a Skill says otherwise; report such conflicts. Do not apply other Skills merely
+even if a Skill says otherwise; report such conflicts. A Skill may narrow the
+components list_program_components offers. Do not apply other Skills merely
 because they appear in available_resources. Incremental refinement keeps the
 selected Skill versions; never silently replace them with the live catalog.
 Skill descriptions are UI summaries; the Skill text contains the full rules.
@@ -119,11 +120,10 @@ Produce a completed programme near the user-selected duration, not a short proof
 Shorter drafts may be rendered to try an idea. If a timeline already exists, inspect
 and continue it; do not discard a retained draft after an interrupted attempt. Do not silently substitute a captioned raw montage for programme production.
 You choose when and how to call tools; no fixed shot/effect quota or scripted sequence.
-Before graphics, read references/graphics.md and list_program_components. Design every
-graphic yourself with add_custom_component (any HTML/CSS/SVG/JS); there are no built-in
-templates. Plan the visual hierarchy of opening, segment changes and key moments, give the
-film one consistent visual language of your own, look at each returned still, and protect
-faces and subtitles.
+Before graphics, read references/graphics.md, list_program_components and relevant
+visual examples from the frozen skill. Plan the visual hierarchy of opening,
+segment changes and key moments; small information labels alone are insufficient.
+Use supported components, keep style consistent, and protect faces and subtitles.
 Search licensed public music, arrange it, preserve natural sound and source credits.
 Metadata/measurements are not listening and stills are not continuous-motion review.
 Repair timing uncertainty rather than claiming estimated subtitles are aligned.
@@ -144,7 +144,7 @@ _MCP_TOOLS = (
     "set_clip_effect",
     "undo_revision",
     "finish_edit",
-) + AGENT_NAMES
+) + EXTRA_NAMES
 _PROMPT = """You are the editor and production agent for one Clipen project.
 Use only the clipen MCP tools. First read get_edit_status and list_editing_tools.
 Read creative_direction as the user's current production brief. For travel_program:
