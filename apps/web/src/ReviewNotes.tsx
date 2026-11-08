@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import { getProductionWorkbench, updateProductionReference } from './api'
 import type { ComponentDraft, FilmPreview, ProductionWorkbenchState, RefinementReference, ReferenceState } from './api'
 import { ComponentInspector, StillFrame } from './ComponentEditor'
-import { componentDraft, openComponent } from './componentEdit'
+import { bounds, componentDraft, openComponent } from './componentEdit'
 import type { ComponentEdit } from './componentEdit'
 import { readNoteDraft } from './reviewDraft'
 import { ReviewTimeline } from './ReviewTimeline'
@@ -194,7 +194,7 @@ export function ReviewNotes({ visible, projectId, csrf, runId, data, video, disa
     <div className="rv-stage">
       {stage ?? (selection || !video
         ? <StillFrame projectId={projectId} csrf={csrf} runId={runId} revisionId={data.revision.revision_id} timeline={timeline} frame={editFrame}
-          component={selection ? componentDraft(selection) : undefined} onMove={selection ? (x, y) => setSelection({ ...selection, x, y }) : undefined} />
+          component={selection ? componentDraft(selection) : undefined} limits={selection ? bounds(selection) : undefined} onMove={selection ? (x, y) => setSelection({ ...selection, x, y }) : undefined} />
         : <video ref={player} controls preload="metadata" src={video.media_url} aria-label="審片用影片" onLoadedMetadata={(e) => { e.currentTarget.currentTime = now }} onTimeUpdate={(e) => setNow(e.currentTarget.currentTime)} onSeeked={(e) => setNow(e.currentTarget.currentTime)} />)}
     </div>
     <aside className="rv-panel">

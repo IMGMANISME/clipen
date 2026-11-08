@@ -280,12 +280,12 @@ class NativeIdentityTests(unittest.TestCase):
         try:
             from clipen.editing.production_media import load_text_styles
             f.cut()
-            # Template positions are suggestions; adding requires an explicit, shot-specific choice.
+            # Template positions are suggestions; leaving x, y out uses them and says so.
             expected=style_presets(get_skill(),'tpl-travel-highlight')[1]['component_positions']['program_title']
-            with self.assertRaises(fixtures.ProjectError) as error:
-                f.call('add_program_component',element_id='unplaced',item_id='agent-video-0001',component_id='program_title',
-                       start_offset_frames=6,duration_frames=45,text='今天的故事',evidence='來源有此事件',summary='未指定位置')
-            self.assertEqual(error.exception.code,'component_position_required')
+            unplaced=f.call('add_program_component',element_id='unplaced',item_id='agent-video-0001',component_id='program_title',
+                            start_offset_frames=60,duration_frames=45,text='今天的故事',evidence='來源有此事件',summary='未指定位置').payload
+            self.assertTrue(any('預設位置' in note for note in unplaced['notes']))
+            f.call('remove_program_component',element_id='unplaced',summary='移除')
             f.component(component_id='program_title',text='今天的故事',visual_style_id='tpl-travel-highlight',**expected)
             def profile():
                 item=next(i for t in f.tools._timeline().tracks for i in t.items if i.item_id=='dish-label')

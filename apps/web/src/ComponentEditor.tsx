@@ -33,27 +33,29 @@ export function ComponentInspector({ edit, settings, editing, fps, busy, disable
   return <div className="rv-inspector">
     <div className="rv-panel-head"><h4>{settings.name}</h4><span className="rv-time">{clock((shotStart + edit.start) / fps)}</span>
       <button type="button" className="rv-icon" aria-label="關閉" onClick={onCancel}>×</button></div>
-    <label>主要文字<span className={`rv-counter${edit.text.trim().length > settings.max_characters ? ' is-over' : ''}`}>{edit.text.trim().length}/{settings.max_characters}</span>
-      <input value={edit.text} maxLength={48} autoFocus disabled={disabled || busy} onChange={(e) => update({ text: e.target.value })} onKeyDown={enter} /></label>
-    <label>補充文字<input value={edit.detail} maxLength={48} placeholder="可不填" disabled={disabled || busy} onChange={(e) => update({ detail: e.target.value })} onKeyDown={enter} /></label>
-    <div className="rv-pair">
-      {editing.visual_styles.length > 1 && <label>樣式<select value={edit.visual} disabled={disabled || busy} onChange={(e) => update({ visual: e.target.value })}>
-        {editing.visual_styles.map((style) => <option key={style.id} value={style.id}>{style.name}</option>)}</select></label>}
-      {editing.font_styles.length > 1 && <label>字體<select value={edit.font} disabled={disabled || busy} onChange={(e) => update({ font: e.target.value })}>
-        {editing.font_styles.map((font) => <option key={font.id} value={font.id}>{font.name}</option>)}</select></label>}
-    </div>
-    <div className="rv-look">
-      <label className="rv-scale">大小<span className="rv-counter">{Math.round(edit.scale * 100)}%</span>
-        <input type="range" min={60} max={160} step={5} value={Math.round(edit.scale * 100)} disabled={disabled || busy} aria-label="元件大小"
-          onChange={(e) => update({ scale: Number(e.target.value) / 100 })} /></label>
-      <div className="rv-colors" role="group" aria-label="顏色">
-        {colorNames.map(([name, label]) => <label key={name} className="rv-swatch" title={label}>
-          <input type="color" value={edit.colors[name] ?? palette[name]} disabled={disabled || busy} aria-label={label}
-            onChange={(e) => update({ colors: { ...edit.colors, [name]: e.target.value } })} />
-          <span style={{ background: edit.colors[name] ?? palette[name] }} />{label}</label>)}
-        {(Object.keys(edit.colors).length > 0 || edit.scale !== 1) && <button type="button" className="rv-link" onClick={() => update({ colors: {}, scale: 1 })}>恢復樣式原樣</button>}
+    {edit.custom ? <p className="rv-hint">這是 AI 自由設計的元件。想改它的樣子，在下方寫給 AI 修改。</p> : <>
+      <label>主要文字<span className={`rv-counter${edit.text.trim().length > settings.max_characters ? ' is-over' : ''}`}>{edit.text.trim().length}/{settings.max_characters}</span>
+        <input value={edit.text} maxLength={48} autoFocus disabled={disabled || busy} onChange={(e) => update({ text: e.target.value })} onKeyDown={enter} /></label>
+      <label>補充文字<input value={edit.detail} maxLength={48} placeholder="可不填" disabled={disabled || busy} onChange={(e) => update({ detail: e.target.value })} onKeyDown={enter} /></label>
+      <div className="rv-pair">
+        {editing.visual_styles.length > 1 && <label>樣式<select value={edit.visual} disabled={disabled || busy} onChange={(e) => update({ visual: e.target.value })}>
+          {editing.visual_styles.map((style) => <option key={style.id} value={style.id}>{style.name}</option>)}</select></label>}
+        {editing.font_styles.length > 1 && <label>字體<select value={edit.font} disabled={disabled || busy} onChange={(e) => update({ font: e.target.value })}>
+          {editing.font_styles.map((font) => <option key={font.id} value={font.id}>{font.name}</option>)}</select></label>}
       </div>
-    </div>
+      <div className="rv-look">
+        <label className="rv-scale">大小<span className="rv-counter">{Math.round(edit.scale * 100)}%</span>
+          <input type="range" min={60} max={160} step={5} value={Math.round(edit.scale * 100)} disabled={disabled || busy} aria-label="元件大小"
+            onChange={(e) => update({ scale: Number(e.target.value) / 100 })} /></label>
+        <div className="rv-colors" role="group" aria-label="顏色">
+          {colorNames.map(([name, label]) => <label key={name} className="rv-swatch" title={label}>
+            <input type="color" value={edit.colors[name] ?? palette[name]} disabled={disabled || busy} aria-label={label}
+              onChange={(e) => update({ colors: { ...edit.colors, [name]: e.target.value } })} />
+            <span style={{ background: edit.colors[name] ?? palette[name] }} />{label}</label>)}
+          {(Object.keys(edit.colors).length > 0 || edit.scale !== 1) && <button type="button" className="rv-link" onClick={() => update({ colors: {}, scale: 1 })}>恢復樣式原樣</button>}
+        </div>
+      </div>
+    </>}
     <div className="rv-pair">
       <Field label="出現" value={(shotStart + edit.start) / fps} format={(value) => clock(value, true)} parse={parseClock} disabled={disabled || busy}
         onCommit={(seconds) => update({ start: Math.max(0, Math.min(settings.shot_duration_frames - edit.duration, Math.round(seconds * fps) - shotStart)) })} />
@@ -72,11 +74,11 @@ export function ComponentInspector({ edit, settings, editing, fps, busy, disable
 
 type StillProps = {
   projectId: string; csrf: string; runId: string; revisionId: string; timeline: EditAgentTimeline; frame: number
-  component?: ComponentDraft; onMove?: (x: number, y: number) => void
+  component?: ComponentDraft; onMove?: (x: number, y: number) => void; limits?: { x: number[]; y: number[] }
 }
 /** A still of the current version, rendered on demand. With a component draft it shows the unsaved
  * graphic and a box around it that can be dragged, or nudged with the arrow keys. */
-export function StillFrame({ projectId, csrf, runId, revisionId, timeline, frame, component, onMove }: StillProps) {
+export function StillFrame({ projectId, csrf, runId, revisionId, timeline, frame, component, onMove, limits = { x: X, y: Y } }: StillProps) {
   const fps = timeline.frame_rate.num / timeline.frame_rate.den
   const draftKey = component ? JSON.stringify(component) : ''
   const key = `${revisionId}:${frame}:${draftKey}`
@@ -105,7 +107,7 @@ export function StillFrame({ projectId, csrf, runId, revisionId, timeline, frame
   function move(event: PointerEvent<HTMLDivElement>) {
     const start = drag.current, rect = surface.current?.getBoundingClientRect()
     if (!start || !rect || !onMove) return
-    onMove(clamp(start.x + (event.clientX - start.clientX) / rect.width, X), clamp(start.y + (event.clientY - start.clientY) / rect.height, Y))
+    onMove(clamp(start.x + (event.clientX - start.clientX) / rect.width, limits.x), clamp(start.y + (event.clientY - start.clientY) / rect.height, limits.y))
   }
   function nudge(event: KeyboardEvent<HTMLDivElement>) {
     if (!component || !onMove) return
@@ -113,7 +115,7 @@ export function StillFrame({ projectId, csrf, runId, revisionId, timeline, frame
     const delta = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[event.key]
     if (!delta) return
     event.preventDefault(); event.stopPropagation()
-    onMove(clamp((component.x ?? 0) + delta[0], X), clamp((component.y ?? 0) + delta[1], Y))
+    onMove(clamp((component.x ?? 0) + delta[0], limits.x), clamp((component.y ?? 0) + delta[1], limits.y))
   }
   const ratio = timeline.canvas.width / timeline.canvas.height
   return <div className={`rv-still${shown.key !== key && image ? ' is-loading' : ''}`} ref={surface}

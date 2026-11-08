@@ -84,3 +84,15 @@ font_styles.json 提供 default（日常沿用模板）、japanese（日系綜�
 
 handwriting（自然手寫）使用作者原版辰宇落雁體 1.0 等寬版；calligraphy（筆意楷書）使用芫荽。這兩套內附原始 OFL 字型，不需要安裝到系統，主標／重點字保留自然筆畫與細描邊，資訊／補充文字維持易讀黑體。適合旅誌主標、章節與少量重點，長段字幕不改成書寫字。芫荽是楷書筆意，不將它宣稱為草書。
 來源版本、雜湊見 font_sources.json，授權全文見 references/font-chenyu-OFL.txt 與 references/font-iansui-OFL.txt。執行時按凍結的 SHA-256 驗證，缺檔或校驗失敗直接報錯，不能靜默換成黑體後仍宣稱用了手寫字。缺字仍依實際字形覆蓋做回看；若混字影響風格，改用其他字型或同義短標。
+
+## 自由設計元件
+
+內建元件是穩定、快速的預設；當影片需要它們給不出的樣子（特別的標題、資訊圖、手繪感標註、品牌感包裝），用 add_custom_component 自己設計。
+
+- 頁面就是整個畫面（window.clipen.width × height，例如 1920×1080）。只畫元件本身，其餘保持透明，讓素材透出來。
+- 時間由 Clipen 控制：CSS 動畫與 Web Animations 會逐格精準播放；用程式畫的話，定義 `window.clipenFrame = (frame, seconds) => {...}`，在裡面畫出那一格。requestAnimationFrame 迴圈、計時器與真實時鐘不會前進。第 0 格是元件出現的第一格。
+- 沒有網路：圖片與圖形請內嵌（data: URL、inline SVG）。字體可用系統字體名稱（PingFang TC、Hiragino Sans、Helvetica Neue…），或 `@font-face { src: url(https://clipen.local/fonts/iansui.ttf) }`、chenyu.ttf 兩款手寫字。
+- 只有技術檢查：頁面要能載入、程式不出錯、每格 10 秒內畫完、確實畫出東西、200 KB 以內。
+- 工具會回傳元件疊在實際素材上的畫面。一定要看：字是否清楚、有沒有擋到臉或字幕、是否服務這一刻。不滿意就用 update_custom_component 改，只需要給要變的欄位。
+- 自由元件匯出到 DaVinci Resolve 時是圖片，不能在 Resolve 裡改字；restyle_program_components 不會動到它們。
+

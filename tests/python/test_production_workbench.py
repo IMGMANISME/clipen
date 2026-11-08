@@ -154,7 +154,7 @@ class ProductionWorkbenchTests(unittest.TestCase):
         self.assertEqual((item('header').start_frame,item('header').duration_frames),(before.start_frame+50,40))
         lanes=[t for t in current().timeline.tracks if t.track_id.startswith('program-components')]
         self.assertEqual(len(lanes),2)
-        for arguments,code in (({'x':.9},'component_unsafe_position'),({'start_offset_frames':0,'duration_frames':10**6},'component_time_out_of_bounds'),
+        for arguments,code in (({'x':1.2},'component_unsafe_position'),({'start_offset_frames':0,'duration_frames':10**6},'component_time_out_of_bounds'),
                                ({'duration_frames':2},'component_time_out_of_bounds'),({'visual_style_id':'nope'},'visual_style_unavailable'),
                                ({'font_style_id':'nope'},'font_style_unavailable'),({},'component_unchanged')):
             with self.assertRaises(ProjectError) as rejected:change(arguments,'bad-'+code+str(arguments))

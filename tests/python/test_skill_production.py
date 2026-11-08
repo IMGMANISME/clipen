@@ -51,12 +51,12 @@ class SkillProductionTests(unittest.TestCase):
     def tearDown(self):
         self.tools.close_production();self.temp.cleanup()
 
-    def call(self,name,**args):
+    def call(self,tool,**args):
         from clipen.editing.tool_receipts import TIMELINE_MUTATIONS
-        if name in TIMELINE_MUTATIONS:
+        if tool in TIMELINE_MUTATIONS:
             args.setdefault('expected_revision_id',self.repository.current_revision(self.project.project_id,self.run.run_id).revision_id)
             args.setdefault('mutation_id','test-'+str(time.monotonic_ns()))
-        return self.tools.call(name,args)
+        return self.tools.call(tool,args)
 
     def cut(self):
         self.call('set_canvas',width=640,height=360,summary='測試畫布')
@@ -841,22 +841,23 @@ class SkillProductionTests(unittest.TestCase):
         self.tools._expected_revision_id=None
         self.tools._save(replace(timeline,tracks=tracks),'測試字幕')
 
-    def test_components_need_a_chosen_place_real_information_and_a_short_beat(self):
+    def test_content_rules_are_advice_the_agent_may_overrule(self):
         self.cut()
-        def rejected(code,**args):
-            with self.assertRaises(ProjectError) as error:self.call('add_program_component',**{
-                'element_id':'probe','item_id':'agent-video-0001','start_offset_frames':6,'duration_frames':45,
-                'evidence':'測試來源','summary':'測試','x':.3,'y':.3,**args})
-            self.assertEqual(error.exception.code,code)
+        def advised(phrase,element_id,**args):
+            result=self.call('add_program_component',**{
+                'element_id':element_id,'item_id':'agent-video-0001','start_offset_frames':6,'duration_frames':45,
+                'evidence':'測試來源','summary':'測試','x':.3,'y':.3,**args}).payload
+            self.assertTrue(any(phrase in note for note in result['notes']),result.get('notes'))
+        result=self.call('add_program_component',element_id='unplaced',item_id='agent-video-0001',component_id='headline',
+                         start_offset_frames=6,duration_frames=45,text='意外的第三碗',evidence='測試來源',summary='未指定位置').payload
+        self.assertTrue(any('預設位置' in note for note in result['notes']))
+        advised('具體資訊','plain-fact',component_id='fact',text='熱熱上桌',start_offset_frames=55)
+        advised('秒以內','long-beat',component_id='impact',text='有點難度',duration_frames=90,start_offset_frames=0)
         with self.assertRaises(ProjectError) as error:
-            self.call('add_program_component',element_id='probe',item_id='agent-video-0001',component_id='headline',
-                      start_offset_frames=6,duration_frames=45,text='意外的第三碗',evidence='測試來源',summary='未指定位置')
-        self.assertEqual(error.exception.code,'component_position_required')
-        rejected('component_fact_without_information',component_id='fact',text='熱熱上桌')
-        rejected('component_reaction_too_long',component_id='impact',text='有點難度',duration_frames=90)
-        self.component(element_id='price',text='拉麵 1200 円',x=.5,y=.12)
-        self.component(element_id='beat',component_id='impact',text='有點難度',duration_frames=45,start_offset_frames=60,x=.4,y=.3)
-        self.assertTrue(any(i.item_id=='beat' for t in self.tools._timeline().tracks for i in t.items))
+            self.call('add_program_component',element_id='outside',item_id='agent-video-0001',component_id='headline',start_offset_frames=6,
+                      duration_frames=45,text='畫面外',evidence='測試來源',summary='測試',x=1.2,y=.3)
+        self.assertEqual(error.exception.code,'agent_input_invalid')
+        self.assertTrue(all(any(i.item_id==k for t in self.tools._timeline().tracks for i in t.items) for k in ('unplaced','plain-fact','long-beat')))
 
     def test_components_must_not_restate_concurrent_subtitles(self):
         from clipen.editing.component_review import restated_ratio
@@ -864,13 +865,14 @@ class SkillProductionTests(unittest.TestCase):
         self.assertLess(restated_ratio('兩個人，三碗麵？',['我們手滑點到了三碗拉麵']),.5)
         self.cut()
         self.add_subtitle('這是我們看的第一個不用錢的夜景。',0,60)
-        with self.assertRaises(ProjectError) as error:
-            self.component(element_id='copy',component_id='headline',text='不用錢的夜景',x=.08,y=.25)
-        self.assertEqual(error.exception.code,'component_restates_subtitle')
+        copy=self.component(element_id='copy',component_id='headline',text='不用錢的夜景',x=.08,y=.25).payload
+        self.assertTrue(any('字幕' in note for note in copy['notes']))
         self.component(element_id='later',component_id='headline',text='第一次的夜景',start_offset_frames=70,duration_frames=40,x=.08,y=.25)
         self.add_subtitle('第一次的夜景真的很漂亮',60,60)
         validation=self.call('validate_sequence').payload
-        self.assertIn('component_restates_subtitle',[i['code'] for i in validation['delivery_issues']])
+        # Echoing a subtitle is advice for the Agent, never a reason the film cannot be delivered.
+        self.assertIn('component_restates_subtitle',[i['code'] for i in validation['advisories']])
+        self.assertNotIn('component_restates_subtitle',[i['code'] for i in validation['delivery_issues']])
 
     def test_design_notes_flag_template_rhythm_without_blocking(self):
         from clipen.domain import Rational, Track

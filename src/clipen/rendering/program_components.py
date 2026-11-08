@@ -8,9 +8,13 @@ from .program_motion import FAMILIES, layout, motion_frames, draw_motion_graphic
 from .program_styles import skin, style_font, load_style_font, styled_text_length, draw_styled_graphic, type_outline
 from . import program_identities
 from . import program_creator
+from . import custom_components
 
 
-def animation_boundaries(item, profile):
+def animation_boundaries(item, profile, timeline=None):
+    if custom_components.is_custom(profile):
+        # A free design can change on any frame; the frames themselves say where.
+        return custom_components.changes(timeline, item, profile) if timeline is not None else set(range(item.start_frame, item.start_frame+item.duration_frames+1))
     motion = profile["presets"]["motion"]
     if program_creator.is_creator(profile):
         entry_length, exit_length = program_creator.frames(profile)
@@ -150,6 +154,10 @@ def _scaled(timeline, profile):
 
 def component_bounds(draw, font_path, timeline, item, profile):
     """The graphic's box on the picture, after any size a person chose."""
+    if custom_components.is_custom(profile):
+        box = custom_components.bounds(timeline, item, profile)
+        dx, dy = round(profile.get("x", 0)*timeline.width), round(profile.get("y", 0)*timeline.height)
+        return (box or (dx, dy, dx, dy)), None, 0
     scaled = _scaled(timeline, profile)
     if scaled is None:
         return _bounds(draw, font_path, timeline, item, profile)
@@ -163,6 +171,8 @@ def component_bounds(draw, font_path, timeline, item, profile):
 
 
 def draw_program_component(draw, font_path, timeline, item, profile, relative_frame=None):
+    if custom_components.is_custom(profile):
+        return custom_components.draw(draw, timeline, item, profile, relative_frame)
     scaled = _scaled(timeline, profile)
     if scaled is None:
         return _draw(draw, font_path, timeline, item, profile, relative_frame)
