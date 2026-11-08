@@ -184,9 +184,9 @@ class CustomSkillProductionTests(unittest.TestCase):
         self.assertIn("用跳剪去掉停頓", read)
         reference = self.call("read_production_skill", resource="custom/talking-head/references/pacing.md").payload
         self.assertEqual(reference["content"], "跳剪不超過每 3 秒一次。")
-        # The binding still narrows the frozen catalogue, though the AI now designs graphics itself.
-        self.assertEqual([c["component_id"] for c in session["skill"]["components"]], ["fact", "headline", "impact"])
-        self.assertEqual((session["skill"]["selected_visual_style_id"], session["skill"]["selected_font_style_id"]), ("tpl-food-review", "japanese"))
+        listed = self.call("list_program_components").payload
+        self.assertEqual([c["component_id"] for c in listed["components"]], ["fact", "headline", "impact"])
+        self.assertEqual((listed["selected_visual_style_id"], listed["selected_font_style_id"]), ("tpl-food-review", "japanese"))
         # Removing the skill later never changes the frozen session.
         self.library.remove("talking-head")
         self.assertIn("用跳剪去掉停頓", self.call("read_production_skill").payload["content"])

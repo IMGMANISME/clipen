@@ -8,7 +8,7 @@ import unittest
 from clipen.editing import ToolResult
 from clipen.mcp_editing import EditingMcpServer, run_stdio
 from clipen.projects import ProjectError
-from clipen.editing.production_catalog import AGENT_NAMES, BUILTIN_COMPONENT_TOOLS
+from clipen.editing.production_catalog import EXTRA_NAMES
 
 
 class FakeTools:
@@ -22,7 +22,7 @@ class FakeTools:
 
     def call(self, name, arguments):
         self.calls.append((name, arguments))
-        if name == "finish_edit" and arguments.get("summary") == "blocked":
+        if name == "blocked":
             raise ProjectError("tool_not_allowed", "blocked", status_code=404)
         images = () if self.image is None else (self.image,)
         return ToolResult({"ok": True}, images)
@@ -48,11 +48,8 @@ class EditingMcpServerTests(unittest.TestCase):
                 "set_clip_effect",
                 "undo_revision",
                 "finish_edit",
-            } | set(AGENT_NAMES),
+            } | set(EXTRA_NAMES),
         )
-        # The AI designs every graphic itself; retired built-in templates are not offered.
-        self.assertFalse(BUILTIN_COMPONENT_TOOLS & names)
-        self.assertIn("add_custom_component", names)
         self.assertNotIn("shell", json.dumps(response))
         self.assertNotIn("filesystem", names)
         replace = next(
@@ -140,19 +137,11 @@ class EditingMcpServerTests(unittest.TestCase):
                 "jsonrpc": "2.0",
                 "id": 9,
                 "method": "tools/call",
-                "params": {"name": "finish_edit", "arguments": {"summary": "blocked"}},
+                "params": {"name": "blocked", "arguments": {}},
             }
         )
         self.assertTrue(response["result"]["isError"])
         self.assertIn("tool_not_allowed", response["result"]["content"][0]["text"])
-
-    def test_tools_it_does_not_list_never_reach_clipen(self):
-        tools = FakeTools()
-        response = EditingMcpServer(tools).handle(
-            {"jsonrpc": "2.0", "id": 10, "method": "tools/call", "params": {"name": "add_program_component", "arguments": {}}}
-        )
-        self.assertEqual(response["error"]["code"], -32602)
-        self.assertEqual(tools.calls, [])
 
 
 if __name__ == "__main__":

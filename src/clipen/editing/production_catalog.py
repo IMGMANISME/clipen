@@ -179,11 +179,6 @@ EXTRA_TOOLS += (
  schema('read_mutation_receipt','Read one run-owned mutation outcome after a lost response. A started receipt means outcome unknown: inspect the current revision before choosing another action.',{'mutation_id':ID}),
 )
 EXTRA_NAMES=tuple(t['name'] for t in EXTRA_TOOLS)
-# Built-in component designs stay in Clipen so existing films keep drawing, but the AI designs every
-# new graphic itself (add_custom_component); it may still remove an old one.
-BUILTIN_COMPONENT_TOOLS=frozenset({'add_program_component','update_program_component','restyle_program_components'})
-AGENT_TOOLS=tuple(t for t in EXTRA_TOOLS if t['name'] not in BUILTIN_COMPONENT_TOOLS)
-AGENT_NAMES=tuple(t['name'] for t in AGENT_TOOLS)
 BY_NAME={t['name']:t for t in EXTRA_TOOLS}
 
 

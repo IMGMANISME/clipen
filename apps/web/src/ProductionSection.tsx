@@ -119,6 +119,11 @@ export function ProductionSection({ projectId, csrf, brief, sourceReady }: Props
   const timeline = production?.draft.timeline
   const components = timeline?.tracks.filter((track) => track.track_id === 'program-components' || track.track_id.startsWith('program-components-')).reduce((total, track) => total + track.items.length, 0) ?? 0
   const captions = timeline?.tracks.find((track) => track.track_id === 'agent-subtitles')?.items.length ?? 0
+  const visualStyles = skills.find((skill) => skill.skill_id === skillId)?.visual_styles ?? []
+  const fontStyles = skills.find((skill) => skill.skill_id === skillId)?.font_styles ?? []
+  const displayedFont = active ? production?.skill.selected_font_style_id ?? 'default' : fontStyleId
+  const selectedFont = fontStyles.find((font) => font.font_style_id === displayedFont)
+  const displayedStyle = active ? production?.skill.selected_visual_style_id ?? 'variety' : visualStyleId
   const duration = timeline ? timeline.duration_frames * timeline.frame_rate.den / timeline.frame_rate.num : 0
   useEffect(() => { if (view !== 'overview') overviewPlayer.current?.pause() }, [view])
 
@@ -202,7 +207,18 @@ export function ProductionSection({ projectId, csrf, brief, sourceReady }: Props
         onChange={(event) => setTargetMinutes(event.target.value)} />
       <p id="production-duration-hint">可自訂 0.5–20 分鐘，支援小數。{durationValid ? `目標 ${clock(targetDuration)}，以秒為單位安排。` : ''}</p>
       {!active && !durationValid && <p className="inline-message error" role="alert">請輸入 0.5–20 分鐘。</p>}
-      <p className="inline-message">畫面上的標題、地點與資訊元件，AI 會依這部片自己設計。想要什麼感覺（例如日系雜誌、手寫筆記、霓虹街頭），直接寫在上面的需求裡。</p>
+      <details className="template-customize"><summary>自訂畫面風格與字體</summary>
+      {visualStyles.length > 0 && <><label htmlFor="production-visual-style">畫面風格</label><select id="production-visual-style" value={displayedStyle} disabled={active || busy} onChange={(e) => { setVisualStyleId(e.target.value); setTemplateId(skills.find((skill) => skill.skill_id === skillId)?.templates?.find((template) => template.visual_style_id === e.target.value)?.template_id ?? '') }}>{visualStyles.map((style) => <option value={style.visual_style_id} key={style.visual_style_id}>{style.name}</option>)}</select></>}
+      {fontStyles.length > 0 && <div className="font-style-picker">
+        <label htmlFor="production-font">字體搭配</label>
+        <select id="production-font" value={displayedFont} disabled={active || busy} onChange={(event) => setFontStyleId(event.target.value)}>
+          {fontStyles.map((font) => <option key={font.font_style_id} value={font.font_style_id}>{font.name}</option>)}
+        </select>
+        {selectedFont && <p>{selectedFont.description}</p>}
+        {selectedFont?.preview_resource && <img src={`/api/production/skills/${encodeURIComponent(skillId)}/fonts/${encodeURIComponent(displayedFont)}/preview`} alt={`${selectedFont.name}主標、重點字與資訊字體預覽`} />}
+        <p>主標與重點大字使用所選字體，對話字幕保持清楚易讀。落雁體與芫荽體已內附。</p>
+      </div>}
+      </details>
       <ProductionMusicPicker projectId={projectId} csrf={csrf} value={musicId} onChange={setMusicId} disabled={active || busy} />
       <label htmlFor="production-intent">這次想做什麼影片？</label>
       <textarea id="production-intent" value={active ? production?.intent.brief ?? intent : intent} maxLength={8000} rows={4} disabled={Boolean(active) || busy} onChange={(event) => setIntent(event.target.value)} />
