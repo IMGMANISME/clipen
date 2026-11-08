@@ -124,8 +124,14 @@ class ProductionWorkbenchTests(unittest.TestCase):
         self.assertEqual((item(current).style_id,item(current).start_frame,item(current).duration_frames),(item(before).style_id,item(before).start_frame,item(before).duration_frames))
         self.assertEqual(self.repository.get(self.project,self.run).tool_calls,budget)
         self.assertEqual(state(self.repository,self.project,self.run)['history'][0]['label'],'手動修改：元件文字')
+        # Changing it back gives the same picture as before, yet it is a new step at the top of the history.
+        reword({'element_id':'header','text':'原來的標題','detail':''},'user-reword-back')
+        history=state(self.repository,self.project,self.run)['history']
+        self.assertEqual(self.repository.current_revision(self.project,self.run).revision_id,before.revision_id)
+        self.assertEqual(history[0]['revision_id'],before.revision_id)
+        self.assertEqual(history[0]['number'],history[1]['number']+1)
         # A stale version is refused rather than overwriting what changed since.
-        with self.assertRaises(ProjectError):reword({'element_id':'header','text':'再改'},'stale',before.revision_id)
+        with self.assertRaises(ProjectError):reword({'element_id':'header','text':'再改'},'stale',current.revision_id)
         # The AI never sees this tool; it revises graphics through its own component tools.
         with self.assertRaises(ProjectError) as hidden:self.f.call('set_component_text',element_id='header',text='AI 改的')
         self.assertEqual(hidden.exception.code,'tool_not_allowed')
