@@ -89,13 +89,21 @@ class SkillTools:
                            "available_resources": list(skill["resources"])+list(skill.get('assets',{}))})
 
     def _production_list_program_components(self, args):
-        skill = self._skill_value()
-        return ToolResult({"skill": self._skill_summary(), "components": skill["components"],
-                           "presets": font_presets(skill,style_presets(skill)[1])[1], "visual_styles":public_styles(skill),
-                           "font_styles":public_font_styles(skill), "selected_font_style_id":skill.get("selected_font_style_id","default"),
-                           "selected_visual_style_id":skill.get("selected_visual_style_id","variety"), "parameters": COMPONENT_FIELDS,
-                           "tracking": "static_target_only", "independent_title_cards": False,
-                           "free_design": "When none of these fits the look you want, design the graphic yourself with add_custom_component (any HTML/CSS/SVG/JS)."})
+        """How graphics are made now, and the ones already in the film."""
+        from .production_catalog import CUSTOM_COMPONENT_HELP
+        from .production_media import load_text_styles
+        styles = load_text_styles(self.repository.projects, self.project_id)
+        timeline = self._timeline()
+        existing = [{"element_id": item.item_id, "start_frame": item.start_frame, "duration_frames": item.duration_frames,
+                     "text": item.text, "designed_freely": styles.get(item.style_id, {}).get("component_id") == "custom"}
+                    for track in timeline.tracks if track.track_id == "program-components" or track.track_id.startswith("program-components-")
+                    for item in track.items]
+        return ToolResult({"skill": self._skill_summary(), "how": "free_design_only", "tool": "add_custom_component",
+                           "guidance": CUSTOM_COMPONENT_HELP,
+                           "canvas": {"width": timeline.width, "height": timeline.height},
+                           "existing_graphics": existing,
+                           "older_graphics": "Graphics not designed_freely use retired built-in templates. Keep them, remove them with remove_program_component, "
+                                             "or replace them: remove, then design the new one with add_custom_component."})
 
     def _production_add_program_component(self, args):
         return self._write_component(args, updating=False)
