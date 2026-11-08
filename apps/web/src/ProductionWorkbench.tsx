@@ -6,7 +6,7 @@ import type { FilmPreview, FilmVersion, ProductionWorkbenchState, ResolveExport,
 import { ProductionMusicPicker } from './ProductionMusicPicker'
 import { usePromptDraft } from './usePromptDraft'
 import { ReviewNotes } from './ReviewNotes'
-import { clock, composePrompt } from './reviewModel'
+import { clock, composePrompt, versionTitle, when } from './reviewModel'
 import { providerName, useProvider } from './providerContext'
 
 type Props = { visible: boolean; runProvider?: string; projectId: string; csrf: string; runId: string; revisionId: string; active: boolean; onChanged: () => void; musicId: string; previews: Array<FilmPreview | null | undefined>; onMusicChange: (id: string) => void }
@@ -28,6 +28,7 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
   const [timeline, setTimeline] = useState<ResolveTimelineStatus | null>(null)
   const [exporting, setExporting] = useState(false)
   const [compare, setCompare] = useState<FilmVersion | null>(null)
+  const [returning, setReturning] = useState<FilmVersion | null>(null)
   useEffect(() => {
     let disposed = false
     void getProductionWorkbench(projectId, runId).then((next) => { if (!disposed) { setData(next); setResolved(null); setCompare(null) } }).catch((e) => { if (!disposed) setError(String(e)) })
@@ -102,26 +103,34 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
     return () => { disposed = true; window.clearInterval(timer) }
   }, [resolved, visible, csrf, projectId, runId])
 
+  function returnTo(version: FilmVersion) {
+    if (!data) return
+    setReturning(null)
+    void action(() => restoreProduction(csrf, projectId, runId, data.revision.revision_id, version.revision_id), `已回到${when(version.created_at)} 的樣子。`).then((ok) => { if (ok) setCompare(null) })
+  }
   const comparing = compare?.preview_url ? <div className="rv-compare">
-    <video key={compare.preview_url} controls autoPlay preload="metadata" src={compare.preview_url} aria-label={`版本 ${compare.number} 預覽`} />
-    <div className="rv-compare-bar"><span>正在看<strong>版本 {compare.number}</strong>，目前的版本不受影響</span>
-      <button type="button" className="button secondary" disabled={locked} onClick={() => { if (data) void action(() => restoreProduction(csrf, projectId, runId, data.revision.revision_id, compare.revision_id), `已還原成版本 ${compare.number}。`).then((ok) => { if (ok) setCompare(null) }) }}>還原這一版</button>
-      <button type="button" className="button ghost" onClick={() => setCompare(null)}>回到目前</button></div>
+    <video key={compare.preview_url} controls autoPlay preload="metadata" src={compare.preview_url} aria-label={`${when(compare.created_at)} 的影片`} />
+    <div className="rv-compare-bar"><span>正在看<strong>{when(compare.created_at)}</strong>的影片：{versionTitle(compare)}。現在的影片不受影響。</span>
+      <button type="button" className="button secondary" disabled={locked} onClick={() => setReturning(compare)}>回到這裡</button>
+      <button type="button" className="button ghost" onClick={() => setCompare(null)}>回到現在</button></div>
   </div> : undefined
 
   return <section className="rv" aria-label="審片修改">
     <header className="rv-bar">
-      <div className="rv-title"><h3>審片</h3>{data && <span>{current ? `版本 ${current.number}` : '目前版本'} · {clock(seconds)}</span>}</div>
+      <div className="rv-title"><h3>審片</h3>{data && <span>{current ? `已儲存 · ${when(current.created_at)}` : '目前的影片'} · {clock(seconds)}</span>}</div>
       <div className="rv-tools">
         {data && !video && !rendering && <button type="button" className="button primary" disabled={locked} onClick={render}>輸出這一版</button>}
-        <Menu label="版本" disabled={!data}>{(close) => <ol className="rv-versions">{data?.history.map((version) => {
-          const isCurrent = version.revision_id === revision
-          return <li key={version.revision_id} className={isCurrent ? 'is-current' : ''}>
-            <div><strong>版本 {version.number}</strong>{isCurrent && <em>目前</em>}
-              <span>{version.label} · {new Date(version.created_at).toLocaleString('zh-TW', { hour12: false, month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}{version.duration_seconds != null ? ` · ${clock(version.duration_seconds)}` : ''}</span></div>
-            {!isCurrent && <div className="rv-row">
-              {version.preview_url && <button type="button" className="rv-text-button" onClick={() => { setCompare(version); close() }}>看看</button>}
-              <button type="button" className="rv-text-button" disabled={locked} onClick={() => { close(); if (data) void action(() => restoreProduction(csrf, projectId, runId, data.revision.revision_id, version.revision_id), `已還原成版本 ${version.number}。`) }}>還原</button>
+        <Menu label="修改紀錄" disabled={!data}>{(close) => <ol className="rv-versions" aria-label="修改紀錄，最新的在最上面">{data?.history.map((version, index) => {
+          const now = index === 0 && version.revision_id === revision
+          const same = !now && version.revision_id === revision
+          return <li key={`${version.revision_id}-${version.created_at}`} className={now ? 'is-current' : ''}>
+            <div><span className="rv-version-time">{now && <em>現在</em>}{when(version.created_at)}{version.duration_seconds != null ? ` · ${clock(version.duration_seconds)}` : ''}</span>
+              <strong title={versionTitle(version)}>{versionTitle(version)}</strong>
+              {version.kind !== 'manual' && version.kind !== 'restore' && version.changes && <small>{version.changes}</small>}</div>
+            {!now && <div className="rv-row">
+              {same ? <span className="rv-version-same">和現在一樣</span> : <>
+                {version.preview_url && <button type="button" className="rv-text-button" onClick={() => { setCompare(version); close() }}>看看</button>}
+                <button type="button" className="rv-text-button" disabled={locked} onClick={() => { close(); setReturning(version) }}>回到這裡</button></>}
             </div>}
           </li>
         })}</ol>}</Menu>
@@ -132,8 +141,8 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
         </div>}</Menu>
       </div>
     </header>
-    {job && <RenderStatus job={job} playing={playable ? (earlierVersion ? `版本 ${earlierVersion.number}` : '上一版') : null} />}
-    {data && !video && !rendering && playable && <p className="rv-stale">現在播的是{earlierVersion ? `版本 ${earlierVersion.number} ` : '上一版'}的影片，還看不到剛改的地方。按「輸出這一版」更新。</p>}
+    {job && <RenderStatus job={job} playing={playable ? (earlierVersion ? `${when(earlierVersion.created_at)} ` : '上一版') : null} />}
+    {data && !video && !rendering && playable && <p className="rv-stale">現在播的是{earlierVersion ? `${when(earlierVersion.created_at)} ` : '上一版'}的影片，還看不到剛改的地方。按「輸出這一版」更新。</p>}
     {error && <p className="rv-alert" role="alert">{error}<button type="button" className="rv-icon" aria-label="關閉" onClick={() => setError('')}>×</button></p>}
     {message && <p className="rv-toast" role="status">{message}</p>}
     {data && <ReviewNotes visible={visible} projectId={projectId} csrf={csrf} runId={runId} data={data} video={playable} disabled={busy || active} locked={rendering ? '新影片輸出中，完成後才能再修改元件。' : undefined} stage={comparing}
@@ -152,12 +161,21 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
     </footer>}
     <Dialog open={confirming} label="交給 AI 修改" onClose={() => setConfirming(false)}>
       <h3>交給 {provider.name} 修改</h3>
-      <p>{notes.length ? `${notes.length} 筆注記${instruction.trim() ? '和你的說明' : ''}` : '你的說明'}會交給 {provider.name}，從{current ? `版本 ${current.number} ` : '目前版本'}繼續改。現在這版會保留，隨時可以還原。</p>
+      <p>{notes.length ? `${notes.length} 筆注記${instruction.trim() ? '和你的說明' : ''}` : '你的說明'}會交給 {provider.name}，從現在的影片繼續改。現在這版會留在修改紀錄裡，隨時可以回來。</p>
       {switching && <p className="rv-note">這支片原本由 {providerName(runProvider)} 製作，這次改由 {provider.name} 接手。</p>}
       <PowerNotice />
       <label className="consent-check"><input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />同意使用 {provider.name} 的額度</label>
       <div className="rv-row rv-dialog-actions"><button type="button" className="button ghost" onClick={() => setConfirming(false)}>取消</button>
         <button type="button" className="button primary" disabled={!consent || busy} onClick={send}>開始修改</button></div>
+    </Dialog>
+    <Dialog open={Boolean(returning)} label="回到較早的樣子" onClose={() => setReturning(null)}>
+      {returning && <>
+        <h3>回到{when(returning.created_at)} 的樣子？</h3>
+        <p className="rv-return-what">{versionTitle(returning)}</p>
+        <p>影片會變回那時候的樣子。現在這版不會消失，會留在修改紀錄裡，隨時可以再回來。</p>
+        <div className="rv-row rv-dialog-actions"><button type="button" className="button ghost" onClick={() => setReturning(null)}>取消</button>
+          <button type="button" className="button primary" disabled={locked} onClick={() => returnTo(returning)}>回到這裡</button></div>
+      </>}
     </Dialog>
     <Dialog open={Boolean(resolved)} label="到 DaVinci Resolve 繼續剪" onClose={() => setResolved(null)}>
       {resolved && <>
@@ -197,7 +215,7 @@ function RenderStatus({ job, playing }: { job: FilmPreview; playing: string | nu
       <strong>{job.state === 'queued' ? '準備輸出新影片…' : '正在輸出新影片'}</strong>
       {job.state === 'running' && <span>{Math.round(progress * 100)}% · {remaining}</span>}</div>
     <div className="rv-render-bar" aria-hidden="true"><i style={{ width: `${Math.max(3, progress * 100)}%` }} /></div>
-    <p>{playing ? `先播${/\d$/.test(playing) ? `${playing} ` : playing}的影片，` : ''}完成後會自動換成新影片。輸出期間先不能修改影片，可以繼續看片、記注記。</p>
+    <p>{playing ? `先播${playing}的影片，` : ''}完成後會自動換成新影片。輸出期間先不能修改影片，可以繼續看片、記注記。</p>
   </div>
 }
 

@@ -17,6 +17,27 @@ export function clock(seconds: number, precise = false) {
   const minutes = Math.floor(seconds / 60), rest = seconds - minutes * 60
   return `${minutes}:${precise ? rest.toFixed(1).padStart(4, '0') : String(Math.floor(rest)).padStart(2, '0')}`
 }
+/** When a version was made, the way people say it: 今天 17:52, 昨天 09:10, 11/3 21:40. */
+export function when(iso: string, now = new Date()) {
+  const at = new Date(iso)
+  if (Number.isNaN(at.getTime())) return ''
+  const time = at.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false })
+  const day = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
+  const days = Math.round((day(now) - day(at)) / 86400000)
+  return days === 0 ? `今天 ${time}` : days === 1 ? `昨天 ${time}` : `${at.getMonth() + 1}/${at.getDate()} ${time}`
+}
+/** One line saying what a version is: what was changed, by whom, or which moment it went back to. */
+export function versionTitle(version: { kind: string; label: string; detail: string | null; changes?: string | null; restored_from?: string }) {
+  if (version.kind === 'restore') return version.restored_from ? `回到${when(version.restored_from)} 的樣子` : '回到較早的樣子'
+  if (version.kind === 'manual') return version.changes || '手動修改'
+  // The request a person typed, not the lines Clipen adds around review notes.
+  const lines = version.detail?.split('\n').map((line) => line.trim()).filter(Boolean) ?? []
+  const request = lines.find((line) => !line.startsWith('請依下面的審片注記') && !line.startsWith('審片注記') && !/^\d+\.\s/.test(line))
+  const notes = lines.filter((line) => /^\d+\.\s/.test(line)).length
+  const who = (version.label ?? 'AI').replace(/完成$/, '')
+  if (request) return `${who}：「${request.length > 36 ? `${request.slice(0, 36)}…` : request}」`
+  return notes ? `${who}：依 ${notes} 筆審片注記修改` : version.label
+}
 export function parseClock(value: string) {
   const parts = value.trim().split(':')
   if (!parts.length || parts.length > 2 || parts.some((part) => !/^\d+(\.\d+)?$/.test(part))) return NaN

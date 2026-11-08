@@ -6,6 +6,7 @@ ends (finished, or stopped part way with changes) and after each restore.
 Projects from before review notes may also hold manual edits, still labelled below.
 """
 import json
+import sqlite3
 
 from clipen.provider_registry import get_provider
 
@@ -33,8 +34,9 @@ def _name(provider_id):
         return 'AI'
 
 
-def versions(database, run_id, provider):
-    """Versions of one film, newest first. `provider` is the run's current AI."""
+def versions(database, run_id, provider, styles=None, current=None):
+    """Versions of one film, newest first, each saying what changed. `provider` is the run's current AI;
+    `current` the revision the film is at now, which is always the newest entry."""
     rows = database.execute(
         "SELECT sequence,event_type,payload_json,created_at FROM edit_agent_events WHERE run_id=? AND event_type IN "
         "('run_created','refinement_requested','revision_created','revision_selected','run_finished','provider_failed','run_cancelled',"
@@ -45,8 +47,12 @@ def versions(database, run_id, provider):
     request = None
     result = []
 
+    skipped = []
+
     def add(kind, label, created_at, detail=None):
         if latest is None or (result and result[-1]['revision_id'] == latest):
+            if latest is not None:
+                skipped.append((kind, label, created_at))
             return
         result.append({'revision_id': latest, 'kind': kind, 'label': label, 'detail': detail, 'created_at': created_at})
 
@@ -76,6 +82,31 @@ def versions(database, run_id, provider):
             add('restore' if tool == 'restore_revision' else 'manual',
                 '還原版本' if tool == 'restore_revision' else f'手動修改：{_MANUAL.get(tool, "編輯")}', row['created_at'])
             start = latest
+    # Older projects did not record a step that went back to an earlier picture; show where the film is now.
+    if current and result and result[-1]['revision_id'] != current and skipped:
+        kind, label, created_at = skipped[-1]
+        result.append({'revision_id': current, 'kind': kind, 'label': label, 'detail': None, 'created_at': created_at})
+    _describe(database, run_id, result, styles or {})
     for number, entry in enumerate(result, 1):
         entry['number'] = number
     return list(reversed(result))
+
+
+def _describe(database, run_id, result, styles):
+    """What each version changed from the one before it, and which moment a restore went back to."""
+    from .history_changes import describe, summary
+    ids = sorted({entry['revision_id'] for entry in result})
+    payloads = {}
+    try:
+        for start in range(0, len(ids), 400):
+            chunk = ids[start:start+400]
+            for row in database.execute(f"SELECT revision_id,payload_json FROM edit_agent_revisions WHERE run_id=? AND revision_id IN ({','.join('?'*len(chunk))})", (run_id, *chunk)):
+                payloads[row['revision_id']] = json.loads(row['payload_json'])
+    except sqlite3.OperationalError:
+        pass  # Without stored pictures the history still lists every step, only without what changed.
+    for index, entry in enumerate(result):
+        earlier = next((e for e in reversed(result[:index]) if e['revision_id'] == entry['revision_id']), None)
+        if entry['kind'] == 'restore' and earlier is not None:
+            entry['restored_from'] = earlier['created_at']
+        before, after = (payloads.get(result[index-1]['revision_id']) if index else None), payloads.get(entry['revision_id'])
+        entry['changes'] = summary(describe(before, after, styles)) if before and after else None

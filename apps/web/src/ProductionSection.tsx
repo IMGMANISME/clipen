@@ -11,7 +11,7 @@ import { StudioIcon } from './StudioIcon'
 import type { StudioIconName } from './StudioIcon'
 import { usePromptDraft } from './usePromptDraft'
 import { useProvider } from './providerContext'
-import { clock } from './reviewModel'
+import { clock, when } from './reviewModel'
 
 type Props = { projectId: string; csrf: string; brief: string; sourceReady: boolean }
 
@@ -159,7 +159,7 @@ export function ProductionSection({ projectId, csrf, brief, sourceReady }: Props
         window.requestAnimationFrame(() => document.getElementById('production-intent')?.focus())
       }} />}
     {production && <div className="production-output studio-screen" id="production-output" tabIndex={-1} hidden={view !== 'overview'}>
-      <div className="screen-heading"><h3>你的影片</h3><span className="studio-version">{shownVersion ? `版本 ${shownVersion.number}` : viewingDraft ? '未完成的草稿' : '目前草稿'} · {Math.floor(duration / 60)}:{String(Math.round(duration % 60)).padStart(2, '0')}</span></div>
+      <div className="screen-heading"><h3>你的影片</h3><span className="studio-version">{shownVersion ? `${when(shownVersion.created_at)} 的版本` : viewingDraft ? '未完成的草稿' : '目前草稿'} · {Math.floor(duration / 60)}:{String(Math.round(duration % 60)).padStart(2, '0')}</span></div>
       {preview?.state === 'succeeded' ? <>
         {viewingDraft && <div className="film-draft-notice" role="status"><strong>未完成的草稿{draft?.version?.kind === 'ai_partial' ? `：${draft.version.label}` : ''}</strong>
           <p>{active ? 'AI 還在製作，這是製作途中的畫面，還沒做完交付檢查。' : 'AI 還沒做完這一輪的交付檢查，畫面可能只改了一部分。'}</p>

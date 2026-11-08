@@ -1659,14 +1659,19 @@ video { background: #000; }
 .rv-menu-list > :disabled { opacity: .45; cursor: default; }
 .rv-menu-list strong { font-size: 13px; font-weight: 600; }
 .rv-menu-list span { color: var(--text-3); font-size: 12px; }
+.rv-menu-panel:has(.rv-versions) { width: min(460px, calc(100vw - 32px)); max-width: none; }
 .rv-versions { list-style: none; display: grid; gap: 2px; max-height: min(420px, 60vh); margin: 0; padding: 0; overflow-y: auto; }
-.rv-versions li { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; }
+.rv-versions li { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 10px; }
 .rv-versions li:hover { background: var(--surface-3); }
-.rv-versions li > div:first-child { display: grid; flex: 1; min-width: 0; }
-.rv-versions strong { font-size: 13px; font-weight: 600; }
-.rv-versions em { margin-left: 8px; padding: 0 6px; border-radius: 5px; color: var(--accent); background: var(--accent-soft); font-size: 11px; font-style: normal; }
-.rv-versions span { overflow: hidden; color: var(--text-3); font-size: 12px; white-space: nowrap; text-overflow: ellipsis; }
-.rv-versions li.is-current strong { color: var(--accent); }
+.rv-versions li > div:first-child { display: grid; gap: 2px; flex: 1; min-width: 0; }
+.rv-versions strong { overflow: hidden; font-size: 13px; font-weight: 600; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.rv-versions small { overflow: hidden; color: var(--text-3); font-size: 12px; white-space: nowrap; text-overflow: ellipsis; }
+.rv-version-time { display: flex; align-items: center; gap: 6px; color: var(--text-3); font-size: 12px; font-variant-numeric: tabular-nums; }
+.rv-versions em { padding: 0 6px; border-radius: 5px; color: var(--accent); background: var(--accent-soft); font-size: 11px; font-style: normal; font-weight: 600; }
+.rv-versions li.is-current { background: var(--accent-soft); }
+.rv-versions .rv-row { flex: none; }
+.rv-version-same { color: var(--text-3); font-size: 12px; }
+.rv-return-what { margin: 0; padding: 10px 12px; border-radius: 8px; background: var(--surface-3); font-weight: 600; }
 .rv-music { width: min(380px, calc(100vw - 48px)); }
 .rv-music .production-music-picker { border: 0; padding: 6px; gap: 10px; }
 .rv-music .production-music-picker legend { display: none; }

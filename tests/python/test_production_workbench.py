@@ -97,6 +97,9 @@ class ProductionWorkbenchTests(unittest.TestCase):
         # Revisions are content-addressed, so restoring selects the earlier version again.
         self.assertEqual(current.revision_id,before.revision_id)
         self.assertEqual(self.repository.get(self.project,self.run).tool_calls,budget)
+        # Going back is the newest step in the history, and says it went back.
+        top=state(self.repository,self.project,self.run)['history'][0]
+        self.assertEqual((top['kind'],top['revision_id']),('restore',before.revision_id))
         self.assertTrue(edit(self.repository,self.project,self.run,'restore_revision',restore,changed.revision_id,'user-restore').get('replayed'))
         with self.assertRaises(ProjectError):edit(self.repository,self.project,self.run,'restore_revision',restore,changed.revision_id,'stale')
         info=state(self.repository,self.project,self.run)
