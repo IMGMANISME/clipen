@@ -12,6 +12,8 @@ import type { NoteDraft, NoteForm as Form } from './reviewDraft'
 
 type Props = {
   visible: boolean; projectId: string; csrf: string; runId: string; data: ProductionWorkbenchState; video: FilmPreview | null; disabled: boolean
+  /** Why the film cannot be changed right now (for example, a new version is being rendered). */
+  locked?: string
   onChanged: (state: ReferenceState) => void; onDirty: (dirty: boolean) => void
   /** Save or remove a graphic; each resolves true once done. */
   onSaveComponent: (draft: ComponentDraft) => Promise<boolean>
@@ -21,7 +23,7 @@ type Props = {
 }
 
 /** Watch the film, note what to change, and edit its graphics: player, side panel and timeline. */
-export function ReviewNotes({ visible, projectId, csrf, runId, data, video, disabled, onChanged, onDirty, onSaveComponent, onRemoveComponent, stage }: Props) {
+export function ReviewNotes({ visible, projectId, csrf, runId, data, video, disabled, locked, onChanged, onDirty, onSaveComponent, onRemoveComponent, stage }: Props) {
   const timeline = data.revision.timeline
   const fps = timeline.frame_rate.num / timeline.frame_rate.den
   const state = data.references ?? { version: 0, items: [] }
@@ -149,7 +151,7 @@ export function ReviewNotes({ visible, projectId, csrf, runId, data, video, disa
   const editFrame = selection && settings ? Math.min(timeline.duration_frames - 1, settings.shot_start_frame + selection.start + Math.floor(selection.duration / 2)) : frame
 
   let panel: ReactNode
-  if (selection && settings && editing) panel = <ComponentInspector edit={selection} settings={settings} editing={editing} fps={fps} busy={busy} disabled={disabled}
+  if (selection && settings && editing) panel = <ComponentInspector edit={selection} settings={settings} editing={editing} fps={fps} busy={busy} disabled={disabled || Boolean(locked)} locked={locked}
     onChange={setSelection} onCancel={() => setSelection(null)} onSave={() => void finish(() => onSaveComponent(componentDraft(selection)))}
     onRemove={() => void finish(() => onRemoveComponent(selection.id))} />
   else if (form) panel = <fieldset className="rv-note-form" disabled={disabled || busy}>

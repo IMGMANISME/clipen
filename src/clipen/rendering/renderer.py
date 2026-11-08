@@ -76,20 +76,18 @@ class FfmpegPreviewRenderer:
                 prefix=".clipen-title-", dir=output.parent
             ) as temporary:
                 directory = Path(temporary)
-                media_output = directory / "media.mp4"
-                self._render_media(
-                    project_id,
-                    timeline,
-                    media_output,
-                    cancel,
-                    lambda value: progress(value * 0.82),
+                media_output = self._media_without_titles(
+                    project_id, timeline, directory, cancel, lambda value: progress(value * 0.82)
                 )
+                # A reused cut leaves only the text layer, so that layer is the whole of the progress.
+                share = 0. if media_output.parent != directory else 0.82
+                layer = lambda value: progress(share + value * (1 - share))
                 from clipen.editing.production_media import load_text_styles
                 styles=load_text_styles(getattr(self.media,'projects',None),project_id)
                 if sum(len(t.items) for t in timeline.tracks if t.kind is TrackKind.TITLE)>32 or any(styles.get(i.style_id,{}).get('kind') in {'program_subtitle','program_component'} for t in timeline.tracks if t.kind is TrackKind.TITLE for i in t.items):
                     from .titles import compose_dense_titles
                     compose_dense_titles(self.executable,media_output,timeline,directory,output,cancel,styles,
-                                         progress=lambda value: progress(0.82 + value * 0.18))
+                                         progress=layer,hardware=self.hardware_acceleration and not self.master)
                     progress(1.)
                     return
                 titles = TitleCardRenderer(styles).render(timeline, directory)
@@ -99,10 +97,49 @@ class FfmpegPreviewRenderer:
                     output,
                     cancel,
                     float(self._timeline_seconds(timeline)),
-                    lambda value: progress(0.82 + value * 0.18),
+                    layer,
                 )
         except TitleRenderError as error:
             raise PreviewRenderError(error.code) from error
+
+    _MEDIA_CACHE_KEEP = 2
+
+    def _media_without_titles(self, project_id, timeline, directory, cancel, progress) -> Path:
+        """The cut with its effects and sound, before any text is laid over it.
+
+        Rewording, moving or restyling graphics and subtitles leaves this unchanged, so the
+        last few are kept and such an edit only redoes the text layer."""
+        projects = getattr(self.media, "projects", None)
+        if projects is None:
+            output = directory / "media.mp4"
+            self._render_media(project_id, timeline, output, cancel, progress)
+            return output
+        import json
+        import hashlib
+        from dataclasses import replace
+        picture = replace(timeline, tracks=tuple(t for t in timeline.tracks if t.kind is not TrackKind.TITLE), markers=()).to_payload()
+        picture.pop("timeline_id", None)
+        key = hashlib.sha256(json.dumps({"version": 1, "picture": picture, "master": self.master},
+                                        sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:32]
+        folder = projects.root / project_id / "previews" / "media-cache"
+        cached = folder / f"{key}.mp4"
+        if cached.is_file():
+            os.utime(cached)
+            return cached
+        output = directory / "media.mp4"
+        self._render_media(project_id, timeline, output, cancel, progress)
+        try:
+            folder.mkdir(mode=0o700, parents=True, exist_ok=True)
+            partial = folder / f".{key}.part"
+            import shutil
+            shutil.copyfile(output, partial)
+            os.replace(partial, cached)
+            kept = sorted(folder.glob("*.mp4"), key=lambda path: path.stat().st_mtime, reverse=True)
+            for stale in kept[self._MEDIA_CACHE_KEEP:]:
+                stale.unlink(missing_ok=True)
+        except OSError:
+            pass  # A cache that cannot be written only means the next edit renders in full.
+        return output
 
     def _render_media(self, project_id, timeline, output, cancel, progress, *, preserve_audio_gain=False):
         try:

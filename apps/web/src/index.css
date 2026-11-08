@@ -1550,7 +1550,16 @@ video { background: #000; }
 .rv-hint { margin: 0; color: var(--text-3); font-size: 12px; line-height: 1.6; }
 .rv-time { color: var(--accent); font: 500 12px var(--mono); font-variant-numeric: tabular-nums; }
 .rv-stale { display: flex; align-items: center; gap: 10px; margin: 0; padding: 8px 12px; border-radius: 10px; color: var(--text-2); background: var(--warn-soft); font-size: 13px; }
-.rv-stale.is-rendering { background: var(--accent-soft); color: var(--text); }
+.rv-render { display: grid; gap: 8px; padding: 12px 14px; border-radius: 12px; background: var(--accent-soft); color: var(--text); }
+.rv-render-head { display: flex; align-items: center; gap: 10px; font-size: 14px; }
+.rv-render-head span:last-child { margin-left: auto; color: var(--text-2); font-variant-numeric: tabular-nums; font-size: 13px; }
+.rv-render-bar { height: 6px; border-radius: 99px; background: color-mix(in srgb, var(--accent) 18%, transparent); overflow: hidden; }
+.rv-render-bar i { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width .6s ease; }
+.rv-render p { margin: 0; color: var(--text-2); font-size: 13px; }
+.rv-spinner { flex: none; width: 14px; height: 14px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--accent) 25%, transparent); border-top-color: var(--accent); animation: rv-spin .8s linear infinite; }
+@keyframes rv-spin { to { transform: rotate(360deg); } }
+.rv-locked { display: flex; align-items: center; gap: 8px; margin: 0; padding: 8px 10px; border-radius: 8px; background: var(--accent-soft); font-size: 13px; }
+@media (prefers-reduced-motion: reduce) { .rv-spinner { animation-duration: 2.4s; } .rv-render-bar i { transition: none; } }
 .rv-alert { display: flex; align-items: center; gap: 10px; margin: 0; padding: 8px 8px 8px 14px; border-radius: 10px; color: var(--danger); background: var(--danger-soft); font-size: 13px; }
 .rv-toast { position: fixed; left: 50%; bottom: 104px; z-index: 40; margin: 0; padding: 8px 16px; border: 1px solid var(--line-strong); border-radius: 999px; color: var(--text); background: var(--surface-3); box-shadow: 0 10px 30px rgba(0, 0, 0, .45); font-size: 13px; transform: translateX(-50%); animation: rv-rise .2s ease-out; }
 @keyframes rv-rise { from { opacity: 0; transform: translate(-50%, 6px); } }

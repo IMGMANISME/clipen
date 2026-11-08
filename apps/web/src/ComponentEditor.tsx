@@ -18,11 +18,11 @@ function Field({ label, value, format, parse, onCommit, disabled, suffix }: { la
 }
 
 type InspectorProps = {
-  edit: ComponentEdit; settings: ComponentSettings; editing: ComponentEditing; fps: number; busy: boolean; disabled: boolean
+  edit: ComponentEdit; settings: ComponentSettings; editing: ComponentEditing; fps: number; busy: boolean; disabled: boolean; locked?: string
   onChange: (edit: ComponentEdit) => void; onSave: () => void; onCancel: () => void; onRemove: () => void
 }
 /** Everything about one graphic: wording, look, typeface, timing; its place is dragged on the picture. */
-export function ComponentInspector({ edit, settings, editing, fps, busy, disabled, onChange, onSave, onCancel, onRemove }: InspectorProps) {
+export function ComponentInspector({ edit, settings, editing, fps, busy, disabled, locked, onChange, onSave, onCancel, onRemove }: InspectorProps) {
   const changed = componentChanged(edit)
   const valid = Boolean(edit.text.trim())
   const shotStart = settings.shot_start_frame, shotEnd = settings.shot_start_frame + settings.shot_duration_frames
@@ -33,6 +33,7 @@ export function ComponentInspector({ edit, settings, editing, fps, busy, disable
   return <div className="rv-inspector">
     <div className="rv-panel-head"><h4>{settings.name}</h4><span className="rv-time">{clock((shotStart + edit.start) / fps)}</span>
       <button type="button" className="rv-icon" aria-label="關閉" onClick={onCancel}>×</button></div>
+    {locked && <p className="rv-locked" role="status"><span className="rv-spinner" aria-hidden="true" />{locked}</p>}
     {edit.custom ? <p className="rv-hint">這是 AI 自由設計的元件。想改它的樣子，在下方寫給 AI 修改。</p> : <>
       <label>主要文字<span className={`rv-counter${edit.text.trim().length > settings.max_characters ? ' is-over' : ''}`}>{edit.text.trim().length}/{settings.max_characters}</span>
         <input value={edit.text} maxLength={48} autoFocus disabled={disabled || busy} onChange={(e) => update({ text: e.target.value })} onKeyDown={enter} /></label>

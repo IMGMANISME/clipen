@@ -37,7 +37,10 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
   // Note times are positions in the current version, so review only a film rendered from it.
   const revision = data?.revision.revision_id
   const video = previews.find((preview) => preview?.state === 'succeeded' && preview.revision_id === revision) ?? null
-  const rendering = previews.some((preview) => preview && preview.revision_id === revision && ['queued', 'running'].includes(preview.state))
+  const job = previews.find((preview) => preview && preview.revision_id === revision && ['queued', 'running'].includes(preview.state)) ?? null
+  const rendering = Boolean(job)
+  // Changing the film while its new version renders would make that render stale at once, so wait.
+  const locked = busy || active || rendering
   const notes = data?.references?.items ?? []
   const prompt = data ? composePrompt(instruction, notes, data.revision.timeline) : ''
   const current = data?.history.find((version) => version.revision_id === revision)
@@ -102,7 +105,7 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
   const comparing = compare?.preview_url ? <div className="rv-compare">
     <video key={compare.preview_url} controls autoPlay preload="metadata" src={compare.preview_url} aria-label={`版本 ${compare.number} 預覽`} />
     <div className="rv-compare-bar"><span>正在看<strong>版本 {compare.number}</strong>，目前的版本不受影響</span>
-      <button type="button" className="button secondary" disabled={busy || active} onClick={() => { if (data) void action(() => restoreProduction(csrf, projectId, runId, data.revision.revision_id, compare.revision_id), `已還原成版本 ${compare.number}。`).then((ok) => { if (ok) setCompare(null) }) }}>還原這一版</button>
+      <button type="button" className="button secondary" disabled={locked} onClick={() => { if (data) void action(() => restoreProduction(csrf, projectId, runId, data.revision.revision_id, compare.revision_id), `已還原成版本 ${compare.number}。`).then((ok) => { if (ok) setCompare(null) }) }}>還原這一版</button>
       <button type="button" className="button ghost" onClick={() => setCompare(null)}>回到目前</button></div>
   </div> : undefined
 
@@ -110,7 +113,7 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
     <header className="rv-bar">
       <div className="rv-title"><h3>審片</h3>{data && <span>{current ? `版本 ${current.number}` : '目前版本'} · {clock(seconds)}</span>}</div>
       <div className="rv-tools">
-        {data && !video && <button type="button" className="button primary" disabled={busy || active || rendering} onClick={render}>{rendering ? '輸出中…' : '輸出這一版'}</button>}
+        {data && !video && !rendering && <button type="button" className="button primary" disabled={locked} onClick={render}>輸出這一版</button>}
         <Menu label="版本" disabled={!data}>{(close) => <ol className="rv-versions">{data?.history.map((version) => {
           const isCurrent = version.revision_id === revision
           return <li key={version.revision_id} className={isCurrent ? 'is-current' : ''}>
@@ -118,7 +121,7 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
               <span>{version.label} · {new Date(version.created_at).toLocaleString('zh-TW', { hour12: false, month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}{version.duration_seconds != null ? ` · ${clock(version.duration_seconds)}` : ''}</span></div>
             {!isCurrent && <div className="rv-row">
               {version.preview_url && <button type="button" className="rv-text-button" onClick={() => { setCompare(version); close() }}>看看</button>}
-              <button type="button" className="rv-text-button" disabled={busy || active} onClick={() => { close(); if (data) void action(() => restoreProduction(csrf, projectId, runId, data.revision.revision_id, version.revision_id), `已還原成版本 ${version.number}。`) }}>還原</button>
+              <button type="button" className="rv-text-button" disabled={locked} onClick={() => { close(); if (data) void action(() => restoreProduction(csrf, projectId, runId, data.revision.revision_id, version.revision_id), `已還原成版本 ${version.number}。`) }}>還原</button>
             </div>}
           </li>
         })}</ol>}</Menu>
@@ -129,17 +132,17 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
         </div>}</Menu>
       </div>
     </header>
-    {data && !video && playable && <p className={`rv-stale${rendering ? ' is-rendering' : ''}`}>{rendering
-      ? <><span className="rv-pulse" />正在輸出新版本，大約一兩分鐘，好了會自動換成新影片。現在播的是{earlierVersion ? `版本 ${earlierVersion.number}` : '上一版'}。</>
-      : <>現在播的是{earlierVersion ? `版本 ${earlierVersion.number} ` : '上一版'}的影片，還看不到剛改的地方。按「輸出這一版」更新。</>}</p>}
+    {job && <RenderStatus job={job} playing={playable ? (earlierVersion ? `版本 ${earlierVersion.number}` : '上一版') : null} />}
+    {data && !video && !rendering && playable && <p className="rv-stale">現在播的是{earlierVersion ? `版本 ${earlierVersion.number} ` : '上一版'}的影片，還看不到剛改的地方。按「輸出這一版」更新。</p>}
     {error && <p className="rv-alert" role="alert">{error}<button type="button" className="rv-icon" aria-label="關閉" onClick={() => setError('')}>×</button></p>}
     {message && <p className="rv-toast" role="status">{message}</p>}
-    {data && <ReviewNotes visible={visible} projectId={projectId} csrf={csrf} runId={runId} data={data} video={playable} disabled={busy || active} stage={comparing}
+    {data && <ReviewNotes visible={visible} projectId={projectId} csrf={csrf} runId={runId} data={data} video={playable} disabled={busy || active} locked={rendering ? '新影片輸出中，完成後才能再修改元件。' : undefined} stage={comparing}
       onChanged={(references) => setData((value) => value ? { ...value, references } : value)} onDirty={setNoteOpen}
       onSaveComponent={(draft) => action(() => renderAfter(editComponent(csrf, projectId, runId, data.revision.revision_id, draft)), '存好了，正在輸出新影片。')}
       onRemoveComponent={(elementId) => action(() => renderAfter(removeComponent(csrf, projectId, runId, data.revision.revision_id, elementId)), '元件刪掉了，正在輸出新影片。可以從「版本」還原。')} />}
     {data && <footer className="rv-composer">
-      {active ? <p className="rv-working"><span className="rv-pulse" />AI 正在修改這支片，好了會自動更新。</p> : <>
+      {active ? <p className="rv-working"><span className="rv-pulse" />AI 正在修改這支片，好了會自動更新。</p>
+        : rendering ? <p className="rv-working"><span className="rv-spinner" aria-hidden="true" />新影片輸出中。完成後就能繼續修改或交給 AI；這段時間可以看片、記注記。</p> : <>
         <textarea aria-label="這一版還要怎麼改？" rows={1} value={instruction} maxLength={MAX_INSTRUCTION} onChange={(e) => setInstruction(e.target.value)}
           placeholder={notes.length ? `還有其他想法嗎？（可不填，${notes.length} 筆注記會一起交給 AI）` : '這一版還要怎麼改？例如：節奏再快一點，早餐段落縮短'} />
         <Menu label="配樂" disabled={busy} up>{() => <div className="rv-music">
@@ -177,6 +180,25 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
       </>}
     </Dialog>
   </section>
+}
+
+/** How far the new film has come, and roughly how long is left, while the page waits for it. */
+function RenderStatus({ job, playing }: { job: FilmPreview; playing: string | null }) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(timer) }, [])
+  const progress = job.state === 'running' ? Math.max(0, Math.min(1, job.progress)) : 0
+  const started = Date.parse(job.started_at ?? job.created_at)
+  const elapsed = Number.isFinite(started) ? Math.max(0, (now - started) / 1000) : 0
+  // Only guess once there is enough progress to guess from.
+  const left = progress > .08 && elapsed > 3 ? Math.max(1, Math.round(elapsed * (1 - progress) / progress)) : null
+  const remaining = left === null ? '正在估算時間' : left < 60 ? `約剩 ${left} 秒` : `約剩 ${Math.ceil(left / 60)} 分鐘`
+  return <div className="rv-render" role="status" aria-live="polite">
+    <div className="rv-render-head"><span className="rv-spinner" aria-hidden="true" />
+      <strong>{job.state === 'queued' ? '準備輸出新影片…' : '正在輸出新影片'}</strong>
+      {job.state === 'running' && <span>{Math.round(progress * 100)}% · {remaining}</span>}</div>
+    <div className="rv-render-bar" aria-hidden="true"><i style={{ width: `${Math.max(3, progress * 100)}%` }} /></div>
+    <p>{playing ? `先播${/\d$/.test(playing) ? `${playing} ` : playing}的影片，` : ''}完成後會自動換成新影片。輸出期間先不能修改影片，可以繼續看片、記注記。</p>
+  </div>
 }
 
 /** A button that opens a small panel, closed by clicking outside or pressing Escape. */
