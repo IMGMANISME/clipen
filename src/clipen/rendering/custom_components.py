@@ -1,0 +1,154 @@
+"""Graphics an Agent designs freely as a web page (HTML, CSS, SVG, Canvas, JS).
+
+The page fills the whole picture and is transparent wherever it draws nothing.
+Frames are drawn by ``custom_render`` in a sealed headless Chrome, cached on
+disk by content, and composited like any other programme graphic, so the
+preview, the film and the Resolve export show the same picture.
+"""
+import hashlib
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import threading
+
+from .titles import TitleRenderError
+
+MAX_HTML_BYTES = 200_000
+FRAME_TIMEOUT_SECONDS = 10
+CUSTOM = 'custom'
+_locks = {}
+_guard = threading.Lock()
+
+
+def is_custom(profile):
+    return profile.get('component_id') == CUSTOM
+
+
+def cache_root():
+    configured = os.environ.get('CLIPEN_CUSTOM_COMPONENT_CACHE')
+    if configured:
+        return Path(configured)
+    from clipen.bootstrap import clipen_data_root
+    return clipen_data_root() / 'cache' / 'custom-components'
+
+
+def _fps(timeline):
+    return timeline.frame_rate.numerator / timeline.frame_rate.denominator
+
+
+def _key(profile, timeline, duration):
+    material = json.dumps([profile['html'], timeline.width, timeline.height,
+                           timeline.frame_rate.numerator, timeline.frame_rate.denominator, duration])
+    return hashlib.sha256(material.encode()).hexdigest()[:32]
+
+
+def _lock(key):
+    with _guard:
+        return _locks.setdefault(key, threading.Lock())
+
+
+class CustomRenderError(TitleRenderError):
+    def __init__(self, code, detail=''):
+        super().__init__(code)
+        self.detail = detail
+
+
+def frames(timeline, item, profile, wanted):
+    """Paths of the requested relative frames, drawing the missing ones in one Chrome run."""
+    duration = item.duration_frames
+    wanted = sorted({min(max(0, int(n)), duration-1) for n in wanted})
+    key = _key(profile, timeline, duration)
+    folder = cache_root() / key
+    paths = {n: folder / f'f{n:05d}.png' for n in wanted}
+    with _lock(key):
+        missing = [n for n, path in paths.items() if not path.is_file()]
+        if missing:
+            folder.mkdir(parents=True, exist_ok=True)
+            job = {'html': profile['html'], 'width': timeline.width, 'height': timeline.height, 'fps': _fps(timeline),
+                   'duration': duration, 'frames': missing, 'out': str(folder), 'frame_timeout': FRAME_TIMEOUT_SECONDS}
+            _run(job, timeout=30 + FRAME_TIMEOUT_SECONDS + len(missing) * 1.5)
+    return paths
+
+
+def _run(job, timeout):
+    environment = {**os.environ, 'PYTHONPATH': os.pathsep.join(filter(None, [str(Path(__file__).resolve().parents[2]), os.environ.get('PYTHONPATH')]))}
+    try:
+        finished = subprocess.run([sys.executable, '-m', 'clipen.rendering.custom_render'], input=json.dumps(job),
+                                  capture_output=True, text=True, timeout=timeout, env=environment, cwd=tempfile.gettempdir())
+    except subprocess.TimeoutExpired:
+        raise CustomRenderError('custom_component_frame_timeout') from None
+    if finished.returncode != 0:
+        try:
+            problem = json.loads(finished.stderr.strip().splitlines()[-1])
+        except (ValueError, IndexError):
+            problem = {'code': 'custom_component_render_failed', 'detail': finished.stderr[-400:]}
+        raise CustomRenderError(problem.get('code', 'custom_component_render_failed'), problem.get('detail', ''))
+
+
+def _image(path):
+    from PIL import Image
+    with Image.open(path) as image:
+        return image.convert('RGBA')
+
+
+def _offset(timeline, profile):
+    return round(profile.get('x', 0) * timeline.width), round(profile.get('y', 0) * timeline.height)
+
+
+def _resting_frame(item):
+    return item.duration_frames // 2
+
+
+def bounds(timeline, item, profile, relative_frame=None):
+    """Where the graphic draws something, in pixels, after the user's move."""
+    frame = _resting_frame(item) if relative_frame is None else relative_frame
+    box = _image(frames(timeline, item, profile, [frame])[min(max(0, frame), item.duration_frames-1)]).getchannel('A').getbbox()
+    if box is None:
+        return None
+    dx, dy = _offset(timeline, profile)
+    return (box[0]+dx, box[1]+dy, box[2]+dx, box[3]+dy)
+
+
+def draw(draw_, timeline, item, profile, relative_frame=None):
+    frame = _resting_frame(item) if relative_frame is None else min(max(0, relative_frame), item.duration_frames-1)
+    picture = _image(frames(timeline, item, profile, [frame])[frame])
+    dx, dy = _offset(timeline, profile)
+    target = draw_._image
+    # Crop whatever a move pushed off the picture; alpha_composite takes no negative offsets.
+    left, top = max(0, -dx), max(0, -dy)
+    right, bottom = min(picture.width, timeline.width-dx), min(picture.height, timeline.height-dy)
+    if right > left and bottom > top:
+        piece = picture.crop((left, top, right, bottom))
+        if target.mode == 'RGBA':
+            target.alpha_composite(piece, dest=(dx+left, dy+top))
+        else:
+            target.paste(piece, (dx+left, dy+top), piece)
+    box = picture.getchannel('A').getbbox()
+    return None if box is None else (box[0]+dx, box[1]+dy, box[2]+dx, box[3]+dy)
+
+
+def changes(timeline, item, profile):
+    """Absolute frames where the picture differs from the frame before, so still stretches cost one image."""
+    paths = frames(timeline, item, profile, range(item.duration_frames))
+    marks, previous = {item.start_frame, item.start_frame+item.duration_frames}, None
+    for n in range(item.duration_frames):
+        digest = hashlib.sha256(_image(paths[n]).tobytes()).digest()
+        if digest != previous:
+            marks.add(item.start_frame+n)
+        previous = digest
+    return marks
+
+
+def check(timeline, item, profile):
+    """Technical checks only: the page loads, runs and draws something at the start, middle and end."""
+    if not isinstance(profile.get('html'), str) or not profile['html'].strip():
+        raise CustomRenderError('custom_component_html_missing')
+    if len(profile['html'].encode()) > MAX_HTML_BYTES:
+        raise CustomRenderError('custom_component_html_too_large')
+    sample = sorted({0, _resting_frame(item), item.duration_frames-1})
+    paths = frames(timeline, item, profile, sample)
+    if all(_image(paths[n]).getchannel('A').getbbox() is None for n in sample):
+        raise CustomRenderError('custom_component_empty')

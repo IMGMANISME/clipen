@@ -316,7 +316,7 @@ def compose_dense_titles(executable,source,timeline,directory,output,cancel,cust
     boundaries=sorted(set(boundaries)|{b for i in items if (custom_styles or {}).get(i.style_id,{}).get('kind')=='program_subtitle' for b in animation_boundaries(i)})
     from .program_components import animation_boundaries as component_boundaries
     boundaries=sorted(set(boundaries)|{b for i in items if (custom_styles or {}).get(i.style_id,{}).get('kind')=='program_component'
-                                      for b in component_boundaries(i,custom_styles[i.style_id])})
+                                      for b in component_boundaries(i,custom_styles[i.style_id],timeline)})
     lines=['ffconcat version 1.0'];events=max(1,len(boundaries)-1)
     for index,(start,end) in enumerate(zip(boundaries,boundaries[1:])):
         if cancel.is_set():raise TitleRenderError('cancelled')

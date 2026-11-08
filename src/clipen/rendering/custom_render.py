@@ -1,0 +1,132 @@
+"""Draw frames of an Agent-designed web page in a sealed headless Chrome.
+
+Runs as its own process (``python -m clipen.rendering.custom_render``) so a page
+that hangs or crashes can be killed without touching Clipen. It reads one JSON
+job on stdin and writes one transparent PNG per requested frame. The page gets
+no network: every request is refused except Clipen's own bundled fonts, served
+from ``https://clipen.local/fonts/``. Time is Clipen's to set, so the same frame
+always draws the same picture.
+"""
+import json
+from importlib.resources import files
+import os
+from pathlib import Path
+import sys
+
+FONT_ORIGIN = 'https://clipen.local/fonts/'
+FONTS = {'chenyu.ttf', 'iansui.ttf'}
+
+# Runs before the page's own scripts: a fixed clock and random sequence.
+_PRELUDE = """
+(() => {
+  let seed = 1, now = 0;
+  Math.random = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
+  performance.now = () => now;
+  const epoch = 1767225600000;
+  Date.now = () => epoch + now;
+  window.__clipenTime = (ms) => { now = ms; };
+  window.clipen = Object.freeze(__INFO__);
+  // The page is the picture: no default margins, though the page may set its own.
+  document.addEventListener('DOMContentLoaded', () => {
+    const base = document.createElement('style');
+    base.textContent = ':where(html, body) { margin: 0; padding: 0; background: transparent; }';
+    document.head.prepend(base);
+  });
+})();
+"""
+
+_SEEK = """
+async ([frame, fps]) => {
+  const ms = frame / fps * 1000;
+  window.__clipenTime(ms);
+  const hold = () => document.getAnimations().forEach((a) => { a.pause(); a.currentTime = ms; });
+  hold();
+  if (typeof window.clipenFrame === 'function') await window.clipenFrame(frame, ms / 1000);
+  hold();
+  await document.fonts.ready;
+  await new Promise((done) => requestAnimationFrame(() => done()));
+}
+"""
+
+
+def fail(code, detail=''):
+    sys.stderr.write(json.dumps({'code': code, 'detail': detail[:400]}, ensure_ascii=False))
+    sys.exit(2)
+
+
+def _browser(playwright):
+    errors = []
+    for options in ({'channel': 'chrome'}, {}):
+        try:
+            return playwright.chromium.launch(headless=True, args=['--disable-gpu', '--no-first-run'], **options)
+        except Exception as error:  # Chrome may be missing; try the bundled build next.
+            errors.append(str(error).splitlines()[0])
+    fail('custom_component_renderer_missing', ' / '.join(errors))
+
+
+PAGE = 'https://clipen.local/component.html'
+
+
+def _route(route, html):
+    url = route.request.url
+    if url == PAGE:
+        return route.fulfill(status=200, body=html, headers={'content-type': 'text/html; charset=utf-8'})
+    if url.startswith(FONT_ORIGIN) and url[len(FONT_ORIGIN):] in FONTS:
+        path = Path(str(files('clipen.rendering').joinpath('fonts', url[len(FONT_ORIGIN):])))
+        return route.fulfill(status=200, body=path.read_bytes(), headers={'content-type': 'font/ttf', 'access-control-allow-origin': '*'})
+    return route.abort()
+
+
+def render(job):
+    from playwright.sync_api import Error, TimeoutError, sync_playwright
+    out = Path(job['out'])
+    width, height, fps = int(job['width']), int(job['height']), float(job['fps'])
+    info = {'width': width, 'height': height, 'fps': fps, 'durationFrames': int(job['duration'])}
+    with sync_playwright() as playwright:
+        browser = _browser(playwright)
+        try:
+            # A fresh context is a fresh, throw-away profile: nothing of the user's Chrome is visible.
+            context = browser.new_context(viewport={'width': width, 'height': height}, device_scale_factor=1,
+                                          java_script_enabled=True, offline=False, service_workers='block')
+            context.route('**/*', lambda route: _route(route, job['html']))
+            page = context.new_page()
+            page.set_default_timeout(float(job.get('frame_timeout', 10)) * 1000)
+            problems = []
+            page.on('pageerror', lambda error: problems.append(str(error)))
+            page.add_init_script(_PRELUDE.replace('__INFO__', json.dumps(info)))
+            try:
+                page.goto(PAGE, wait_until='load')
+                page.evaluate('document.fonts.ready.then(() => true)')
+                # A picture the sealed page could not fetch is hidden instead of drawn as a broken icon.
+                page.evaluate("document.querySelectorAll('img').forEach((i) => { if (!i.complete || !i.naturalWidth) i.style.visibility = 'hidden' })")
+            except TimeoutError:
+                fail('custom_component_load_timeout')
+            except Error as error:
+                fail('custom_component_load_failed', str(error))
+            for frame in job['frames']:
+                try:
+                    page.evaluate(_SEEK, [int(frame), fps])
+                    if problems:
+                        fail('custom_component_script_error', problems[0])
+                    data = page.screenshot(omit_background=True, type='png', animations='allow')
+                except TimeoutError:
+                    fail('custom_component_frame_timeout', f'frame {frame}')
+                except Error as error:
+                    fail('custom_component_script_error', problems[0] if problems else str(error))
+                target = out / f'f{int(frame):05d}.png'
+                temporary = target.with_suffix('.part')
+                temporary.write_bytes(data)
+                os.replace(temporary, target)
+        finally:
+            browser.close()
+
+
+if __name__ == '__main__':
+    try:
+        render(json.load(sys.stdin))
+    except SystemExit:
+        raise
+    except ImportError as error:
+        fail('custom_component_renderer_missing', str(error))
+    except Exception as error:
+        fail('custom_component_render_failed', f'{type(error).__name__}: {error}')

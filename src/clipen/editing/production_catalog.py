@@ -128,6 +128,25 @@ COMPONENT_FIELDS = {
     "target": TARGET, **SUMMARY,
 }
 COMPONENT_REQUIRED = [key for key in COMPONENT_FIELDS if key not in {"x", "y", "target", "detail", "visual_style_id", "font_style_id"}]
+CUSTOM_COMPONENT_HELP = (
+    "Design an in-picture graphic freely as one self-contained web page: any HTML, CSS, SVG, Canvas or JavaScript, any layout, "
+    "typeface, colour, shape or motion. Use it when the built-in components cannot give the look the film needs. "
+    "The page is the whole picture (window.clipen.width x window.clipen.height pixels, e.g. 1920x1080); draw only the graphic and leave "
+    "the rest transparent, so the footage shows through. Clipen sets the time: CSS animations and the Web Animations API play by "
+    "themselves, frame-accurately; for script-driven drawing define window.clipenFrame = (frame, seconds) => {...} (may be async) "
+    "and draw that exact frame there. requestAnimationFrame loops, timers and real clocks do not advance. Frame 0 is the first frame "
+    "of the graphic; window.clipen also gives fps and durationFrames. The page has no network: inline everything (data: URLs, inline SVG). "
+    "Fonts: installed system fonts by name (e.g. 'PingFang TC', 'Hiragino Sans', 'Helvetica Neue'), or Clipen's bundled handwriting fonts "
+    "via @font-face src:url(https://clipen.local/fonts/iansui.ttf) or chenyu.ttf. Only technical checks apply: the page must load, run without "
+    "errors, draw each frame within 10 seconds, draw something, and stay under 200 KB. The result returns a still of the graphic over the footage: look at it."
+)
+CUSTOM_COMPONENT_FIELDS = {
+    "element_id": ID, "item_id": {**ID, "description": "The shot the graphic belongs to; it moves and trims with that shot."},
+    "start_offset_frames": FRAME, "duration_frames": LENGTH,
+    "name": {"type": "string", "minLength": 1, "maxLength": 40, "description": "Short label people see on the timeline, e.g. 澀谷地標標題."},
+    "html": {"type": "string", "minLength": 1, "maxLength": 200000},
+    "evidence": TEXT, **SUMMARY,
+}
 SKILL_TOOLS = (
     schema("list_production_skills", "List bundled production skills; selecting one never analyzes or uploads footage."),
     schema("read_production_skill", "Read one resource from the skill version frozen for this session. Start with SKILL.md, then load relevant references.",
@@ -138,6 +157,9 @@ SKILL_TOOLS = (
     schema("restyle_program_components", "Restyle all existing programme graphics or selected element IDs using one visual style frozen in the session. Optional font_style_id changes the type pairing independently. Keeps text, timing, anchors, cuts, captions and music. Does not change the default for future additions; pass visual_style_id when adding new graphics.",
            {"font_style_id":{"enum":["default","japanese","street","travel","handwriting","calligraphy"]},"visual_style_id":ID,"element_ids":{"type":"array","minItems":1,"maxItems":128,"uniqueItems":True,"items":ID},**SUMMARY}, ["visual_style_id","summary"]),
     schema("remove_program_component", "Remove one programme graphic without changing the cut, captions or music.", {"element_id": ID, **SUMMARY}),
+    schema("add_custom_component", CUSTOM_COMPONENT_HELP, CUSTOM_COMPONENT_FIELDS, ["element_id", "item_id", "start_offset_frames", "duration_frames", "name", "html", "summary"]),
+    schema("update_custom_component", "Replace any part of a graphic made with add_custom_component (its page, name, shot or timing); anything left out stays as it is. Preserves its identity and supports exact revision undo.",
+           CUSTOM_COMPONENT_FIELDS, ["element_id", "summary"]),
 )
 
 EXTRA_TOOLS += SKILL_TOOLS
