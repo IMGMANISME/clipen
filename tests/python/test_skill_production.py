@@ -740,7 +740,7 @@ class SkillProductionTests(unittest.TestCase):
         from clipen.mcp_editing import EditingMcpServer
         server=EditingMcpServer(self.tools)
         listed=server.handle({'jsonrpc':'2.0','id':1,'method':'tools/list'})['result']['tools']
-        component=next(t for t in listed if t['name']=='add_program_component')
+        component=next(t for t in listed if t['name']=='add_custom_component')
         self.assertTrue({'mutation_id','expected_revision_id'}<=set(component['inputSchema']['required']))
         response=server.handle({'jsonrpc':'2.0','id':2,'method':'tools/call','params':{'name':'read_production_skill','arguments':{'resource':'SKILL.md'}}})
         self.assertIn('travel-program',response['result']['content'][0]['text'])
@@ -898,7 +898,10 @@ class SkillProductionTests(unittest.TestCase):
                      {'x':.9}, {'text':'很長的價格和品名資訊'*4}):
             with self.assertRaises((ProjectError,RuntimeError)):self.component(**args)
         self.component(component_id='pointer',target={'x':.7,'y':.45,'radius':.04})
-        self.assertEqual(self.call('list_program_components').payload['tracking'],'static_target_only')
+        listed=self.call('list_program_components').payload
+        self.assertEqual((listed['how'],listed['tool']),('free_design_only','add_custom_component'))
+        self.assertTrue(listed['existing_graphics'])
+        self.assertFalse(any(g['designed_freely'] for g in listed['existing_graphics']))
 
     def test_simultaneous_graphics_keep_separate_lanes_through_update_recut_and_remove(self):
         self.cut()
