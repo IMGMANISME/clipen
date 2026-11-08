@@ -12,7 +12,7 @@ from typing import BinaryIO, Mapping
 
 from clipen.editing import EditAgentTools, ToolResult
 from clipen.projects import ProjectError
-from clipen.editing.production_catalog import EXTRA_TOOLS
+from clipen.editing.production_catalog import AGENT_TOOLS
 from clipen.editing.tool_receipts import TIMELINE_MUTATIONS
 
 
@@ -160,7 +160,8 @@ _TOOLS = (
         {"summary": {"type": "string", "maxLength": 1000}},
         ("summary",),
     ),
-) + EXTRA_TOOLS
+) + AGENT_TOOLS
+_TOOL_NAMES = frozenset(entry['name'] for entry in _TOOLS)
 
 # The same optional compare-and-swap guard applies to every independent tool.
 # Tools strip it before domain argument validation; actual revision writes also
@@ -226,6 +227,9 @@ class EditingMcpServer:
     def _call_tool(self, identifier: object, params: object) -> dict[str, object]:
         if not isinstance(params, dict) or not isinstance(params.get("name"), str):
             return self._error(identifier, -32602, "Invalid params")
+        if params["name"] not in _TOOL_NAMES:
+            # Only listed tools reach Clipen, even if the model guesses another name.
+            return self._error(identifier, -32602, "Unknown tool")
         arguments = params.get("arguments", {})
         try:
             result = self.tools.call(params["name"], arguments)
