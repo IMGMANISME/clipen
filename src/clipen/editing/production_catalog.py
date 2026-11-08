@@ -138,7 +138,10 @@ CUSTOM_COMPONENT_HELP = (
     "of the graphic; window.clipen also gives fps and durationFrames. The page has no network: inline everything (data: URLs, inline SVG). "
     "Fonts: installed system fonts by name (e.g. 'PingFang TC', 'Hiragino Sans', 'Helvetica Neue'), or Clipen's bundled handwriting fonts "
     "via @font-face src:url(https://clipen.local/fonts/iansui.ttf) or chenyu.ttf. Only technical checks apply: the page must load, run without "
-    "errors, draw each frame within 10 seconds, draw something, and stay under 200 KB. The result returns a still of the graphic over the footage: look at it."
+    "errors, draw each frame within 10 seconds, draw something, and stay under 200 KB. The result returns a still of the graphic over the footage: look at it. "
+    "Mark what people may change themselves: put each main wording as plain text in an element with data-clipen-text=\"key\" "
+    "(optional data-clipen-label=\"主標\"), and declare main colours as :root custom properties named --clipen-<name> (e.g. --clipen-主色) used via var(). "
+    "Their changes are applied before your scripts run; split text into letters on DOMContentLoaded or later, from the element's current text."
 )
 CUSTOM_COMPONENT_FIELDS = {
     "element_id": ID, "item_id": {**ID, "description": "The shot the graphic belongs to; it moves and trims with that shot."},

@@ -24,17 +24,33 @@ type InspectorProps = {
 /** Everything about one graphic: wording, look, typeface, timing; its place is dragged on the picture. */
 export function ComponentInspector({ edit, settings, editing, fps, busy, disabled, locked, onChange, onSave, onCancel, onRemove }: InspectorProps) {
   const changed = componentChanged(edit)
-  const valid = Boolean(edit.text.trim())
+  const valid = Boolean(edit.text.trim()) && (!edit.custom || Object.values(edit.words).every((word) => word.trim()))
   const shotStart = settings.shot_start_frame, shotEnd = settings.shot_start_frame + settings.shot_duration_frames
   const update = (next: Partial<Values>) => onChange({ ...edit, ...next })
   const enter = (e: KeyboardEvent<HTMLInputElement>) => { if (e.key === 'Enter' && changed && valid) onSave() }
   const moved = edit.x !== edit.saved.x || edit.y !== edit.saved.y
+  // A free design's own words and colours, before any change a person made.
+  const designDefaults = { words: Object.fromEntries((settings.fields?.texts ?? []).map((f) => [f.key, f.value])), paints: Object.fromEntries((settings.fields?.colors ?? []).map((f) => [f.key, f.value])) }
+  const designChanged = edit.custom && (JSON.stringify(edit.words) !== JSON.stringify(designDefaults.words) || JSON.stringify(edit.paints) !== JSON.stringify(designDefaults.paints))
   const palette = editing.visual_styles.find((style) => style.id === edit.visual)?.colors ?? { accent: '#e9b44c', paper: '#ffffff', ink: '#111111' }
   return <div className="rv-inspector">
     <div className="rv-panel-head"><h4>{settings.name}</h4><span className="rv-time">{clock((shotStart + edit.start) / fps)}</span>
       <button type="button" className="rv-icon" aria-label="關閉" onClick={onCancel}>×</button></div>
     {locked && <p className="rv-locked" role="status"><span className="rv-spinner" aria-hidden="true" />{locked}</p>}
-    {edit.custom ? <p className="rv-hint">這是 AI 自由設計的元件。想改它的樣子，在下方寫給 AI 修改。</p> : <>
+    {edit.custom ? <>
+      {(settings.fields?.texts ?? []).map((field) => <label key={field.key}>{field.label}
+        <input value={edit.words[field.key] ?? ''} maxLength={120} disabled={disabled || busy} onChange={(e) => update({ words: { ...edit.words, [field.key]: e.target.value } })} onKeyDown={enter} /></label>)}
+      {(settings.fields?.colors.length ?? 0) > 0 && <div className="rv-colors" role="group" aria-label="顏色">
+        {settings.fields?.colors.map((field) => <label key={field.key} className="rv-swatch" title={field.label}>
+          <input type="color" value={edit.paints[field.key] ?? field.value} disabled={disabled || busy} aria-label={field.label}
+            onChange={(e) => update({ paints: { ...edit.paints, [field.key]: e.target.value } })} />
+          <span style={{ background: edit.paints[field.key] ?? field.value }} />{field.label}</label>)}
+      </div>}
+      {designChanged && <button type="button" className="rv-link" onClick={() => update(designDefaults)}>恢復 AI 的設計</button>}
+      <p className="rv-hint">{(settings.fields?.texts.length ?? 0) + (settings.fields?.colors.length ?? 0) > 0
+        ? '這是 AI 自由設計的元件。想改版面或動畫，在下方寫給 AI 修改。'
+        : '這是 AI 自由設計的元件，沒有標出可以直接改的文字或顏色。想改它，在下方寫給 AI 修改。'}</p>
+    </> : <>
       <label>主要文字<span className={`rv-counter${edit.text.trim().length > settings.max_characters ? ' is-over' : ''}`}>{edit.text.trim().length}/{settings.max_characters}</span>
         <input value={edit.text} maxLength={48} autoFocus disabled={disabled || busy} onChange={(e) => update({ text: e.target.value })} onKeyDown={enter} /></label>
       <label>補充文字<input value={edit.detail} maxLength={48} placeholder="可不填" disabled={disabled || busy} onChange={(e) => update({ detail: e.target.value })} onKeyDown={enter} /></label>

@@ -39,9 +39,15 @@ def _fps(timeline):
     return timeline.frame_rate.numerator / timeline.frame_rate.denominator
 
 
+def _edits(profile):
+    edits = profile.get('edits') or {}
+    return {kind: dict(sorted((edits.get(kind) or {}).items())) for kind in ('texts', 'colors') if edits.get(kind)}
+
+
 def _key(profile, timeline, duration):
     material = json.dumps([profile['html'], timeline.width, timeline.height,
-                           timeline.frame_rate.numerator, timeline.frame_rate.denominator, duration])
+                           timeline.frame_rate.numerator, timeline.frame_rate.denominator, duration, _edits(profile)],
+                          ensure_ascii=False, sort_keys=True)
     return hashlib.sha256(material.encode()).hexdigest()[:32]
 
 
@@ -68,9 +74,28 @@ def frames(timeline, item, profile, wanted):
         if missing:
             folder.mkdir(parents=True, exist_ok=True)
             job = {'html': profile['html'], 'width': timeline.width, 'height': timeline.height, 'fps': _fps(timeline),
-                   'duration': duration, 'frames': missing, 'out': str(folder), 'frame_timeout': FRAME_TIMEOUT_SECONDS}
+                   'duration': duration, 'frames': missing, 'out': str(folder), 'frame_timeout': FRAME_TIMEOUT_SECONDS,
+                   'edits': _edits(profile)}
             _run(job, timeout=30 + FRAME_TIMEOUT_SECONDS + len(missing) * 1.5)
     return paths
+
+
+def fields(timeline, item, profile):
+    """The words and colours the page marked as editable, with the values the design gives them."""
+    plain = {key: value for key, value in profile.items() if key != 'edits'}
+    key = _key(plain, timeline, item.duration_frames)
+    folder = cache_root() / key
+    path = folder / 'fields.json'
+    with _lock(key):
+        if not path.is_file():
+            folder.mkdir(parents=True, exist_ok=True)
+            _run({'html': profile['html'], 'width': timeline.width, 'height': timeline.height, 'fps': _fps(timeline),
+                  'duration': item.duration_frames, 'frames': [], 'out': str(folder), 'frame_timeout': FRAME_TIMEOUT_SECONDS,
+                  'describe': True}, timeout=30 + FRAME_TIMEOUT_SECONDS)
+    found = json.loads(path.read_text(encoding='utf-8'))
+    # Bounded so a page cannot flood the review panel.
+    return {'texts': [f for f in found.get('texts', []) if isinstance(f.get('key'), str)][:12],
+            'colors': [f for f in found.get('colors', []) if isinstance(f.get('key'), str)][:8]}
 
 
 def _run(job, timeout):

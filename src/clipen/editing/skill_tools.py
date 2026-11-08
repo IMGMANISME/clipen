@@ -167,7 +167,7 @@ class SkillTools:
         text=args['text']+('\n'+args['detail'] if args.get('detail') else '')
         item = TextClip(args["element_id"], shot.start_frame+args["start_offset_frames"], args["duration_frames"], text, style_id)
         styles = load_text_styles(self.repository.projects, self.project_id)
-        styles[style_id] = profile
+        styles[item.style_id] = profile
         # Fail early on actual typography overflow, before publishing a revision.
         from PIL import Image, ImageDraw
         from clipen.rendering.program_components import draw_program_component
@@ -294,6 +294,23 @@ class SkillTools:
         if any(isinstance(v, bool) or not isinstance(v, int) for v in (start, duration)) or start < 0 or duration < 6 or start + duration > shot.duration_frames:
             raise ProjectError("component_time_out_of_bounds", "元件要待在同一個鏡頭裡，至少顯示 0.2 秒。", status_code=422)
         changed = {**profile, "x": shift("x"), "y": shift("y"), "start_offset_frames": start}
+        fields = profile.get("fields") or {"texts": [], "colors": []}
+        edits = {kind: dict((profile.get("edits") or {}).get(kind, {})) for kind in ("texts", "colors")}
+        for kind, check_value, problem in (
+                ("texts", lambda v: isinstance(v, str) and v.strip() and len(v) <= 120, "文字不能空白，最多 120 個字。"),
+                ("colors", lambda v: isinstance(v, str) and len(v) == 7 and v[0] == "#" and all(c in "0123456789abcdefABCDEF" for c in v[1:]), "顏色格式不正確。")):
+            given = args.get(kind)
+            if given is None:
+                continue
+            designed = {f["key"]: f["value"] for f in fields[kind]}
+            if not isinstance(given, dict) or not set(given) <= set(designed) or not all(check_value(v) for v in given.values()):
+                raise ProjectError("component_field_invalid", problem if isinstance(given, dict) and set(given) <= set(designed) else "這個元件沒有這個可編輯欄位。", status_code=422)
+            # Only what differs from the design is kept, so an untouched field follows a redesign.
+            edits[kind] = {k: (v.strip() if kind == "texts" else v.lower()) for k, v in given.items()
+                           if (v.strip() if kind == "texts" else v.lower()) != designed[k]}
+        changed.pop("edits", None)
+        if any(edits.values()):
+            changed["edits"] = {kind: values for kind, values in edits.items() if values}
         draft = replace(item, start_frame=shot.start_frame + start, duration_frames=duration,
                         style_id="agent.component." + digest(changed)[:24])
         try:
@@ -353,6 +370,7 @@ class SkillTools:
                     "max_characters": limits.get(profile["component_id"], 48), "x": profile.get("x"), "y": profile.get("y"),
                     "visual_style_id": profile.get("visual_style_id"), "font_style_id": profile.get("font_style_id"),
                     "scale": profile.get("scale", 1), "colors": profile.get("colors", {}),
+                    **({"fields": profile.get("fields") or {"texts": [], "colors": []}, "edits": profile.get("edits") or {}} if custom else {}),
                     "shot_start_frame": shot.start_frame, "shot_duration_frames": shot.duration_frames}
         def palette(identifier):
             colours = style_presets(skill, identifier)[1]["palette"]
@@ -466,16 +484,25 @@ class SkillTools:
                    "skill_id": skill["skill_id"], "skill_version": skill["version"], "skill_hash": skill["content_hash"],
                    "html": settings["html"], "anchor_item_id": shot.item_id, "start_offset_frames": settings["start_offset_frames"],
                    "evidence": settings.get("evidence", ""), "x": previous.get("x", 0) if updating else 0, "y": previous.get("y", 0) if updating else 0}
-        style_id = "agent.component." + digest(profile)[:24]
-        item = TextClip(args["element_id"], shot.start_frame + settings["start_offset_frames"], settings["duration_frames"], settings["name"].strip() or "自由元件", style_id)
+        item = TextClip(args["element_id"], shot.start_frame + settings["start_offset_frames"], settings["duration_frames"], settings["name"].strip() or "自由元件", "pending")
         try:
+            profile["fields"] = custom_components.fields(timeline, item, profile)
+            # A person's word and colour changes survive a redesign wherever the new page keeps that field.
+            keep = {kind: {k: v for k, v in (previous.get("edits") or {}).get(kind, {}).items() if k in {f["key"] for f in profile["fields"][kind]}}
+                    for kind in ("texts", "colors")} if updating else {}
+            if any(keep.values()):
+                profile["edits"] = {kind: values for kind, values in keep.items() if values}
+            item = replace(item, style_id="agent.component." + digest(profile)[:24])
             custom_components.check(timeline, item, profile)
         except custom_components.CustomRenderError as error:
             raise ProjectError(error.code, _custom_problem(error), status_code=422) from error
-        styles[style_id] = profile
+        styles[item.style_id] = profile
         atomic_json(text_style_path(self.repository.projects, self.project_id), styles)
+        editable = {kind: [f["label"] for f in profile["fields"][kind]] for kind in ("texts", "colors")}
         result = self._save(replace(timeline, tracks=self._component_lanes(item)), args["summary"], element_id=item.item_id,
-                            anchor_item_id=shot.item_id, inspection_required="Look at the still: legibility, faces, subtitles, and whether it serves this moment.")
+                            anchor_item_id=shot.item_id, editable_by_people=editable,
+                            inspection_required="Look at the still: legibility, faces, subtitles, and whether it serves this moment.",
+                            **({} if any(editable.values()) else {"notes": ["沒有標出可編輯的文字或顏色，使用者只能請你重做。用 data-clipen-text 與 --clipen-* 顏色變數標出主要文字和顏色。"]}))
         return ToolResult(result.payload, self._custom_still(result.payload["revision"]["revision_id"], item))
 
     def _custom_still(self, revision_id, item):

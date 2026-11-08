@@ -38,6 +38,11 @@ def _graphic_change(before, after, styles, recut=False):
         old, new = styles.get(before.get('style_id'), {}), styles.get(after.get('style_id'), {})
         if old.get('html') != new.get('html') and new.get('html'):
             return f'重新設計{_name(after)}'
+        if old.get('edits') != new.get('edits') and new.get('html'):
+            before_edits, after_edits = old.get('edits') or {}, new.get('edits') or {}
+            words = (before_edits.get('texts') or {}) != (after_edits.get('texts') or {})
+            colours = (before_edits.get('colors') or {}) != (after_edits.get('colors') or {})
+            return f'改了{_name(after)}的' + ('文字和顏色' if words and colours else '文字' if words else '顏色')
         if (old.get('x'), old.get('y')) != (new.get('x'), new.get('y')) and old and new:
             return f'移動{_name(after)}'
         if old.get('scale', 1) != new.get('scale', 1):

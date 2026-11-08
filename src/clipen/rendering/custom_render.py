@@ -26,13 +26,66 @@ _PRELUDE = """
   Date.now = () => epoch + now;
   window.__clipenTime = (ms) => { now = ms; };
   window.clipen = Object.freeze(__INFO__);
+  // A person's changes to the words and colours the page marked as editable. Words are set as the
+  // parser adds each marked element, before the page's own scripts read them; colours win over :root.
+  const edits = __EDITS__;
+  const texts = edits.texts || {}, colors = edits.colors || {};
+  const word = (node) => {
+    if (node.nodeType !== 1) return;
+    const apply = (el) => { const key = el.getAttribute('data-clipen-text'); if (key in texts && !el.__clipenSet) { el.textContent = texts[key]; el.__clipenSet = true; } };
+    if (node.hasAttribute && node.hasAttribute('data-clipen-text')) apply(node);
+    node.querySelectorAll && node.querySelectorAll('[data-clipen-text]').forEach(apply);
+  };
+  if (Object.keys(texts).length) {
+    new MutationObserver((records) => records.forEach((r) => r.addedNodes.forEach(word))).observe(document, { childList: true, subtree: true });
+  }
+  const paint = () => document.documentElement && Object.entries(colors).forEach(([key, value]) => document.documentElement.style.setProperty('--clipen-' + key, value));
   // The page is the picture: no default margins, though the page may set its own.
   document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('[data-clipen-text]').forEach(word);
+    paint();
     const base = document.createElement('style');
     base.textContent = ':where(html, body) { margin: 0; padding: 0; background: transparent; }';
     document.head.prepend(base);
   });
 })();
+"""
+
+# What the page marked as editable: words in [data-clipen-text] elements, colours in --clipen-* variables.
+_FIELDS = """
+() => {
+  const probe = document.createElement('i');
+  document.body.appendChild(probe);
+  const hex = (value) => {
+    probe.style.color = '';
+    probe.style.color = value.trim();
+    if (!probe.style.color) return null;
+    const m = getComputedStyle(probe).color.match(/rgba?\\(([^)]+)\\)/);
+    if (!m) return null;
+    const [r, g, b] = m[1].split(',').map((v) => Math.round(parseFloat(v)));
+    return '#' + [r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('');
+  };
+  const texts = [], seen = new Set();
+  document.querySelectorAll('[data-clipen-text]').forEach((el) => {
+    const key = el.getAttribute('data-clipen-text');
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    texts.push({ key, label: el.getAttribute('data-clipen-label') || key, value: el.textContent.trim() });
+  });
+  const colors = [], names = new Set();
+  for (const sheet of document.styleSheets) {
+    let rules;
+    try { rules = sheet.cssRules; } catch { continue; }
+    for (const rule of rules) {
+      if (!rule.style) continue;
+      for (const name of rule.style) if (name.startsWith('--clipen-')) names.add(name);
+    }
+  }
+  const root = getComputedStyle(document.documentElement);
+  names.forEach((name) => { const value = hex(root.getPropertyValue(name)); if (value) colors.push({ key: name.slice(9), label: name.slice(9), value }); });
+  probe.remove();
+  return { texts, colors };
+}
 """
 
 _SEEK = """
@@ -93,7 +146,7 @@ def render(job):
             page.set_default_timeout(float(job.get('frame_timeout', 10)) * 1000)
             problems = []
             page.on('pageerror', lambda error: problems.append(str(error)))
-            page.add_init_script(_PRELUDE.replace('__INFO__', json.dumps(info)))
+            page.add_init_script(_PRELUDE.replace('__INFO__', json.dumps(info)).replace('__EDITS__', json.dumps(job.get('edits') or {}, ensure_ascii=False)))
             try:
                 page.goto(PAGE, wait_until='load')
                 page.evaluate('document.fonts.ready.then(() => true)')
@@ -103,6 +156,8 @@ def render(job):
                 fail('custom_component_load_timeout')
             except Error as error:
                 fail('custom_component_load_failed', str(error))
+            if job.get('describe'):
+                (out / 'fields.json').write_text(json.dumps(page.evaluate(_FIELDS), ensure_ascii=False), encoding='utf-8')
             for frame in job['frames']:
                 try:
                     page.evaluate(_SEEK, [int(frame), fps])
