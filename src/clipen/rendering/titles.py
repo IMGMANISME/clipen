@@ -297,7 +297,7 @@ class FfmpegTitleCompositor:
         progress(1.0)
 
 
-def compose_dense_titles(executable,source,timeline,directory,output,cancel,custom_styles=None,progress=None):
+def compose_dense_titles(executable,source,timeline,directory,output,cancel,custom_styles=None,progress=None,hardware=False):
     """One event-based RGBA stream avoids opening dozens of full-HD inputs.
 
     Reports progress while drawing (first 40%) and while FFmpeg overlays the
@@ -339,11 +339,22 @@ def compose_dense_titles(executable,source,timeline,directory,output,cancel,cust
             times=[int(v) for v in re.findall(r'out_time_us=(\d+)',text)]
             if times and seconds>0:report(.4+.6*min(1.,times[-1]/1e6/seconds))
     watcher=threading.Thread(target=watch,daemon=True);watcher.start()
-    try:
+    def encode(video):
         run_process([executable,'-v','error','-nostdin','-y','-progress',str(progress_file),'-filter_complex_threads','2','-i',str(source),'-f','concat','-safe','0','-i',str(manifest),
                      '-filter_complex','[0:v][1:v]overlay=eof_action=repeat:format=auto,format=yuv420p[v]',
                      '-map','[v]','-map','0:a?','-t',str(timeline.duration_frames/fps),'-r',f'{timeline.frame_rate.numerator}/{timeline.frame_rate.denominator}',
-                     '-c:v','libx264','-preset','veryfast','-crf','21','-c:a','copy','-movflags','+faststart',str(output)],cancel,timeout=max(300,round(timeline.duration_frames/fps*3)))
+                     *video,'-c:a','copy','-movflags','+faststart',str(output)],cancel,timeout=max(300,round(timeline.duration_frames/fps*3)))
+    software=['-c:v','libx264','-preset','veryfast','-crf','21']
+    try:
+        if not hardware:
+            encode(software)
+        else:
+            # The Mac's video encoder is about a third faster; any machine that refuses it gets the software path.
+            try:
+                encode(['-c:v','h264_videotoolbox','-b:v','8000k'])
+            except Exception:
+                if cancel.is_set():raise
+                encode(software)
     finally:
         done.set();watcher.join(timeout=2)
     report(1.)
