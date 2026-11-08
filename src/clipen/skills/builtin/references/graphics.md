@@ -41,7 +41,7 @@
 - 沒有網路：圖片與圖形請內嵌（data: URL、inline SVG）。字體可用系統字體名稱（PingFang TC、Hiragino Sans、Hiragino Mincho ProN、Songti TC、Helvetica Neue、Avenir Next…），或 `@font-face { src: url(https://clipen.local/fonts/iansui.ttf) }`（芫荽，楷書筆意）、chenyu.ttf（辰宇落雁體，手寫）。
 - 標出使用者可以自己改的地方：主要文字放在加了 `data-clipen-text="鍵名"` 的元素裡（可加 `data-clipen-label="主標"` 當顯示名稱），元素內只放純文字；主要顏色寫成 `:root` 上的 `--clipen-名稱` 變數（例如 `--clipen-主色`、`--clipen-字色`），再用 `var(--clipen-主色)` 套用。使用者在審片頁改的字與顏色會在頁面腳本執行前套上；要逐字拆開做動畫時，在 DOMContentLoaded 之後依元素目前的文字拆。沒有標出時，使用者只能請你重做；每個元件都要標。
 - 只有技術檢查：頁面要能載入、程式不出錯、每格 10 秒內畫完、確實畫出東西、200 KB 以內。
-- 工具會回傳元件疊在實際素材上的畫面。一定要看：字是否清楚、有沒有擋到臉或字幕、是否服務這一刻。不滿意就用 update_custom_component 改，只需要給要變的欄位。
+- 工具會回傳兩張圖：元件停在畫面上的樣子，以及從進場到退場的多格對照（每格標了第幾格）。兩張都要看：字是否清楚、有沒有擋到臉或字幕、是否服務這一刻；動畫是否看得出順序、節奏是否合適、退場是否乾淨。不滿意就用 update_custom_component 改，只需要給要變的欄位。
 - 同一套視覺語言的元件可以共用同一段 CSS；每個元件仍是一個自足的頁面。
 
 ## 回看

@@ -136,8 +136,12 @@ class CustomComponentToolTests(unittest.TestCase):
         profile = self.styles()[self.element().style_id]
         self.assertEqual((profile['component_id'], profile['html'], self.element().text), ('custom', SLIDE, '手繪標題'))
         # The Agent gets a still of its design over the actual footage to look at.
-        self.assertEqual(len(result.images), 1)
-        self.assertTrue(Path(result.images[0]).is_file())
+        self.assertEqual(len(result.images), 2)
+        self.assertTrue(all(Path(image).is_file() for image in result.images))
+        # The second image is a sheet of frames from entry to exit: the slide-in is visible as it moves.
+        from PIL import Image
+        with Image.open(result.images[1]) as sheet:
+            self.assertGreater(sheet.width, sheet.height)
         # Updating replaces only what is given.
         self.f.call('update_custom_component', element_id='free', duration_frames=20, summary='縮短')
         self.assertEqual((self.element().duration_frames, self.styles()[self.element().style_id]['html']), (20, SLIDE))
