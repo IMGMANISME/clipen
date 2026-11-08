@@ -319,7 +319,7 @@ export type PreviewRender = {
   playback_url: string | null
 }
 
-export type FilmVersion = { revision_id: string; number: number; kind: 'ai_complete' | 'ai_partial' | 'manual' | 'restore'; label: string; detail: string | null; created_at: string; duration_seconds?: number; preview_url?: string | null }
+export type FilmVersion = { revision_id: string; number: number; kind: 'ai_complete' | 'ai_partial' | 'manual' | 'restore'; label: string; detail: string | null; created_at: string; changes?: string | null; restored_from?: string; duration_seconds?: number; preview_url?: string | null }
 export type FilmPreview = PreviewRender & { stale: boolean; revision_id: string; media_url: string; version?: FilmVersion | null }
 
 

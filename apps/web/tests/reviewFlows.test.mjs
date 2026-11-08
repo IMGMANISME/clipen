@@ -144,21 +144,27 @@ test('explicitly discarding an outdated draft allows editing saved notes again',
   assert.equal(JSON.parse(h.values.get(draftKey)).form.referenceId, note.reference_id)
 })
 
-test('looking at an older version from the menu never restores it', async (t) => {
+test('looking at an older version never restores it; going back asks first', async (t) => {
   const restored = []
   const h = harness(t, { api: { async getProductionWorkbench() { return data }, async restoreProduction(...args) { restored.push(args) } } })
   const props = { visible: true, projectId: 'project', runId: 'run', revisionId: 'new', csrf: 'token', active: false, musicId: '', previews: [], onChanged() {}, onMusicChange() {} }
   const render = () => h.render(() => h.load('ProductionWorkbench').ProductionWorkbench(props))
   render()
   await h.flushEffects()
-  const menu = find(render(), (node) => node.props?.label === '版本')
+  const menu = find(render(), (node) => node.props?.label === '修改紀錄')
   let closed = 0
   find(menu.props.children(() => { closed++ }), (node) => node.type === 'button' && node.props.children === '看看').props.onClick()
   assert.equal(closed, 1)
   const studio = () => find(render(), (node) => typeof node.props?.onSaveComponent === 'function')
   const stage = studio().props.stage
   assert.equal(find(stage, (node) => node.type === 'video').props.src, '/preview/one')
-  find(stage, (node) => node.type === 'button' && node.props.children === '回到目前').props.onClick()
+  find(stage, (node) => node.type === 'button' && node.props.children === '回到這裡').props.onClick()
+  // Going back first says what will happen; nothing changes until it is confirmed.
+  assert.deepEqual(restored, [])
+  const dialog = () => find(render(), (node) => node.props?.label === '回到較早的樣子')
+  find(dialog(), (node) => node.type === 'button' && node.props.children === '取消').props.onClick()
+  assert.deepEqual(restored, [])
+  find(studio().props.stage, (node) => node.type === 'button' && node.props.children === '回到現在').props.onClick()
   assert.equal(studio().props.stage, undefined)
   assert.deepEqual(restored, [])
 })

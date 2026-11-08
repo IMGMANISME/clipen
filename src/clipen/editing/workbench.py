@@ -29,7 +29,8 @@ def state(repository, project_id, run_id):
     from .versions import versions
     with repository.projects.connect(project_id) as db:
         # One entry per complete edit; the AI's per-step revisions stay internal.
-        history=versions(db,run_id,repository.get(project_id,run_id).provider)
+        from .production_media import load_text_styles
+        history=versions(db,run_id,repository.get(project_id,run_id).provider,load_text_styles(repository.projects,project_id),revision.revision_id)
         for version in history:
             row=db.execute('SELECT payload_json FROM edit_agent_revisions WHERE revision_id=? AND run_id=?',(version['revision_id'],run_id)).fetchone()
             if row:

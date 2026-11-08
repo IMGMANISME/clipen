@@ -158,7 +158,7 @@ class EditAgentCoordinator:
                 last_successful_preview=preview_value(successful_preview)
                 finished_preview=preview_value(finished_row)
                 draft_preview=preview_value(draft_row)
-                by_revision={v['revision_id']:v for v in film_versions}
+                by_revision={v['revision_id']:v for v in reversed(film_versions)}
                 if finished_preview:finished_preview['version']=by_revision.get(finished_preview['revision_id'])
                 if draft_preview:draft_preview['version']=by_revision.get(draft_preview['revision_id'])
                 production = {'intent': session['intent'], 'skill': {k: session['skill'][k] for k in ('skill_id','name','version','content_hash','limitations','selected_visual_style_id','selected_font_style_id') if k in session['skill']},
