@@ -37,7 +37,7 @@ def versions(database, run_id, provider):
     """Versions of one film, newest first. `provider` is the run's current AI."""
     rows = database.execute(
         "SELECT sequence,event_type,payload_json,created_at FROM edit_agent_events WHERE run_id=? AND event_type IN "
-        "('run_created','refinement_requested','revision_created','run_finished','provider_failed','run_cancelled',"
+        "('run_created','refinement_requested','revision_created','revision_selected','run_finished','provider_failed','run_cancelled',"
         "'run_interrupted','budget_exhausted','tool_completed','provider_switched') ORDER BY sequence", (run_id,)).fetchall()
     switches = [json.loads(r['payload_json']) for r in rows if r['event_type'] == 'provider_switched']
     current_ai = switches[0]['from'] if switches else provider
@@ -52,7 +52,7 @@ def versions(database, run_id, provider):
 
     for row in rows:
         kind, payload = row['event_type'], json.loads(row['payload_json'])
-        if kind == 'revision_created':
+        if kind in ('revision_created', 'revision_selected'):
             latest = payload.get('revision_id', latest)
             if start is None:
                 start = latest

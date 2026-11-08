@@ -476,6 +476,9 @@ class EditAgentRepository:
                     "UPDATE edit_agent_runs SET current_revision_id=?,phase=? WHERE run_id=?",
                     (existing["revision_id"], "user_edit" if allow_user_edit else run.phase, normalized),
                 )
+                if existing["revision_id"] != run.current_revision_id:
+                    # Arriving at an earlier picture again is still a step forward in the history people see.
+                    self._append_event(database, normalized, "revision_selected", {"revision_id": existing["revision_id"]}, utc_now())
                 result = self._read_revision(database, existing["revision_id"])
                 database.commit()
                 return result, False
