@@ -40,7 +40,7 @@ def versions(database, run_id, provider, styles=None, current=None):
     rows = database.execute(
         "SELECT sequence,event_type,payload_json,created_at FROM edit_agent_events WHERE run_id=? AND event_type IN "
         "('run_created','refinement_requested','revision_created','revision_selected','run_finished','provider_failed','run_cancelled',"
-        "'run_interrupted','budget_exhausted','tool_completed','provider_switched') ORDER BY sequence", (run_id,)).fetchall()
+        "'run_interrupted','budget_exhausted','tool_completed','provider_switched','provider_finished') ORDER BY sequence", (run_id,)).fetchall()
     switches = [json.loads(r['payload_json']) for r in rows if r['event_type'] == 'provider_switched']
     current_ai = switches[0]['from'] if switches else provider
     latest = start = None
@@ -48,16 +48,32 @@ def versions(database, run_id, provider, styles=None, current=None):
     result = []
 
     skipped = []
+    # Tokens an AI attempt used, waiting for the version that attempt produced.
+    pending, last_ai, span = None, None, 0
 
     def add(kind, label, created_at, detail=None):
+        nonlocal pending, last_ai
         if latest is None or (result and result[-1]['revision_id'] == latest):
             if latest is not None:
                 skipped.append((kind, label, created_at))
             return
-        result.append({'revision_id': latest, 'kind': kind, 'label': label, 'detail': detail, 'created_at': created_at})
+        entry = {'revision_id': latest, 'kind': kind, 'label': label, 'detail': detail, 'created_at': created_at}
+        if kind.startswith('ai_'):
+            entry['usage'], pending, last_ai = pending, None, (entry, span)
+        result.append(entry)
 
     for row in rows:
         kind, payload = row['event_type'], json.loads(row['payload_json'])
+        usage = payload.get('usage') if kind in ('provider_finished', 'provider_failed') else None
+        if isinstance(usage, dict):
+            # A finished attempt reports after its version is listed; a stopped one before.
+            if kind == 'provider_finished' and last_ai is not None and last_ai[1] == span:
+                last_ai[0]['usage'] = add_usage(last_ai[0]['usage'], usage)
+            else:
+                pending = add_usage(pending, usage)
+        if kind in ('run_created', 'refinement_requested'):
+            # An attempt that changed nothing has no version to show it; it still counts in the film's total.
+            span, pending = span + 1, None
         if kind in ('revision_created', 'revision_selected'):
             latest = payload.get('revision_id', latest)
             if start is None:
@@ -90,6 +106,21 @@ def versions(database, run_id, provider, styles=None, current=None):
     for number, entry in enumerate(result, 1):
         entry['number'] = number
     return list(reversed(result))
+
+
+def add_usage(total, usage):
+    keys = ('input_tokens', 'cached_input_tokens', 'output_tokens')
+    if not isinstance(usage, dict) or not all(isinstance(usage.get(k), int) for k in keys):
+        return total
+    return {k: (total or {}).get(k, 0) + usage[k] for k in keys}
+
+
+def film_usage(database, run_id):
+    """Every token the AI used on this film, including attempts that changed nothing."""
+    total = None
+    for row in database.execute("SELECT payload_json FROM edit_agent_events WHERE run_id=? AND event_type IN ('provider_finished','provider_failed')", (run_id,)):
+        total = add_usage(total, json.loads(row['payload_json']).get('usage'))
+    return total
 
 
 def _describe(database, run_id, result, styles):

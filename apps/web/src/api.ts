@@ -319,7 +319,9 @@ export type PreviewRender = {
   playback_url: string | null
 }
 
-export type FilmVersion = { revision_id: string; number: number; kind: 'ai_complete' | 'ai_partial' | 'manual' | 'restore'; label: string; detail: string | null; created_at: string; changes?: string | null; restored_from?: string; duration_seconds?: number; preview_url?: string | null }
+/** Tokens one AI request used; input includes the part served from cache. */
+export type TokenUsage = { input_tokens: number; cached_input_tokens: number; output_tokens: number }
+export type FilmVersion = { revision_id: string; number: number; kind: 'ai_complete' | 'ai_partial' | 'manual' | 'restore'; label: string; detail: string | null; created_at: string; changes?: string | null; restored_from?: string; usage?: TokenUsage | null; duration_seconds?: number; preview_url?: string | null }
 export type FilmPreview = PreviewRender & { stale: boolean; revision_id: string; media_url: string; version?: FilmVersion | null }
 
 
@@ -944,7 +946,7 @@ export async function resumeProduction(csrf: string, projectId: string, runId: s
 }
 
 export type MusicAsset = { asset_id: string; name: string; role: string; duration_seconds: number; duplicate_group?: string; provenance?: { source?: string } }
-export type ProductionWorkbenchState = {
+export type ProductionWorkbenchState = { ai_usage?: TokenUsage | null;
   revision: { revision_id: string; ordinal: number; summary: string; timeline: EditAgentTimeline }
   references?: ReferenceState
   sent_notes?: { instruction: string | null; created_at: string | null; items: RefinementReference[] } | null

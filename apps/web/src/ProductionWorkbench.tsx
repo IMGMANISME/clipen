@@ -6,7 +6,7 @@ import type { FilmPreview, FilmVersion, ProductionWorkbenchState, ResolveExport,
 import { ProductionMusicPicker } from './ProductionMusicPicker'
 import { usePromptDraft } from './usePromptDraft'
 import { ReviewNotes } from './ReviewNotes'
-import { clock, composePrompt, versionTitle, when } from './reviewModel'
+import { clock, composePrompt, usageText, versionTitle, when } from './reviewModel'
 import { providerName, useProvider } from './providerContext'
 
 type Props = { visible: boolean; runProvider?: string; projectId: string; csrf: string; runId: string; revisionId: string; active: boolean; onChanged: () => void; musicId: string; previews: Array<FilmPreview | null | undefined>; onMusicChange: (id: string) => void }
@@ -120,20 +120,24 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
       <div className="rv-title"><h3>審片</h3>{data && <span>{current ? `已儲存 · ${when(current.created_at)}` : '目前的影片'} · {clock(seconds)}</span>}</div>
       <div className="rv-tools">
         {data && !video && !rendering && <button type="button" className="button primary" disabled={locked} onClick={render}>輸出這一版</button>}
-        <Menu label="修改紀錄" disabled={!data}>{(close) => <ol className="rv-versions" aria-label="修改紀錄，最新的在最上面">{data?.history.map((version, index) => {
+        <Menu label="修改紀錄" disabled={!data}>{(close) => <>{data?.ai_usage && <p className="rv-usage-total" title={usageText(data.ai_usage).detail}>這部片 AI 總共用了 <strong>{usageText(data.ai_usage).short}</strong><span>{usageText(data.ai_usage).detail}</span></p>}
+          <ol className="rv-versions" aria-label="修改紀錄，最新的在最上面">{data?.history.map((version, index) => {
           const now = index === 0 && version.revision_id === revision
           const same = !now && version.revision_id === revision
           return <li key={`${version.revision_id}-${version.created_at}`} className={now ? 'is-current' : ''}>
             <div><span className="rv-version-time">{now && <em>現在</em>}{when(version.created_at)}{version.duration_seconds != null ? ` · ${clock(version.duration_seconds)}` : ''}</span>
               <strong title={versionTitle(version)}>{versionTitle(version)}</strong>
-              {version.kind !== 'manual' && version.kind !== 'restore' && version.changes && <small>{version.changes}</small>}</div>
+              {version.kind !== 'manual' && version.kind !== 'restore' && version.changes && <small>{version.changes}</small>}
+              <small className="rv-usage" title={version.usage ? usageText(version.usage).detail : undefined}>{(version.kind === 'ai_complete' || version.kind === 'ai_partial')
+                ? version.usage ? `AI 用量 ${usageText(version.usage).short}` : 'AI 用量沒有記錄'
+                : '手動，不用 AI 額度'}</small></div>
             {!now && <div className="rv-row">
               {same ? <span className="rv-version-same">和現在一樣</span> : <>
                 {version.preview_url && <button type="button" className="rv-text-button" onClick={() => { setCompare(version); close() }}>看看</button>}
                 <button type="button" className="rv-text-button" disabled={locked} onClick={() => { close(); setReturning(version) }}>回到這裡</button></>}
             </div>}
           </li>
-        })}</ol>}</Menu>
+        })}</ol></>}</Menu>
         <Menu label={exporting ? '匯出中…' : '匯出'} disabled={!data || exporting}>{(close) => <div className="rv-menu-list">
           <button type="button" disabled={busy || active} onClick={() => { close(); exportResolve() }}><strong>DaVinci Resolve</strong><span>自己動手細剪，素材、元件和配樂一起帶過去</span></button>
           {video && <a href={video.media_url} download onClick={close}><strong>下載這一版影片</strong><span>MP4</span></a>}
