@@ -235,6 +235,8 @@ def _confirm_setup(
     if command_path is not None and profile_path is not None:
         print(f"  • `clipen` 指令：{command_path}", file=stdout)
         print(f"  • 將 Clipen 加入 PATH：{profile_path}", file=stdout)
+    if not _chrome_ready(Path.home()):
+        print("  • Chromium（這台 Mac 沒有 Google Chrome；Clipen 用它畫畫面元件，約 150 MB）", file=stdout)
     if include_runtime:
         print(f"Clipen runtime：{runtime}", file=stdout)
     if asr_root is not None:
@@ -265,11 +267,35 @@ def _confirm_setup(
     return answer in {"", "y", "yes"}
 
 
+def _install_hint(repo_root: Path) -> str:
+    """How this copy of Clipen is set up again: from npm (npx) or from a source checkout."""
+    return "npx clipen install" if (repo_root / ".clipen-npm").is_file() else "./install"
+
+
+def _chrome_ready(home: Path) -> bool:
+    """Free designs are drawn in Chrome; Google Chrome or Playwright's Chromium will do."""
+    apps = [Path("/Applications/Google Chrome.app"), home / "Applications" / "Google Chrome.app"]
+    return any(app.exists() for app in apps) or any((home / "Library" / "Caches" / "ms-playwright").glob("chromium-*"))
+
+
+def _ensure_chrome(runtime: Path, data_root: Path, home: Path, stdout: TextIO) -> None:
+    if _chrome_ready(home):
+        return
+    print("這台 Mac 沒有 Google Chrome；正在下載 Clipen 畫元件用的 Chromium（約 150 MB）…", file=stdout)
+    log_root = data_root / "logs"
+    log_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    with (log_root / "bootstrap-chromium.log").open("w", encoding="utf-8") as log:
+        _run_logged((str(runtime_python(runtime)), "-m", "playwright", "install", "chromium"), cwd=runtime, log=log)
+    print("✓ Chromium 準備完成", file=stdout)
+
+
 def _command_script(repo_root: Path) -> str:
     launcher = repo_root.resolve(strict=True) / "clipen"
     if launcher.is_symlink() or not launcher.is_file() or not os.access(launcher, os.X_OK):
         raise BootstrapError("Repo 內的 clipen launcher 不存在或不可執行")
-    return f"#!/bin/sh\n{_COMMAND_MARKER}\nexec {shlex.quote(str(launcher))} \"$@\"\n"
+    # Run the launcher with the Python that set Clipen up: a Mac's own python3 is too old.
+    python = Path(sys.executable).resolve()
+    return f"#!/bin/sh\n{_COMMAND_MARKER}\nexec {shlex.quote(str(python))} {shlex.quote(str(launcher))} \"$@\"\n"
 
 
 def _shell_profile(home: Path, environment: Mapping[str, str]) -> Path:
@@ -688,6 +714,7 @@ def ensure_installation(
             )
             if not quick_release_is_ready(selected_data_root, asr_requirements):
                 raise BootstrapError(f"語音辨識安裝未通過啟動檢查；診斷紀錄：{asr_log}")
+        _ensure_chrome(runtime, selected_data_root, selected_home, stdout)
         if not command_ready:
             command_path, profile_path = _install_command(
                 repo_root, selected_data_root, selected_home, selected_environment
@@ -697,6 +724,9 @@ def ensure_installation(
             print("下次開啟 Terminal 後可直接輸入：clipen codex（或 clipen claude）", file=stdout)
         print("✓ Clipen 完整設定完成", file=stdout)
         return runtime
+
+    if stdin.isatty():
+        _ensure_chrome(runtime, selected_data_root, selected_home, stdout)
 
     if not command_ready:
         if not stdin.isatty():
@@ -708,7 +738,7 @@ def ensure_installation(
         stdout.write("完成設定？[Y/n] ")
         stdout.flush()
         if stdin.readline().strip().lower() not in {"", "y", "yes"}:
-            print("已略過；可再次執行 ./install 完成指令設定。", file=stdout)
+            print(f"已略過；可再次執行 {_install_hint(repo_root)} 完成指令設定。", file=stdout)
             return runtime
         command_path, profile_path = _install_command(
             repo_root, selected_data_root, selected_home, selected_environment
@@ -733,7 +763,7 @@ def completed_runtime(repo_root: Path, *, data_root: Path | None = None) -> Path
         selected_data_root, requirements
     ):
         raise BootstrapError(
-            "Clipen 尚未完成安裝；第一次請在 Repo 執行 ./install，"
+            f"Clipen 尚未完成安裝；第一次請執行 {_install_hint(repo_root)}，"
             "已有 clipen 指令時可執行 clipen install 修復"
         )
     return runtime
@@ -874,15 +904,16 @@ def uninstall_installation(
     return True
 
 
-def _print_usage(stream: TextIO) -> None:
-    print("第一次安裝：./install", file=stream)
+def _print_usage(stream: TextIO, repo_root: Path | None = None) -> None:
+    npm = repo_root is not None and (repo_root / ".clipen-npm").is_file()
+    print(f"第一次安裝：{'npx clipen' if npm else './install'}", file=stream)
     print("啟動 Clipen：clipen codex 或 clipen claude", file=stream)
-    print("移除 Clipen：./uninstall", file=stream)
+    print(f"移除 Clipen：{'clipen uninstall' if npm else './uninstall'}", file=stream)
 
 
 def main(repo_root: Path, arguments: Sequence[str]) -> int:
     if list(arguments) in (["--help"], ["-h"]):
-        _print_usage(sys.stdout)
+        _print_usage(sys.stdout, repo_root)
         return 0
     from clipen.provider_registry import PROVIDERS, implemented_providers
 
@@ -890,7 +921,7 @@ def main(repo_root: Path, arguments: Sequence[str]) -> int:
     if list(arguments) not in (["install"], ["uninstall"]) and not launch:
         if len(arguments) == 1 and arguments[0] in PROVIDERS:
             print(f"Clipen 目前還不支援 {PROVIDERS[arguments[0]].display_name}（{arguments[0]}）。", file=sys.stderr)
-        _print_usage(sys.stderr)
+        _print_usage(sys.stderr, repo_root)
         return 2
     try:
         _require_posix_file_locking()

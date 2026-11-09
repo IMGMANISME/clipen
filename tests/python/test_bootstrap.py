@@ -729,5 +729,23 @@ class BootstrapTests(unittest.TestCase):
         self.assertTrue(runtime.is_dir())
 
 
+
+class NpmInstallTests(unittest.TestCase):
+    def test_the_command_runs_with_the_python_that_set_clipen_up(self):
+        import sys
+        import tempfile
+        from pathlib import Path
+        from clipen import bootstrap
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            launcher = root / "clipen"
+            launcher.write_text("#!/bin/sh\n")
+            launcher.chmod(0o755)
+            script = bootstrap._command_script(root)
+            self.assertIn(str(Path(sys.executable).resolve()), script)
+            self.assertEqual(bootstrap._install_hint(root), "./install")
+            (root / ".clipen-npm").write_text("1.0.0\n")
+            self.assertEqual(bootstrap._install_hint(root), "npx clipen install")
+
 if __name__ == "__main__":
     unittest.main()

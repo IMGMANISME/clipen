@@ -1,0 +1,34 @@
+{
+  "name": "clipen",
+  "version": "1.0.0",
+  "description": "Clipen：本機 AI 剪輯工作台",
+  "license": "UNLICENSED",
+  "bin": {
+    "clipen": "bin/clipen.js"
+  },
+  "files": [
+    "bin/clipen.js",
+    "src/clipen/",
+    "!src/clipen/**/__pycache__/",
+    "!src/clipen/rendering/fonts/*.ttf",
+    "apps/web/dist/",
+    "requirements/",
+    "pyproject.toml",
+    "clipen",
+    "install",
+    "uninstall",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "scripts": {
+    "test": "node --test tests/npm/"
+  }
+}
