@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent, PointerEvent } from 'react'
 import { getEditingFrame } from './api'
 import type { ComponentDraft, ComponentEditing, ComponentSettings, EditAgentTimeline } from './api'
-import { X, Y, clamp, componentChanged } from './componentEdit'
+import { X, Y, clamp, componentChanged, retime, shotAt } from './componentEdit'
 import type { ComponentEdit, Values } from './componentEdit'
 import { clock, parseClock } from './reviewModel'
 
@@ -25,7 +25,6 @@ type InspectorProps = {
 export function ComponentInspector({ edit, settings, editing, fps, busy, disabled, locked, onChange, onSave, onCancel, onRemove }: InspectorProps) {
   const changed = componentChanged(edit)
   const valid = Boolean(edit.text.trim()) && (!edit.custom || Object.values(edit.words).every((word) => word.trim()))
-  const shotStart = settings.shot_start_frame, shotEnd = settings.shot_start_frame + settings.shot_duration_frames
   const update = (next: Partial<Values>) => onChange({ ...edit, ...next })
   const enter = (e: KeyboardEvent<HTMLInputElement>) => { if (e.key === 'Enter' && changed && valid) onSave() }
   const moved = edit.x !== edit.saved.x || edit.y !== edit.saved.y
@@ -34,7 +33,7 @@ export function ComponentInspector({ edit, settings, editing, fps, busy, disable
   const designChanged = edit.custom && (JSON.stringify(edit.words) !== JSON.stringify(designDefaults.words) || JSON.stringify(edit.paints) !== JSON.stringify(designDefaults.paints))
   const palette = editing.visual_styles.find((style) => style.id === edit.visual)?.colors ?? { accent: '#e9b44c', paper: '#ffffff', ink: '#111111' }
   return <div className="rv-inspector">
-    <div className="rv-panel-head"><h4>{settings.name}</h4><span className="rv-time">{clock((shotStart + edit.start) / fps)}</span>
+    <div className="rv-panel-head"><h4>{settings.name}</h4><span className="rv-time">{clock(edit.at / fps)}</span>
       <button type="button" className="rv-icon" aria-label="關閉" onClick={onCancel}>×</button></div>
     {locked && <p className="rv-locked" role="status"><span className="rv-spinner" aria-hidden="true" />{locked}</p>}
     {edit.custom ? <>
@@ -74,13 +73,16 @@ export function ComponentInspector({ edit, settings, editing, fps, busy, disable
       </div>
     </>}
     <div className="rv-pair">
-      <Field label="出現" value={(shotStart + edit.start) / fps} format={(value) => clock(value, true)} parse={parseClock} disabled={disabled || busy}
-        onCommit={(seconds) => update({ start: Math.max(0, Math.min(settings.shot_duration_frames - edit.duration, Math.round(seconds * fps) - shotStart)) })} />
+      <Field label="出現" value={edit.at / fps} format={(value) => clock(value, true)} parse={parseClock} disabled={disabled || busy}
+        onCommit={(seconds) => update(retime(edit, seconds * fps, edit.duration))} />
       <Field label="長度" suffix="秒" value={edit.duration / fps} format={(value) => value.toFixed(1)} parse={Number} disabled={disabled || busy}
-        onCommit={(seconds) => update({ duration: Math.max(6, Math.min(settings.shot_duration_frames - edit.start, Math.round(seconds * fps))) })} />
+        onCommit={(seconds) => update(retime(edit, edit.at, Math.min(seconds * fps, edit.total - edit.at)))} />
     </div>
-    <p className="rv-hint">在畫面上拖曳元件就能移動，方向鍵可以微調。這段鏡頭是 {clock(shotStart / fps, true)}–{clock(shotEnd / fps, true)}，元件會留在裡面。
-      {moved && <button type="button" className="rv-link" onClick={() => update({ x: edit.saved.x, y: edit.saved.y })}>回到原位</button>}</p>
+    <p className="rv-hint">在畫面上拖曳元件就能移動，方向鍵可以微調；在下方時間線拖曳可以改出現時間或換軌，拉兩端可以改長度。
+      元件從 {clock(shotAt(edit).start / fps, true)} 開始的鏡頭出現，重剪時會跟著這段素材走，長度可以跨過剪接點。
+      {moved && <button type="button" className="rv-link" onClick={() => update({ x: edit.saved.x, y: edit.saved.y })}>回到原位</button>}
+      {(edit.at !== edit.saved.at || edit.duration !== edit.saved.duration || edit.lane !== edit.saved.lane) &&
+        <button type="button" className="rv-link" onClick={() => update({ at: edit.saved.at, duration: edit.saved.duration, lane: edit.saved.lane })}>恢復原本的時間</button>}</p>
     <div className="rv-row">
       <button type="button" className="button primary" disabled={disabled || busy || !changed || !valid} onClick={onSave}>{busy ? '儲存中…' : '儲存'}</button>
       <button type="button" className="button ghost" onClick={onCancel}>取消</button>

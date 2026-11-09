@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import { getProductionWorkbench, updateProductionReference } from './api'
 import type { ComponentDraft, FilmPreview, ProductionWorkbenchState, RefinementReference, ReferenceState } from './api'
 import { ComponentInspector, StillFrame } from './ComponentEditor'
-import { bounds, componentDraft, openComponent } from './componentEdit'
+import { bounds, componentDraft, openComponent, retime } from './componentEdit'
 import type { ComponentEdit } from './componentEdit'
 import { readNoteDraft } from './reviewDraft'
 import { ReviewTimeline } from './ReviewTimeline'
@@ -71,7 +71,15 @@ export function ReviewNotes({ visible, projectId, csrf, runId, data, video, disa
     if (!edit) { setError('這個元件不能直接編輯，請記一筆注記交給 AI。'); return }
     player.current?.pause()
     setError(''); setSelection(edit)
-    seek((editing!.components[id].shot_start_frame + edit.start + edit.duration / 2) / fps)
+    seek((edit.at + edit.duration / 2) / fps)
+  }
+  /** A graphic dragged, stretched or moved to another lane on the timeline: an unsaved change, like a drag on the picture. */
+  function place(id: string, at: number, duration: number, lane: number) {
+    if (form) return
+    const base = selection?.id === id ? selection : openComponent(timeline, editing, id)
+    if (!base) { setError('這個元件不能直接編輯，請記一筆注記交給 AI。'); return }
+    if (selection?.id !== id) { player.current?.pause(); setError('') }
+    setSelection({ ...base, ...retime(base, at, duration), lane })
   }
   function step(seconds: number) {
     // Stepping pauses so the mark lands where the user stopped; an open note follows the playhead.
@@ -148,7 +156,7 @@ export function ReviewNotes({ visible, projectId, csrf, runId, data, video, disa
   }
   const notes = state.items.map((item) => ({ item, ...describeNote(item, timeline) })).sort((a, b) => (a.at ?? Infinity) - (b.at ?? Infinity))
   // While a graphic is open, show the frame in the middle of where it would appear.
-  const editFrame = selection && settings ? Math.min(timeline.duration_frames - 1, settings.shot_start_frame + selection.start + Math.floor(selection.duration / 2)) : frame
+  const editFrame = selection && settings ? Math.min(timeline.duration_frames - 1, selection.at + Math.floor(selection.duration / 2)) : frame
 
   let panel: ReactNode
   if (selection && settings && editing) panel = <ComponentInspector edit={selection} settings={settings} editing={editing} fps={fps} busy={busy} disabled={disabled || Boolean(locked)} locked={locked}
@@ -189,7 +197,7 @@ export function ReviewNotes({ visible, projectId, csrf, runId, data, video, disa
       <div className="rv-note-actions"><button type="button" className="rv-text-button" disabled={disabled || busy || Boolean(draft)} onClick={() => edit(item)}>修改</button>
         <button type="button" className="rv-text-button" disabled={disabled || busy} onClick={() => void mutate({ delete_id: item.reference_id })}>刪除</button></div>
     </li>)}</ol>
-      : <div className="rv-empty"><p>看到要改的地方，按 <kbd>M</kbd> 記一筆。</p><p>想改畫面上的字，點時間線上紫色的元件。</p></div>}
+      : <div className="rv-empty"><p>看到要改的地方，按 <kbd>M</kbd> 記一筆。</p><p>想改畫面上的字，點時間線上紫色的元件；拖曳它可以改時間或換軌，拉兩端可以改長度。</p></div>}
   </>
 
   return <section className="rv-studio" aria-label="審片">
@@ -204,6 +212,8 @@ export function ReviewNotes({ visible, projectId, csrf, runId, data, video, disa
       {panel}
     </aside>
     <ReviewTimeline timeline={timeline} now={now} video={video?.media_url ?? null} selected={selection?.id ?? null} onSelect={form ? undefined : select}
+      draft={selection ? { id: selection.id, start: selection.at, end: selection.at + selection.duration, lane: selection.lane } : null}
+      onPlace={form || disabled || locked || busy ? undefined : place}
       onSeek={(seconds) => { seek(seconds); if (form) setForm({ ...form, at: seconds }) }}
       notes={notes.map(({ item, at, target: label }) => ({ id: item.reference_id, at, label: `${kindLabel[item.kind]} ${label}`, kind: item.kind }))} />
   </section>

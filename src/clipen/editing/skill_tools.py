@@ -240,13 +240,7 @@ class SkillTools:
                 raise ProjectError("component_unsafe_position", "元件要留在畫面裡。", status_code=422)
             return round(float(value), 4)
         x, y = number("x", 0, .95), number("y", 0, .95)
-        shot = next((i for i in self._video().items if i.item_id == profile.get("anchor_item_id")), None)
-        if shot is None:
-            raise ProjectError("component_anchor_missing", "這個元件所在的鏡頭已經不在影片裡。", status_code=409)
-        start = args.get("start_offset_frames", item.start_frame - shot.start_frame)
-        duration = args.get("duration_frames", item.duration_frames)
-        if any(isinstance(v, bool) or not isinstance(v, int) for v in (start, duration)) or start < 0 or duration < 6 or start + duration > shot.duration_frames:
-            raise ProjectError("component_time_out_of_bounds", "元件要待在同一個鏡頭裡，至少顯示 0.2 秒。", status_code=422)
+        shot, start, duration = self._component_time(args, item, profile)
         visual_style, presets = style_presets(skill, args.get("visual_style_id", profile.get("visual_style_id")))
         font_style, presets = font_presets(skill, presets, args.get("font_style_id", profile.get("font_style_id")))
         scale = args.get("scale", profile.get("scale", 1))
@@ -261,7 +255,7 @@ class SkillTools:
             presets["palette"][name] = [int(value[1:3], 16), int(value[3:5], 16), int(value[5:7], 16), presets["palette"][name][3]]
         changed_profile = {key: value for key, value in profile.items() if key not in {"scale", "colors"}}
         changed_profile.update({"presets": presets, "visual_style_id": visual_style, "font_style_id": font_style,
-                                "x": x, "y": y, "start_offset_frames": start})
+                                "x": x, "y": y, "anchor_item_id": shot.item_id, "start_offset_frames": start})
         # Designed size and the style's colours are left out, so untouched graphics keep their identity.
         if round(float(scale), 2) != 1:
             changed_profile["scale"] = round(float(scale), 2)
@@ -294,14 +288,8 @@ class SkillTools:
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not -1 < value < 1:
                 raise ProjectError("component_unsafe_position", "元件要留在畫面裡。", status_code=422)
             return round(float(value), 4)
-        shot = next((i for i in self._video().items if i.item_id == profile.get("anchor_item_id")), None)
-        if shot is None:
-            raise ProjectError("component_anchor_missing", "這個元件所在的鏡頭已經不在影片裡。", status_code=409)
-        start = args.get("start_offset_frames", item.start_frame - shot.start_frame)
-        duration = args.get("duration_frames", item.duration_frames)
-        if any(isinstance(v, bool) or not isinstance(v, int) for v in (start, duration)) or start < 0 or duration < 6 or start + duration > shot.duration_frames:
-            raise ProjectError("component_time_out_of_bounds", "元件要待在同一個鏡頭裡，至少顯示 0.2 秒。", status_code=422)
-        changed = {**profile, "x": shift("x"), "y": shift("y"), "start_offset_frames": start}
+        shot, start, duration = self._component_time(args, item, profile)
+        changed = {**profile, "x": shift("x"), "y": shift("y"), "anchor_item_id": shot.item_id, "start_offset_frames": start}
         fields = profile.get("fields") or {"texts": [], "colors": []}
         edits = {kind: dict((profile.get("edits") or {}).get(kind, {})) for kind in ("texts", "colors")}
         for kind, check_value, problem in (
@@ -331,28 +319,62 @@ class SkillTools:
         """A person changes one programme graphic: wording, place, look, typeface or timing."""
         from .production_media import atomic_json, load_text_styles, text_style_path
         draft, profile, item = self._component_draft(args)
-        if (draft.text, draft.start_frame, draft.duration_frames, draft.style_id) == (item.text, item.start_frame, item.duration_frames, item.style_id):
+        lane = args.get("lane")
+        if lane is not None and (isinstance(lane, bool) or not isinstance(lane, int) or not 0 <= lane < 12):
+            raise ProjectError("component_lane_invalid", "沒有這一軌。", status_code=422)
+        current = next(n for n, t in enumerate(self._component_tracks()) if any(i.item_id == item.item_id for i in t.items))
+        if (draft.text, draft.start_frame, draft.duration_frames, draft.style_id) == (item.text, item.start_frame, item.duration_frames, item.style_id) \
+                and lane in (None, current):
             raise ProjectError("component_unchanged", "沒有任何變動。", status_code=422)
+        tracks = self._component_lanes(draft, lane)
         styles = load_text_styles(self.repository.projects, self.project_id)
         styles[draft.style_id] = profile
         atomic_json(text_style_path(self.repository.projects, self.project_id), styles)
-        return self._save(replace(self._timeline(), tracks=self._component_lanes(draft)), args.get("summary") or "使用者修改元件")
+        return self._save(replace(self._timeline(), tracks=tracks), args.get("summary") or "使用者修改元件")
 
-    def _component_lanes(self, item):
-        """The timeline's tracks with item placed: graphics that overlap in time sit on separate lanes."""
+    def _component_time(self, args, item, profile):
+        """Where a graphic sits in time: the shot it belongs to, its offset in that shot and its length.
+
+        item_id moves it onto another shot. It starts within that shot, so a recut keeps it on its footage, and may run on past the cut."""
+        shot_id = args.get("item_id", profile.get("anchor_item_id"))
+        shot = next((i for i in self._video().items if i.item_id == shot_id), None)
+        if shot is None:
+            raise ProjectError("component_anchor_missing", "這個元件所在的鏡頭已經不在影片裡。", status_code=409)
+        moved = shot_id != profile.get("anchor_item_id")
+        start = args.get("start_offset_frames", 0 if moved else item.start_frame - shot.start_frame)
+        duration = args.get("duration_frames", item.duration_frames)
+        if any(isinstance(v, bool) or not isinstance(v, int) for v in (start, duration)) or not 0 <= start < shot.duration_frames \
+                or duration < 6 or shot.start_frame + start + duration > self._timeline().duration_frames:
+            raise ProjectError("component_time_out_of_bounds", "元件要從這個鏡頭裡開始、在影片結束前結束，至少顯示 0.2 秒。", status_code=422)
+        return shot, start, duration
+
+    def _component_tracks(self):
+        return [t for t in self._timeline().tracks if t.track_id == "program-components" or t.track_id.startswith("program-components-")]
+
+    def _component_lanes(self, item, lane=None):
+        """The timeline's tracks with item placed. Graphics keep their lanes; ones that overlap in time sit on
+        separate lanes, and a later lane is drawn on top. lane asks for a particular lane (0 is the lowest)."""
         timeline = self._timeline()
         components = lambda track: track.track_id == "program-components" or track.track_id.startswith("program-components-")
         tracks = tuple(t for t in timeline.tracks if not components(t))
-        previous = [i for t in timeline.tracks if components(t) for i in t.items if i.item_id != item.item_id]
-        lanes = []
-        for element in sorted(previous+[item], key=lambda i: (i.start_frame, i.item_id)):
-            lane = next((lane for lane in lanes if lane[-1].start_frame+lane[-1].duration_frames <= element.start_frame), None)
-            if lane is None:
-                lane = []
-                lanes.append(lane)
-            lane.append(element)
-        return tracks + tuple(Track("program-components" if n == 0 else f"program-components-{n+1}", TrackKind.TITLE, tuple(lane))
-                              for n, lane in enumerate(lanes))
+        lanes = [[i for i in t.items if i.item_id != item.item_id] for t in self._component_tracks()]
+        here = next((n for n, t in enumerate(self._component_tracks()) if any(i.item_id == item.item_id for i in t.items)), None)
+        free = lambda n: n < len(lanes) and all(i.start_frame + i.duration_frames <= item.start_frame
+                                                 or item.start_frame + item.duration_frames <= i.start_frame for i in lanes[n])
+        if lane is not None:
+            if lane > len(lanes):
+                raise ProjectError("component_lane_invalid", "沒有這一軌。", status_code=422)
+            if lane < len(lanes) and not free(lane):
+                raise ProjectError("component_lane_busy", "那一軌在這段時間已經有元件了。", status_code=422)
+            target = lane
+        else:
+            target = here if here is not None and free(here) else next((n for n in range(len(lanes)) if free(n)), len(lanes))
+        if target == len(lanes):
+            lanes.append([])
+        lanes[target].append(item)
+        lanes = [sorted(l, key=lambda i: (i.start_frame, i.item_id)) for l in lanes if l]
+        return tracks + tuple(Track("program-components" if n == 0 else f"program-components-{n+1}", TrackKind.TITLE, tuple(l))
+                              for n, l in enumerate(lanes))
 
     def _component_editing(self):
         """What the review page needs to edit graphics: each one's settings and the run's styles."""
@@ -400,7 +422,7 @@ class SkillTools:
             anchor=shots.get(profile.get('anchor_item_id'))
             if profile.get('kind')!='program_component' or anchor is None:
                 issues.append({'code':'component_anchor_missing','item_id':element.item_id});continue
-            if element.start_frame<anchor.start_frame or element.start_frame+element.duration_frames>anchor.start_frame+anchor.duration_frames:
+            if not anchor.start_frame<=element.start_frame<anchor.start_frame+anchor.duration_frames or element.start_frame+element.duration_frames>timeline.duration_frames:
                 issues.append({'code':'component_anchor_out_of_bounds','item_id':element.item_id});continue
             if font is None:
                 issues.append({'code':'preview_title_font_missing','item_id':element.item_id});continue
@@ -485,8 +507,8 @@ class SkillTools:
         shot = next((i for i in self._video().items if i.item_id == settings["item_id"]), None)
         if shot is None:
             raise ProjectError("component_anchor_missing", "畫面元件需要有效的鏡頭錨點。", status_code=422)
-        if settings["start_offset_frames"] + settings["duration_frames"] > shot.duration_frames:
-            raise ProjectError("component_time_out_of_bounds", f"元件必須位於錨定鏡頭內（這個鏡頭長 {shot.duration_frames} 格）。", status_code=422)
+        if settings["start_offset_frames"] >= shot.duration_frames or shot.start_frame + settings["start_offset_frames"] + settings["duration_frames"] > self._timeline().duration_frames:
+            raise ProjectError("component_time_out_of_bounds", f"元件要從這個鏡頭裡開始（這個鏡頭長 {shot.duration_frames} 格），並在影片結束前結束。", status_code=422)
         skill = self._skill_value()
         profile = {"kind": "program_component", "component_id": custom_components.CUSTOM,
                    "skill_id": skill["skill_id"], "skill_version": skill["version"], "skill_hash": skill["content_hash"],
