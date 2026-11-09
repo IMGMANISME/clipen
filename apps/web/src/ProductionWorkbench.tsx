@@ -7,6 +7,7 @@ import { ProductionMusicPicker } from './ProductionMusicPicker'
 import { usePromptDraft } from './usePromptDraft'
 import { ReviewNotes } from './ReviewNotes'
 import { ComponentLooks } from './ComponentLooks'
+import { ChangeReportView } from './ChangeReportView'
 import { clock, composePrompt, usageText, versionTitle, when } from './reviewModel'
 import { providerName, useProvider } from './providerContext'
 
@@ -30,6 +31,11 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
   const [exporting, setExporting] = useState(false)
   const [compare, setCompare] = useState<FilmVersion | null>(null)
   const [returning, setReturning] = useState<FilmVersion | null>(null)
+  const [reading, setReading] = useState<FilmVersion | null>(null)
+  // The AI's report on its latest change shows until it has been read, once per version.
+  const readKey = `clipen:report-read:${projectId}:${runId}`
+  const [read, setRead] = useState<string | null>(() => { try { return localStorage.getItem(readKey) } catch { return null } })
+  function markRead(id: string) { setRead(id); try { localStorage.setItem(readKey, id) } catch { /* Shown again next time; harmless. */ } }
   useEffect(() => {
     let disposed = false
     void getProductionWorkbench(projectId, runId).then((next) => { if (!disposed) { setData(next); setResolved(null); setCompare(null) } }).catch((e) => { if (!disposed) setError(String(e)) })
@@ -46,6 +52,7 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
   const notes = data?.references?.items ?? []
   const prompt = data ? composePrompt(instruction, notes, data.revision.timeline) : ''
   const current = data?.history.find((version) => version.revision_id === revision)
+  const fresh = current && current === data?.history[0] && current.kind === 'ai_complete' && current.report && read !== current.revision_id ? current : null
   const seconds = data ? data.revision.timeline.duration_frames * data.revision.timeline.frame_rate.den / data.revision.timeline.frame_rate.num : 0
   // Until this version is rendered, play the last film when its length matches, so rewording a
   // graphic never leaves the page without something to watch; note times still line up.
@@ -131,6 +138,7 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
             <div><span className="rv-version-time">{now && <em>現在</em>}{when(version.created_at)}{version.duration_seconds != null ? ` · ${clock(version.duration_seconds)}` : ''}</span>
               <strong title={versionTitle(version)}>{versionTitle(version)}</strong>
               {version.kind !== 'manual' && version.kind !== 'restore' && version.changes && <small>{version.changes}</small>}
+              {version.report && <button type="button" className="rv-text-button rv-report-open" onClick={() => { close(); setReading(version) }}>看 AI 的修改說明</button>}
               <small className="rv-usage" title={version.usage ? usageText(version.usage).detail : undefined}>{(version.kind === 'ai_complete' || version.kind === 'ai_partial')
                 ? version.usage ? `AI 用量：${usageText(version.usage).short}` : 'AI 用量沒有記錄'
                 : '手動，不用 AI 額度'}</small></div>
@@ -148,6 +156,12 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
         </div>}</Menu>
       </div>
     </header>
+    {fresh?.report && <section className="rv-report" aria-label="AI 這次的修改說明">
+      <div className="rv-report-head"><strong>AI 這次的修改說明</strong><span>{when(fresh.created_at)}</span>
+        <button type="button" className="rv-icon" aria-label="知道了" onClick={() => markRead(fresh.revision_id)}>×</button></div>
+      <ChangeReportView report={fresh.report} />
+      <div className="rv-row"><button type="button" className="button ghost" onClick={() => markRead(fresh.revision_id)}>知道了</button></div>
+    </section>}
     {job && <RenderStatus job={job} playing={playable ? (earlierVersion ? `${when(earlierVersion.created_at)} ` : '上一版') : null} />}
     {data && !video && !rendering && playable && <p className="rv-stale">現在播的是{earlierVersion ? `${when(earlierVersion.created_at)} ` : '上一版'}的影片，還看不到剛改的地方。按「輸出這一版」更新。</p>}
     {error && <p className="rv-alert" role="alert">{error}<button type="button" className="rv-icon" aria-label="關閉" onClick={() => setError('')}>×</button></p>}
@@ -174,6 +188,11 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
       <label className="consent-check"><input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />同意使用 {provider.name} 的額度</label>
       <div className="rv-row rv-dialog-actions"><button type="button" className="button ghost" onClick={() => setConfirming(false)}>取消</button>
         <button type="button" className="button primary" disabled={!consent || busy} onClick={send}>開始修改</button></div>
+    </Dialog>
+    <Dialog open={Boolean(reading)} label="AI 的修改說明" onClose={() => setReading(null)}>
+      {reading?.report && <><h4>{versionTitle(reading)}<small> · {when(reading.created_at)}</small></h4>
+        <ChangeReportView report={reading.report} request={reading.detail} />
+        <div className="rv-row"><button type="button" className="button primary" onClick={() => setReading(null)}>關閉</button></div></>}
     </Dialog>
     <Dialog open={Boolean(returning)} label="回到較早的樣子" onClose={() => setReturning(null)}>
       {returning && <>

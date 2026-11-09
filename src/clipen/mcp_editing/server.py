@@ -156,9 +156,18 @@ _TOOLS = (
     _tool("undo_revision", "Select the parent of the current immutable revision.", {}),
     _tool(
         "finish_edit",
-        "Finish this bounded run and freeze its selected final revision.",
-        {"summary": {"type": "string", "maxLength": 1000}},
-        ("summary",),
+        "Finish this bounded run and freeze its selected final revision, with the change report the person reads: "
+        "summary (what this version is now, in plain words), changes (what you changed and why, as a viewer would put it), "
+        "notes (one answer per review note the person sent: reference_id, outcome done/partly/not_done/kept, explanation) "
+        "and not_done (anything asked for that you could not do or are unsure of; say so honestly).",
+        {"summary": {"type": "string", "maxLength": 1000},
+         "changes": {"type": "array", "minItems": 1, "maxItems": 20, "items": {"type": "object", "properties": {
+             "what": {"type": "string", "maxLength": 200}, "why": {"type": "string", "maxLength": 300}}, "required": ["what", "why"], "additionalProperties": False}},
+         "notes": {"type": "array", "maxItems": 40, "items": {"type": "object", "properties": {
+             "reference_id": {"type": "string", "maxLength": 160}, "outcome": {"enum": ["done", "partly", "not_done", "kept"]},
+             "explanation": {"type": "string", "maxLength": 300}}, "required": ["reference_id", "outcome", "explanation"], "additionalProperties": False}},
+         "not_done": {"type": "array", "maxItems": 10, "items": {"type": "string", "maxLength": 300}}},
+        ("summary", "changes"),
     ),
 ) + AGENT_TOOLS
 _TOOL_NAMES = frozenset(entry['name'] for entry in _TOOLS)

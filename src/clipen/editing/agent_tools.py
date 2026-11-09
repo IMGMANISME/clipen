@@ -436,7 +436,7 @@ class EditAgentTools(SkillTools, EvidenceTools, ProductionTools):
         return ToolResult({"revision": self.repository.undo(self.project_id, self.run_id,expected_revision_id=self._expected_revision_id).to_public()})
 
     def _finish_edit(self, arguments: Mapping[str, object]) -> ToolResult:
-        self._require_keys(arguments, {"summary"})
+        self._require_keys(arguments, {"summary"}, optional={"changes", "notes", "not_done"})
         timeline = self.repository.current_revision(
             self.project_id, self.run_id
         ).timeline
@@ -455,8 +455,10 @@ class EditAgentTools(SkillTools, EvidenceTools, ProductionTools):
         review=finish_review_status(self)
         if not review['reviewed_revision']:
             raise ProjectError('agent_preview_review_required','請先逐鏡檢視目前預覽及文字，使用 review_cut 記錄判斷並修正未解決問題；validate_sequence 會列出缺少的取樣。',status_code=409)
+        from .change_report import check_report
+        report = check_report(arguments, (self._session_value() or {}).get('intent', {})) if self._session_value() is not None else None
         exported=self._production_export_edit({}).payload
-        return ToolResult({**self.repository.finish(self.project_id, self.run_id, arguments["summary"],expected_revision_id=self._expected_revision_id).to_public(),'review':review,'export':exported})
+        return ToolResult({**self.repository.finish(self.project_id, self.run_id, arguments["summary"],expected_revision_id=self._expected_revision_id,report=report).to_public(),'review':review,'export':exported})
 
     def _candidate(self, value: object) -> PlanningCandidate:
         if not isinstance(value, str):
