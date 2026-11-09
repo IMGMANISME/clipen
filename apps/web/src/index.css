@@ -1731,3 +1731,28 @@ video { background: #000; }
 .rv-look header span { font-size: 11px; color: var(--text-3); }
 .rv-look-font { display: grid; gap: 4px; font-size: 12px; color: var(--text-2); }
 .rv-look-font select { font-size: 15px; }
+
+/* The AI's account of a change. */
+.rv-report { margin: 0 0 14px; padding: 14px 16px; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 10px; background: var(--surface-1); display: grid; gap: 10px; }
+.rv-report-head { display: flex; align-items: center; gap: 10px; }
+.rv-report-head span { color: var(--text-3); font-size: 12px; }
+.rv-report-head .rv-icon { margin-left: auto; }
+.rv-report-body { display: grid; gap: 12px; font-size: 13px; line-height: 1.6; }
+.rv-report-body h5 { margin: 0 0 6px; font-size: 12px; color: var(--text-3); font-weight: 600; letter-spacing: .5px; }
+.rv-report-summary { margin: 0; font-size: 14px; }
+.rv-report-request { margin: 0; display: grid; gap: 2px; color: var(--text-2); }
+.rv-report-request span { font-size: 12px; color: var(--text-3); }
+.rv-report-changes { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+.rv-report-changes li { display: grid; }
+.rv-report-changes span, .rv-report-notes p { color: var(--text-2); }
+.rv-report-notes { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.rv-report-notes li { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: start; }
+.rv-report-notes q { display: block; color: var(--text-3); font-size: 12px; }
+.rv-report-notes p { margin: 0; }
+.rv-report-outcome { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); white-space: nowrap; }
+.is-done .rv-report-outcome, .is-kept .rv-report-outcome { color: #8fd19e; border-color: rgba(143, 209, 158, .4); }
+.is-partly .rv-report-outcome { color: var(--accent); border-color: rgba(233, 180, 76, .45); }
+.is-not_done .rv-report-outcome { color: #f0a1a1; border-color: rgba(240, 161, 161, .45); }
+.rv-report-missing ul { margin: 0; padding-left: 20px; color: #f0c2a1; }
+.rv-report-open { justify-self: start; font-size: 12px; }
+.rv-dialog-body h4 small { font-weight: 400; color: var(--text-3); font-size: 12px; }

@@ -45,6 +45,7 @@ def versions(database, run_id, provider, styles=None, current=None):
     current_ai = switches[0]['from'] if switches else provider
     latest = start = None
     request = None
+    sent = {}
     result = []
 
     skipped = []
@@ -79,13 +80,16 @@ def versions(database, run_id, provider, styles=None, current=None):
             if start is None:
                 start = latest
         elif kind == 'run_created':
-            request, start = None, latest
+            request, start, sent = None, latest, {}
         elif kind == 'refinement_requested':
             request, start = payload.get('instruction'), payload.get('base_revision_id', latest)
+            sent = {item.get('reference_id'): item for item in (payload.get('references') or {}).get('items', []) if isinstance(item, dict)}
         elif kind == 'provider_switched':
             current_ai = payload.get('to', current_ai)
         elif kind == 'run_finished':
             add('ai_complete', f'{_name(current_ai)} {"打磨" if request else "製作"}完成', row['created_at'], request)
+            if result and result[-1]['revision_id'] == latest:
+                result[-1]['report'] = _report(payload, sent)
             start = latest
         elif kind in _STOPS:
             # A stop that changed nothing is not a version.
@@ -106,6 +110,15 @@ def versions(database, run_id, provider, styles=None, current=None):
     for number, entry in enumerate(result, 1):
         entry['number'] = number
     return list(reversed(result))
+
+
+def _report(payload, sent):
+    """What the AI said it changed, with each answer placed next to the note it answers."""
+    from .change_report import OUTCOMES
+    report = payload.get('report') or {}
+    notes = [{**note, 'outcome_label': OUTCOMES.get(note.get('outcome'), ''), 'kind': (sent.get(note.get('reference_id')) or {}).get('kind'),
+              'note': (sent.get(note.get('reference_id')) or {}).get('note', '')} for note in report.get('notes', [])]
+    return {'summary': payload.get('summary') or '', 'changes': report.get('changes', []), 'notes': notes, 'not_done': report.get('not_done', [])}
 
 
 def add_usage(total, usage):

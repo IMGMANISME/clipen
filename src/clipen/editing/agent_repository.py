@@ -542,7 +542,7 @@ class EditAgentRepository:
             database.commit()
             return parent
 
-    def finish(self, project_id: str, run_id: object, summary: object, *, expected_revision_id: str | None = None) -> AgentRun:
+    def finish(self, project_id: str, run_id: object, summary: object, *, expected_revision_id: str | None = None, report: dict | None = None) -> AgentRun:
         normalized = self._validate_run_id(run_id)
         normalized_summary = bounded_text(summary, "完成摘要", 1_000)
         with self.projects.connect(project_id) as database:
@@ -559,7 +559,7 @@ class EditAgentRepository:
                 "final_revision_id=current_revision_id,completed_at=? WHERE run_id=?",
                 (now, normalized),
             )
-            self._append_event(database, normalized, "run_finished", {"summary": normalized_summary}, now)
+            self._append_event(database, normalized, "run_finished", {"summary": normalized_summary, **({"report": report} if report else {})}, now)
             result = self._read_run(database, normalized)
             database.commit()
             return result
