@@ -6,7 +6,9 @@
     "download_url": "https://raw.githubusercontent.com/Chenyu-otf/chenyuluoyan_thin/6e36815b0bec9f4f948298698d00b27a5f0b65c1/ChenYuluoyan-Thin-Monospaced.ttf",
     "revision": "6e36815b0bec9f4f948298698d00b27a5f0b65c1",
     "sha256": "d8ecd0598634c92f0b29f90aabef8f7916f17aef19b0350883ca7b46979a5373",
-    "license": "OFL-1.1"
+    "license": "OFL-1.1",
+    "family": "Clipen Chenyu",
+    "label": "辰宇落雁體（手寫）"
   },
   "iansui": {
     "file": "iansui.ttf",
@@ -15,6 +17,129 @@
     "download_url": "https://raw.githubusercontent.com/ButTaiwan/iansui/9d9a8e68bf1e138dd91e562eeff28d95bca33196/fonts/ttf/Iansui-Regular.ttf",
     "revision": "9d9a8e68bf1e138dd91e562eeff28d95bca33196",
     "sha256": "7f1aa62e9dcbf40d0ce41a5d3f1e5ea602e66c295778ac6fefb6b84d8ed08bd5",
+    "license": "OFL-1.1",
+    "family": "Clipen Iansui",
+    "label": "芫荽（楷書筆意）"
+  },
+  "yuseimagic": {
+    "family": "Yusei Magic",
+    "label": "Yusei Magic（日文麥克筆手寫）",
+    "file": "yuseimagic.ttf",
+    "license_file": "yuseimagic-OFL.txt",
+    "source_url": "https://github.com/google/fonts/tree/5bb28733cec313b63fbd415b574b5ae35c8aa8b8/ofl/yuseimagic",
+    "download_url": "https://raw.githubusercontent.com/google/fonts/5bb28733cec313b63fbd415b574b5ae35c8aa8b8/ofl/yuseimagic/YuseiMagic-Regular.ttf",
+    "revision": "5bb28733cec313b63fbd415b574b5ae35c8aa8b8",
+    "sha256": "82098615f39ed9da6a8ccc674b9006e49c70dd5b775a7a1697f6bedd22ce25a2",
+    "license": "OFL-1.1"
+  },
+  "yomogi": {
+    "family": "Yomogi",
+    "label": "Yomogi（日文鉛筆手寫）",
+    "file": "yomogi.ttf",
+    "license_file": "yomogi-OFL.txt",
+    "source_url": "https://github.com/google/fonts/tree/5bb28733cec313b63fbd415b574b5ae35c8aa8b8/ofl/yomogi",
+    "download_url": "https://raw.githubusercontent.com/google/fonts/5bb28733cec313b63fbd415b574b5ae35c8aa8b8/ofl/yomogi/Yomogi-Regular.ttf",
+    "revision": "5bb28733cec313b63fbd415b574b5ae35c8aa8b8",
+    "sha256": "ec280f473a03187292905618f24fdb08a6dcbf8620b52637e3b589fe745259b9",
+    "license": "OFL-1.1"
+  },
+  "zenkurenaido": {
+    "family": "Zen Kurenaido",
+    "label": "Zen Kurenaido（日文毛筆手寫）",
+    "file": "zenkurenaido.ttf",
+    "license_file": "zenkurenaido-OFL.txt",
+    "source_url": "https://github.com/google/fonts/tree/5bb28733cec313b63fbd415b574b5ae35c8aa8b8/ofl/zenkurenaido",
+    "download_url": "https://raw.githubusercontent.com/google/fonts/5bb28733cec313b63fbd415b574b5ae35c8aa8b8/ofl/zenkurenaido/ZenKurenaido-Regular.ttf",
+    "revision": "5bb28733cec313b63fbd415b574b5ae35c8aa8b8",
+    "sha256": "58b8d930d9fc10c8a5810c085bae378dacb98d0779073ee6d53d919f19ee6a4f",
+    "license": "OFL-1.1"
+  },
+  "hachimarupop": {
+    "family": "Hachi Maru Pop",
+    "label": "Hachi Maru Pop（日文可愛手寫）",
+    "file": "hachimarupop.ttf",
+    "license_file": "hachimarupop-OFL.txt",
+    "source_url": "https://github.com/google/fonts/tree/5bb28733cec313b63fbd415b574b5ae35c8aa8b8/ofl/hachimarupop",
+    "download_url": "https://raw.githubusercontent.com/google/fonts/5bb28733cec313b63fbd415b574b5ae35c8aa8b8/ofl/hachimarupop/HachiMaruPop-Regular.ttf",
+    "revision": "5bb28733cec313b63fbd415b574b5ae35c8aa8b8",
+    "sha256": "78408910c8f1a2f174a279cbc1484b48b71780039eba3fe1be2bfcc5d4df3f98",
+    "license": "OFL-1.1"
+  },
+  "delagothicone": {
+    "family": "Dela Gothic One",
+    "label": "Dela Gothic One（日文超粗黑）",
+    "file": "delagothicone.ttf",
+    "license_file": "delagothicone-OFL.txt",
+    "source_url": "https://github.com/google/fonts/tree/5bb28733cec313b63fbd415b574b5ae35c8aa8b8/ofl/delagothicone",
+    "download_url": "https://raw.githubusercontent.com/google/fonts/5bb28733cec313b63fbd415b574b5ae35c8aa8b8/ofl/delagothicone/DelaGothicOne-Regular.ttf",
+    "revision": "5bb28733cec313b63fbd415b574b5ae35c8aa8b8",
+    "sha256": "4ff87a0965f1b0505e5a2c58424bc6ad3cff27e56a82f21c2fc9d6b0e3857ee2",
+    "license": "OFL-1.1"
+  },
+  "rocknrollone": {
+    "family": "RocknRoll One",
+    "label": "RocknRoll One（日文粗圓）",
+    "file": "rocknrollone.ttf",
+    "license_file": "rocknrollone-OFL.txt",
+    "source_url": "https://github.com/google/fonts/tree/5bb28733cec313b63fbd415b574b5ae35c8aa8b8/ofl/rocknrollone",
+    "download_url": "https://raw.githubusercontent.com/google/fonts/5bb28733cec313b63fbd415b574b5ae35c8aa8b8/ofl/rocknrollone/RocknRollOne-Regular.ttf",
+    "revision": "5bb28733cec313b63fbd415b574b5ae35c8aa8b8",
+    "sha256": "dc0f5ff975851827f63f2c6bfed128ffbca14b6399a10fb5e1711215c0108526",
+    "license": "OFL-1.1"
+  },
+  "zenmarugothic": {
+    "family": "Zen Maru Gothic",
+    "label": "Zen Maru Gothic（日文圓黑）",
+    "file": "zenmarugothic.ttf",
+    "license_file": "zenmarugothic-OFL.txt",
+    "source_url": "https://github.com/google/fonts/tree/5bb28733cec313b63fbd415b574b5ae35c8aa8b8/ofl/zenmarugothic",
+    "download_url": "https://raw.githubusercontent.com/google/fonts/5bb28733cec313b63fbd415b574b5ae35c8aa8b8/ofl/zenmarugothic/ZenMaruGothic-Bold.ttf",
+    "revision": "5bb28733cec313b63fbd415b574b5ae35c8aa8b8",
+    "sha256": "fe24426b9c8b5523a0146a8235c8674eccf0493af354a53ec895c3596d9eb745",
+    "license": "OFL-1.1"
+  },
+  "bebasneue": {
+    "family": "Bebas Neue",
+    "label": "Bebas Neue（英文窄標題）",
+    "file": "bebasneue.ttf",
+    "license_file": "bebasneue-OFL.txt",
+    "source_url": "https://github.com/google/fonts/tree/5bb28733cec313b63fbd415b574b5ae35c8aa8b8/ofl/bebasneue",
+    "download_url": "https://raw.githubusercontent.com/google/fonts/5bb28733cec313b63fbd415b574b5ae35c8aa8b8/ofl/bebasneue/BebasNeue-Regular.ttf",
+    "revision": "5bb28733cec313b63fbd415b574b5ae35c8aa8b8",
+    "sha256": "08e4623805102d819f58601e46e345648846075e363b2ceb23313c2d1c83ec73",
+    "license": "OFL-1.1"
+  },
+  "anton": {
+    "family": "Anton",
+    "label": "Anton（英文粗標題）",
+    "file": "anton.ttf",
+    "license_file": "anton-OFL.txt",
+    "source_url": "https://github.com/google/fonts/tree/5bb28733cec313b63fbd415b574b5ae35c8aa8b8/ofl/anton",
+    "download_url": "https://raw.githubusercontent.com/google/fonts/5bb28733cec313b63fbd415b574b5ae35c8aa8b8/ofl/anton/Anton-Regular.ttf",
+    "revision": "5bb28733cec313b63fbd415b574b5ae35c8aa8b8",
+    "sha256": "a4ba3a92350ebb031da0cb47630ac49eb265082ca1bc0450442f4a83ab947cab",
+    "license": "OFL-1.1"
+  },
+  "caveat": {
+    "family": "Caveat",
+    "label": "Caveat（英文手寫）",
+    "file": "caveat.ttf",
+    "license_file": "caveat-OFL.txt",
+    "source_url": "https://github.com/google/fonts/tree/5bb28733cec313b63fbd415b574b5ae35c8aa8b8/ofl/caveat",
+    "download_url": "https://raw.githubusercontent.com/google/fonts/5bb28733cec313b63fbd415b574b5ae35c8aa8b8/ofl/caveat/Caveat%5Bwght%5D.ttf",
+    "revision": "5bb28733cec313b63fbd415b574b5ae35c8aa8b8",
+    "sha256": "0bdb6b660482d31531b3945849fba5916b3ef8695da7024a9e6b9ee3c4157988",
+    "license": "OFL-1.1"
+  },
+  "playfairdisplay": {
+    "family": "Playfair Display",
+    "label": "Playfair Display（英文雜誌襯線）",
+    "file": "playfairdisplay.ttf",
+    "license_file": "playfairdisplay-OFL.txt",
+    "source_url": "https://github.com/google/fonts/tree/5bb28733cec313b63fbd415b574b5ae35c8aa8b8/ofl/playfairdisplay",
+    "download_url": "https://raw.githubusercontent.com/google/fonts/5bb28733cec313b63fbd415b574b5ae35c8aa8b8/ofl/playfairdisplay/PlayfairDisplay%5Bwght%5D.ttf",
+    "revision": "5bb28733cec313b63fbd415b574b5ae35c8aa8b8",
+    "sha256": "c40f2293766a503bc70cce9e512ef844a4ccb7cbcde792fe2ea31d191917d8d6",
     "license": "OFL-1.1"
   }
 }

@@ -14,7 +14,7 @@ from pathlib import Path
 import sys
 
 FONT_ORIGIN = 'https://clipen.local/fonts/'
-FONTS = {'chenyu.ttf', 'iansui.ttf'}
+FONTS = {entry['file'] for entry in json.loads(files('clipen.rendering').joinpath('fonts', 'manifest.json').read_text(encoding='utf-8')).values()}
 
 # Runs before the page's own scripts: a fixed clock and random sequence.
 _PRELUDE = """
