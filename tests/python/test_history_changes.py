@@ -31,6 +31,10 @@ class HistoryChangeTests(unittest.TestCase):
         self.assertEqual(describe(before, film()), ['刪除「阿夫利拉麵｜AFURI」'])
         self.assertEqual(describe(before, film(components=[('loc', '阿夫利拉麵｜AFURI', 40, 'a')])), ['調整「阿夫利拉麵｜AFURI」出現的時間'])
         self.assertEqual(describe(before, before), [])
+        stacked = film(components=[('loc', '阿夫利拉麵｜AFURI', 10, 'a')])
+        stacked['tracks'].insert(2, {'track_id': 'program-components-2', 'kind': 'title', 'items': stacked['tracks'][1]['items']})
+        stacked['tracks'][1] = {**stacked['tracks'][1], 'items': []}
+        self.assertEqual(describe(before, stacked), ['把「阿夫利拉麵｜AFURI」移到另一軌'])
 
     def test_a_new_cut_is_one_change_not_every_graphic_that_moved_with_it(self):
         before = film(components=[('loc', '新宿', 100, 'a')], cut=((0, 300), (300, 300)))

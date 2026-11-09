@@ -10,6 +10,12 @@ def _components(payload):
             for item in track['items']}
 
 
+def _lanes(payload):
+    """Which component lane each graphic is on; a higher lane is drawn on top."""
+    tracks = [t for t in payload['tracks'] if t['track_id'] == 'program-components' or t['track_id'].startswith('program-components-')]
+    return {item['item_id']: n for n, track in enumerate(tracks) for item in track['items']}
+
+
 def _subtitles(payload):
     return {item['item_id']: item for track in payload['tracks'] if track['track_id'] == 'agent-subtitles' for item in track['items']}
 
@@ -53,7 +59,7 @@ def _graphic_change(before, after, styles, recut=False):
             return f'{_name(after)}換了樣式'
         if old.get('font_style_id') != new.get('font_style_id'):
             return f'{_name(after)}換了字體'
-        if old.get('start_offset_frames') == new.get('start_offset_frames') and not recut:
+        if (old.get('start_offset_frames'), old.get('anchor_item_id')) == (new.get('start_offset_frames'), new.get('anchor_item_id')) and not recut:
             return f'調整{_name(after)}'
     # After a new cut every graphic shifts with its shot; that is part of the cut, not news of its own.
     if not recut and (before['start_frame'], before['duration_frames']) != (after['start_frame'], after['duration_frames']):
@@ -93,6 +99,8 @@ def describe(before, after, styles=None):
         changes.append(f'刪除{_name(old[key])}')
     for key in sorted(old.keys() & new.keys(), key=lambda k: new[k]['start_frame']):
         sentence = _graphic_change(old[key], new[key], styles, recut)
+        if sentence is None and not recut and _lanes(before)[key] != _lanes(after)[key]:
+            sentence = f'把{_name(new[key])}移到另一軌'
         if sentence:
             changes.append(sentence)
     old_subtitles, new_subtitles = _subtitles(before), _subtitles(after)

@@ -51,6 +51,7 @@ def remap_cut(tools, items):
     styles = load_text_styles(tools.repository.projects, tools.project_id)
     styles_changed = False
     retained_tracks = [replace(tools._video(), items=tuple(clips))]
+    lanes = []
     for track in timeline.tracks:
         if track is tools._video() or track.track_id == tools._video().track_id:
             continue
@@ -67,6 +68,8 @@ def remap_cut(tools, items):
             if anchor is None:
                 invalidated.append({"item_id": element.item_id, "reason": "no_source_anchor"})
                 continue
+            # A graphic only needs its first frame on the footage; it may run on past the cut.
+            graphic = profile.get("kind") == "program_component"
             span = anchor.source.span
             unit = Fraction(span.time_base.numerator, span.time_base.denominator)
             left = int(span.start_pts)*unit+Fraction(element.start_frame-anchor.start_frame, 1)/fps
@@ -78,7 +81,7 @@ def remap_cut(tools, items):
                            and i.source.span.stream_index == span.stream_index
                            and (i.item_id == anchor.item_id or i.item_id not in old_by_id)
                            and int(i.source.span.start_pts)*unit <= left
-                           and right <= int(i.source.span.end_pts)*unit), None)
+                           and (left < int(i.source.span.end_pts)*unit if graphic else right <= int(i.source.span.end_pts)*unit)), None)
             if target is None:
                 invalidated.append({"item_id": element.item_id, "reason": "source_removed_or_trimmed"})
                 continue
@@ -90,9 +93,35 @@ def remap_cut(tools, items):
                 style_id = ("agent.component." if profile['kind']=='program_component' else 'agent.text.')+digest(updated)[:24]
                 styles[style_id] = updated
                 styles_changed = True
-            mapped.append(replace(element, start_frame=target.start_frame+offset, style_id=style_id))
-        if mapped:
+            start = target.start_frame+offset
+            length = min(element.duration_frames, cursor-start) if graphic else element.duration_frames
+            if length < 6:
+                invalidated.append({"item_id": element.item_id, "reason": "source_removed_or_trimmed"})
+                continue
+            mapped.append(replace(element, start_frame=start, duration_frames=length, style_id=style_id))
+        if track.track_id == "program-components" or track.track_id.startswith("program-components-"):
+            lanes.append(mapped)
+        elif mapped:
             retained_tracks.append(replace(track, items=tuple(mapped)))
     if styles_changed:
         atomic_json(text_style_path(tools.repository.projects, tools.project_id), styles)
-    return replace(timeline, duration_frames=cursor, tracks=tuple(retained_tracks), markers=()), invalidated
+    return replace(timeline, duration_frames=cursor, tracks=tuple(retained_tracks)+relane(lanes), markers=()), invalidated
+
+
+def relane(lanes):
+    """Component lanes from lists of graphics. Graphics that run past a cut may meet others after a recut:
+    each keeps its lane while it fits, otherwise it moves to the first lane that is free at that time."""
+    from clipen.domain import Track, TrackKind
+    fits = lambda lane, item: all(i.start_frame+i.duration_frames <= item.start_frame or item.start_frame+item.duration_frames <= i.start_frame for i in lane)
+    placed, moved = [[] for _ in lanes], []
+    for n, items in enumerate(lanes):
+        for item in sorted(items, key=lambda i: i.start_frame):
+            (placed[n] if fits(placed[n], item) else moved).append(item)
+    for item in moved:
+        target = next((lane for lane in placed if fits(lane, item)), None)
+        if target is None:
+            target = []
+            placed.append(target)
+        target.append(item)
+    return tuple(Track("program-components" if n == 0 else f"program-components-{n+1}", TrackKind.TITLE,
+                       tuple(sorted(lane, key=lambda i: i.start_frame))) for n, lane in enumerate([l for l in placed if l]))
