@@ -4,18 +4,22 @@ import type { EditAgentTimeline } from './api'
 import { lanes } from './componentEdit'
 import { clips, clock } from './reviewModel'
 
-type Span = { id: string; start: number; end: number; label: string; selectable?: boolean }
+type Span = { id: string; start: number; end: number; label: string; selectable?: boolean; tone?: string; kind?: string }
 type Place = { id: string; start: number; end: number; lane: number }
 type Note = { id: string; at: number | null; label: string; kind: string }
 type Props = { timeline: EditAgentTimeline; now: number; notes: Note[]; video: string | null; onSeek: (seconds: number) => void; selected?: string | null; onSelect?: (id: string) => void
   /** The graphic being edited, where it would sit now. */
   draft?: Place | null
   /** Dragging a graphic, stretching its ends or moving it to another lane; absent when graphics cannot be moved. */
-  onPlace?: (id: string, start: number, duration: number, lane: number) => void }
+  onPlace?: (id: string, start: number, duration: number, lane: number) => void
+  /** Each graphic's look, so graphics of one kind share a colour on the timeline. */
+  looks?: Record<string, { name: string; index: number }> }
 
 const HEAD = 72
 const EDGE = 7  // pixels at each end of a graphic that stretch it rather than move it
 const SNAP = 8  // pixels within which an edge snaps to a cut or the playhead
+// One colour per look on the timeline; graphics without a look keep the plain component colour.
+const TONES = ['#8e5a9e', '#3f7fa8', '#b0683a', '#4f8a5b', '#a64d63', '#7a6f2e', '#5a62b0', '#2e8a86']
 const overlaps = (a: { start: number; end: number }, b: { start: number; end: number }) => a.start < b.end && b.start < a.end
 const STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 300]
 
@@ -51,7 +55,7 @@ function useThumbnails(source: string | null, times: number[]) {
 }
 
 /** An editing-app timeline under the review player: ruler, tracks, clips, note markers and a playhead. */
-export function ReviewTimeline({ timeline, now, notes, video, onSeek, selected = null, onSelect, draft = null, onPlace }: Props) {
+export function ReviewTimeline({ timeline, now, notes, video, onSeek, selected = null, onSelect, draft = null, onPlace, looks = {} }: Props) {
   const fps = timeline.frame_rate.num / timeline.frame_rate.den
   const total = Math.max(1, timeline.duration_frames)
   const seconds = total / fps
@@ -74,15 +78,16 @@ export function ReviewTimeline({ timeline, now, notes, video, onSeek, selected =
 
   const shots: Span[] = clips(timeline).map((item, index) => ({ id: item.item_id, start: item.start_frame, end: item.start_frame + item.duration_frames, label: `鏡頭 ${index + 1}` }))
   const label = (text?: string) => (text ?? '').replace(/\s+/g, ' ')
+  const look = (id: string) => looks[id] ? { tone: TONES[looks[id].index % TONES.length], kind: looks[id].name } : {}
   const captions: Span[] = timeline.tracks.filter((track) => (track.kind === 'title' || track.kind === 'graphic') && track.track_id === 'agent-subtitles')
     .flatMap((track) => track.items.map((item) => ({ id: item.item_id, start: item.start_frame, end: item.start_frame + item.duration_frames, label: label(item.text) })))
   // Graphics sit on lanes; a higher lane is drawn on top. The one being edited shows where it would go.
   const graphics: Span[][] = lanes(timeline).map((track) => track.items.filter((item) => item.item_id !== draft?.id)
-    .map((item) => ({ id: item.item_id, start: item.start_frame, end: item.start_frame + item.duration_frames, label: label(item.text), selectable: Boolean(onSelect) })))
+    .map((item) => ({ id: item.item_id, start: item.start_frame, end: item.start_frame + item.duration_frames, label: label(item.text), selectable: Boolean(onSelect), ...look(item.item_id) })))
   if (draft) {
     const item = lanes(timeline).flatMap((track) => track.items).find((entry) => entry.item_id === draft.id)
     while (graphics.length <= draft.lane) graphics.push([])
-    graphics[draft.lane].push({ id: draft.id, start: draft.start, end: draft.end, label: label(item?.text), selectable: true })
+    graphics[draft.lane].push({ id: draft.id, start: draft.start, end: draft.end, label: label(item?.text), selectable: true, ...look(draft.id) })
   }
   if (moving) graphics.push([])  // room to drop a graphic on a new lane of its own
   const free = (lane: number, place: Place) => !(graphics[lane] ?? []).some((span) => span.id !== place.id && overlaps(span, place))
@@ -195,8 +200,8 @@ export function ReviewTimeline({ timeline, now, notes, video, onSeek, selected =
         {tracks.map((track) => <div className={`nle-track is-${track.kind}`} key={track.id}>
           <div className="nle-heads"><strong>{track.name}</strong><span>{track.label}</span></div>
           <div className={`nle-lane${track.lane !== undefined && moving && !track.spans.length ? ' is-new' : ''}`} style={{ width }}>
-            {track.spans.map((span, index) => <div key={span.id} className={`nle-clip${span.selectable ? ' is-pickable' : ''}${span.selectable && onPlace ? ' is-movable' : ''}${span.id === selected ? ' is-selected' : ''}`} data-pick={span.selectable ? span.id : undefined} style={{ left: x(span.start), width: Math.max(2, x(span.end) - x(span.start)), ...(track.kind === 'shot' && thumbs[index] ? { backgroundImage: `url(${thumbs[index]})` } : {}) }}
-              title={`${clock(span.start / fps)}–${clock(span.end / fps)} ${span.label}${span.selectable ? (onPlace ? '（點一下編輯，拖曳改時間或換軌，拉兩端改長度）' : '（點一下編輯）') : ''}`}>
+            {track.spans.map((span, index) => <div key={span.id} className={`nle-clip${span.selectable ? ' is-pickable' : ''}${span.selectable && onPlace ? ' is-movable' : ''}${span.id === selected ? ' is-selected' : ''}`} data-pick={span.selectable ? span.id : undefined} style={{ left: x(span.start), width: Math.max(2, x(span.end) - x(span.start)), ...(track.kind === 'shot' && thumbs[index] ? { backgroundImage: `url(${thumbs[index]})` } : {}), ...(span.tone ? { backgroundColor: span.tone } : {}) }}
+              title={`${clock(span.start / fps)}–${clock(span.end / fps)} ${span.kind ? `［${span.kind}］` : ''}${span.label}${span.selectable ? (onPlace ? '（點一下編輯，拖曳改時間或換軌，拉兩端改長度）' : '（點一下編輯）') : ''}`}>
               {x(span.end) - x(span.start) > 44 && <span>{span.label}</span>}
             </div>)}
           </div>

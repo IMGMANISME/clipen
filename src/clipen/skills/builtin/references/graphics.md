@@ -27,6 +27,7 @@
 ## 設計
 
 - 整部片建立一套你自己的視覺語言：字體、配色、形狀、動態方式前後一致。章節、地點、人物、資訊、反應各有清楚的層級，同一種角色用同一種樣子。
+- 用「外觀」落實這套語言：開始設計前，用 set_component_look 替每一類元件定一套外觀（例如「章節」「地點」「反應字」），每套有 1–3 套字型與最多 6 個顏色，各類可以完全不同。同一類元件用同一個 look_id。
 - 開場與章節可以大而有份量；資訊標註小而清楚；反應字短促有力，1–1.5 秒。
 - 位置跟著內容：反應字靠近做出反應的人，指示對準真正的細節，資訊放在不擋主體的空白處。避開臉、手部動作、食物主體與底部字幕。先看這一鏡（sample_source 或 inspect_preview）再決定。
 - 起點跟著事件：資訊在被提到或第一次看到時出現。長度依閱讀需要決定，不要都用同一個長度。元件從指定鏡頭裡開始，可以延續過剪接點（例如章節標題橫跨幾個鏡頭），但要在影片結束前結束。
@@ -38,9 +39,10 @@
 
 - 頁面就是整個畫面（window.clipen.width × height，例如 1920×1080）。只畫元件本身，其餘保持透明，讓素材透出來。用 vw／vh 或依 window.clipen 計算尺寸，不同解析度才會一致。
 - 時間由 Clipen 控制：CSS 動畫與 Web Animations 會逐格精準播放；用程式畫的話，定義 `window.clipenFrame = (frame, seconds) => {...}`，在裡面畫出那一格。requestAnimationFrame 迴圈、計時器與真實時鐘不會前進。第 0 格是元件出現的第一格，window.clipen 也提供 fps 與 durationFrames。
-- 沒有網路：圖片與圖形請內嵌（data: URL、inline SVG）。字體可用系統字體名稱（PingFang TC、Hiragino Sans、Hiragino Mincho ProN、Songti TC、Helvetica Neue、Avenir Next…），或 `@font-face { src: url(https://clipen.local/fonts/iansui.ttf) }`（芫荽，楷書筆意）、chenyu.ttf（辰宇落雁體，手寫）。
+- 沒有網路：圖片與圖形請內嵌（data: URL、inline SVG）。
+- 字型只能用元件外觀裡的：寫成 `font-family: var(--look-font-鍵名)`，外觀的顏色是 `var(--look-鍵名)`。用了外觀以外的字型（包括沒指定字型時的瀏覽器預設字）會被擋下。可選的字型列在 list_program_components 的 font_choices（系統字體，加上內附的 Clipen Iansui 芫荽楷書、Clipen Chenyu 辰宇落雁手寫）。想換字或加一套字，就改外觀；用這個外觀的元件會一起換。改外觀時不要拿掉元件還在用的字型鍵名。
 - 標出使用者可以自己改的地方：主要文字放在加了 `data-clipen-text="鍵名"` 的元素裡（可加 `data-clipen-label="主標"` 當顯示名稱），元素內只放純文字；主要顏色寫成 `:root` 上的 `--clipen-名稱` 變數（例如 `--clipen-主色`、`--clipen-字色`），再用 `var(--clipen-主色)` 套用。使用者在審片頁改的字與顏色會在頁面腳本執行前套上；要逐字拆開做動畫時，在 DOMContentLoaded 之後依元素目前的文字拆。沒有標出時，使用者只能請你重做；每個元件都要標。
-- 只有技術檢查：頁面要能載入、程式不出錯、每格 10 秒內畫完、確實畫出東西、200 KB 以內。
+- 除了字型要來自外觀，只有技術檢查：頁面要能載入、程式不出錯、每格 10 秒內畫完、確實畫出東西、200 KB 以內。
 - 工具會回傳兩張圖：元件停在畫面上的樣子，以及從進場到退場的多格對照（每格標了第幾格）。兩張都要看：字是否清楚、有沒有擋到臉或字幕、是否服務這一刻；動畫是否看得出順序、節奏是否合適、退場是否乾淨。不滿意就用 update_custom_component 改，只需要給要變的欄位。
 - 同一套視覺語言的元件可以共用同一段 CSS；每個元件仍是一個自足的頁面。
 
@@ -52,6 +54,6 @@
 
 ## 舊作品的元件
 
-較早的作品可能有用舊內建模板做的元件（list_program_components 的 designed_freely 為 false）。它們會照常顯示；
+較早的作品可能有用舊內建模板做的元件（list_program_components 的 designed_freely 為 false），或沒有外觀的自由元件（look_id 為空，更新時要指定 look_id）。它們會照常顯示；
 要改它們時，用 remove_program_component 移除，再用 add_custom_component 設計新的。
 自由元件匯出到 DaVinci Resolve 時是圖片，不能在 Resolve 裡改字。

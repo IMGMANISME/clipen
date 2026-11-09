@@ -116,6 +116,8 @@ class CustomComponentToolTests(unittest.TestCase):
         self.f = fixtures.SkillProductionTests()
         self.f.setUp()
         self.f.cut()
+        self.f.call('set_component_look', look_id='base', name='基本', fonts=[{'key': 'main', 'family': 'PingFang TC'}],
+                    colors=[{'key': 'accent', 'value': '#ff2e63'}], summary='外觀')
 
     def tearDown(self):
         self.f.tearDown()
@@ -131,7 +133,7 @@ class CustomComponentToolTests(unittest.TestCase):
 
     def test_agent_designs_updates_and_people_move_a_free_graphic(self):
         from clipen.projects import ProjectError
-        result = self.f.call('add_custom_component', **{'name': '手繪標題'}, element_id='free', item_id='agent-video-0001', start_offset_frames=6,
+        result = self.f.call('add_custom_component', look_id='base', **{'name': '手繪標題'}, element_id='free', item_id='agent-video-0001', start_offset_frames=6,
                              duration_frames=30, html=SLIDE, summary='自由設計標題')
         profile = self.styles()[self.element().style_id]
         self.assertEqual((profile['component_id'], profile['html'], self.element().text), ('custom', SLIDE, '手繪標題'))

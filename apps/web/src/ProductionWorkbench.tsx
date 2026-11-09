@@ -1,11 +1,12 @@
 import { PowerNotice } from './PowerNotice'
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { convertResolveTitles, exportProduction, getResolveTimelineStatus, exportToResolve, getProductionWorkbench, refineProduction, renderProduction, restoreProduction, editComponent, removeComponent } from './api'
+import { convertResolveTitles, exportProduction, getResolveTimelineStatus, exportToResolve, getProductionWorkbench, refineProduction, renderProduction, restoreProduction, editComponent, editComponentLook, removeComponent } from './api'
 import type { FilmPreview, FilmVersion, ProductionWorkbenchState, ResolveExport, ResolveTimelineStatus } from './api'
 import { ProductionMusicPicker } from './ProductionMusicPicker'
 import { usePromptDraft } from './usePromptDraft'
 import { ReviewNotes } from './ReviewNotes'
+import { ComponentLooks } from './ComponentLooks'
 import { clock, composePrompt, usageText, versionTitle, when } from './reviewModel'
 import { providerName, useProvider } from './providerContext'
 
@@ -120,6 +121,8 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
       <div className="rv-title"><h3>審片</h3>{data && <span>{current ? `已儲存 · ${when(current.created_at)}` : '目前的影片'} · {clock(seconds)}</span>}</div>
       <div className="rv-tools">
         {data && !video && !rendering && <button type="button" className="button primary" disabled={locked} onClick={render}>輸出這一版</button>}
+        <Menu label="元件外觀" disabled={!data}>{() => <ComponentLooks looks={data?.component_editing?.looks ?? []} fonts={data?.component_editing?.font_choices ?? []} disabled={locked}
+          onSave={(lookId, change) => action(() => renderAfter(editComponentLook(csrf, projectId, runId, data!.revision.revision_id, { look_id: lookId, ...change })), '外觀換好了，正在輸出新影片。')} />}</Menu>
         <Menu label="修改紀錄" disabled={!data}>{(close) => <>{data?.ai_usage && <p className="rv-usage-total" title={usageText(data.ai_usage).detail}>這部片 AI 總用量 <strong>{usageText(data.ai_usage).short}</strong><span>{usageText(data.ai_usage).detail}</span></p>}
           <ol className="rv-versions" aria-label="修改紀錄，最新的在最上面">{data?.history.map((version, index) => {
           const now = index === 0 && version.revision_id === revision

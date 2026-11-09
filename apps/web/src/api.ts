@@ -958,10 +958,15 @@ export type ProductionWorkbenchState = { ai_usage?: TokenUsage | null;
 export type ComponentColors = { accent?: string; paper?: string; ink?: string }
 /** Words and colours a free design marked as editable, with the values its design gives them. */
 export type DesignField = { key: string; label: string; value: string }
-export type ComponentSettings = { component_id: string; custom?: boolean; fields?: { texts: DesignField[]; colors: DesignField[] }; edits?: { texts?: Record<string, string>; colors?: Record<string, string> }; name: string; max_characters: number; x: number; y: number; scale: number; colors: ComponentColors; visual_style_id: string; font_style_id: string; shot_start_frame: number; shot_duration_frames: number }
-export type ComponentEditing = { components: Record<string, ComponentSettings>; visual_styles: Array<{ id: string; name: string; colors: Required<ComponentColors> }>; font_styles: Array<{ id: string; name: string }> }
+export type ComponentSettings = { component_id: string; custom?: boolean; look_id?: string | null; fields?: { texts: DesignField[]; colors: DesignField[] }; edits?: { texts?: Record<string, string>; colors?: Record<string, string> }; name: string; max_characters: number; x: number; y: number; scale: number; colors: ComponentColors; visual_style_id: string; font_style_id: string; shot_start_frame: number; shot_duration_frames: number }
+export type LookFont = { key: string; label: string; family: string; css: string }
+export type LookColor = { key: string; label: string; value: string; css: string }
+/** A look: the typefaces and colours graphics of one kind share. */
+export type ComponentLook = { look_id: string; name: string; fonts: LookFont[]; colors: LookColor[]; used_by: number }
+export type FontChoice = { family: string; label: string }
+export type ComponentEditing = { looks?: ComponentLook[]; font_choices?: FontChoice[]; components: Record<string, ComponentSettings>; visual_styles: Array<{ id: string; name: string; colors: Required<ComponentColors> }>; font_styles: Array<{ id: string; name: string }> }
 /** Unsaved changes to one graphic; anything left out stays as it is. */
-export type ComponentDraft = { element_id: string; text?: string; detail?: string; texts?: Record<string, string>; x?: number; y?: number; scale?: number; colors?: ComponentColors | Record<string, string>; visual_style_id?: string; font_style_id?: string; item_id?: string; start_offset_frames?: number; duration_frames?: number; lane?: number }
+export type ComponentDraft = { element_id: string; text?: string; detail?: string; texts?: Record<string, string>; x?: number; y?: number; scale?: number; colors?: ComponentColors | Record<string, string>; visual_style_id?: string; font_style_id?: string; item_id?: string; start_offset_frames?: number; duration_frames?: number; lane?: number; look_id?: string }
 export function getProductionWorkbench(projectId: string, runId: string): Promise<ProductionWorkbenchState> {
   return request(`/api/projects/${projectId}/production/${runId}/workbench`)
 }
@@ -972,6 +977,10 @@ export function restoreProduction(csrf: string, projectId: string, runId: string
 /** Reword one on-screen graphic; its look, place and timing stay the same. */
 export function editComponent(csrf: string, projectId: string, runId: string, expectedRevision: string, draft: ComponentDraft): Promise<unknown> {
   return command(`/api/projects/${projectId}/production/${runId}/workbench/edit`, csrf, { tool: 'edit_component', arguments: { ...draft, summary: '使用者修改元件' }, expected_revision_id: expectedRevision, mutation_id: crypto.randomUUID() })
+}
+/** Other typefaces or colours for a look; every graphic using it follows. */
+export function editComponentLook(csrf: string, projectId: string, runId: string, expectedRevision: string, look: { look_id: string; fonts?: Record<string, string>; colors?: Record<string, string> }): Promise<unknown> {
+  return command(`/api/projects/${projectId}/production/${runId}/workbench/edit`, csrf, { tool: 'edit_component_look', arguments: { ...look, summary: '使用者修改元件外觀' }, expected_revision_id: expectedRevision, mutation_id: crypto.randomUUID() })
 }
 export function removeComponent(csrf: string, projectId: string, runId: string, expectedRevision: string, elementId: string): Promise<unknown> {
   return command(`/api/projects/${projectId}/production/${runId}/workbench/edit`, csrf, { tool: 'remove_program_component', arguments: { element_id: elementId, summary: '使用者刪除元件' }, expected_revision_id: expectedRevision, mutation_id: crypto.randomUUID() })

@@ -22,8 +22,10 @@ class ComponentTimelineTests(unittest.TestCase):
         self.f = fixtures.SkillProductionTests()
         self.f.setUp()
         self.f.cut()
+        self.f.call('set_component_look', look_id='base', name='基本', fonts=[{'key': 'main', 'family': 'PingFang TC'}],
+                    colors=[{'key': 'accent', 'value': '#ff2e63'}], summary='外觀')
         for key, start in (('a', 6), ('b', 20)):
-            self.f.call('add_custom_component', name=key, element_id=key, item_id='agent-video-0001', start_offset_frames=start,
+            self.f.call('add_custom_component', look_id='base', name=key, element_id=key, item_id='agent-video-0001', start_offset_frames=start,
                         duration_frames=30, html=PAGE, summary='設計')
         self.f.repository.cancel(self.f.project.project_id, self.f.run.run_id)
 

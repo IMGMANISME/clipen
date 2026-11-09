@@ -44,9 +44,31 @@ def _edits(profile):
     return {kind: dict(sorted((edits.get(kind) or {}).items())) for kind in ('texts', 'colors') if edits.get(kind)}
 
 
+# Typefaces a look may use: what every Mac has, plus the two fonts Clipen bundles.
+FONT_CHOICES = {
+    'PingFang TC': '蘋方', 'Heiti TC': '黑體', 'Songti TC': '宋體', 'Hiragino Sans': '冬青黑體', 'Hiragino Mincho ProN': '冬青明朝',
+    'Clipen Iansui': '芫荽（楷書筆意）', 'Clipen Chenyu': '辰宇落雁體（手寫）',
+    'Helvetica Neue': 'Helvetica Neue', 'Avenir Next': 'Avenir Next', 'Futura': 'Futura', 'Gill Sans': 'Gill Sans', 'Optima': 'Optima',
+    'Didot': 'Didot', 'Baskerville': 'Baskerville', 'Georgia': 'Georgia', 'Rockwell': 'Rockwell', 'Copperplate': 'Copperplate',
+    'Impact': 'Impact', 'Arial Black': 'Arial Black', 'Chalkduster': 'Chalkduster', 'Marker Felt': 'Marker Felt', 'Noteworthy': 'Noteworthy', 'Menlo': 'Menlo',
+}
+_BUNDLED = {'Clipen Iansui': 'iansui.ttf', 'Clipen Chenyu': 'chenyu.ttf'}
+
+
+def look_css(look):
+    """The CSS a look gives a page: --look-font-<key> and --look-<key> variables on :root."""
+    if not look:
+        return ''
+    faces = ''.join(f'@font-face {{ font-family: "{family}"; src: url(https://clipen.local/fonts/{name}); }}\n'
+                    for family, name in _BUNDLED.items() if any(f['family'] == family for f in look['fonts']))
+    names = [f'--look-font-{f["key"]}: "{f["family"]}", "PingFang TC", sans-serif;' for f in look['fonts']]
+    names += [f'--look-{c["key"]}: {c["value"]};' for c in look['colors']]
+    return faces + ':root { ' + ' '.join(names) + ' }'
+
+
 def _key(profile, timeline, duration):
     material = json.dumps([profile['html'], timeline.width, timeline.height,
-                           timeline.frame_rate.numerator, timeline.frame_rate.denominator, duration, _edits(profile)],
+                           timeline.frame_rate.numerator, timeline.frame_rate.denominator, duration, _edits(profile), look_css(profile.get('look'))],
                           ensure_ascii=False, sort_keys=True)
     return hashlib.sha256(material.encode()).hexdigest()[:32]
 
@@ -75,7 +97,7 @@ def frames(timeline, item, profile, wanted):
             folder.mkdir(parents=True, exist_ok=True)
             job = {'html': profile['html'], 'width': timeline.width, 'height': timeline.height, 'fps': _fps(timeline),
                    'duration': duration, 'frames': missing, 'out': str(folder), 'frame_timeout': FRAME_TIMEOUT_SECONDS,
-                   'edits': _edits(profile)}
+                   'edits': _edits(profile), 'look': look_css(profile.get('look'))}
             _run(job, timeout=30 + FRAME_TIMEOUT_SECONDS + len(missing) * 1.5)
     return paths
 
@@ -91,11 +113,23 @@ def fields(timeline, item, profile):
             folder.mkdir(parents=True, exist_ok=True)
             _run({'html': profile['html'], 'width': timeline.width, 'height': timeline.height, 'fps': _fps(timeline),
                   'duration': item.duration_frames, 'frames': [], 'out': str(folder), 'frame_timeout': FRAME_TIMEOUT_SECONDS,
-                  'describe': True}, timeout=30 + FRAME_TIMEOUT_SECONDS)
+                  'describe': True, 'look': look_css(profile.get('look'))}, timeout=30 + FRAME_TIMEOUT_SECONDS)
     found = json.loads(path.read_text(encoding='utf-8'))
     # Bounded so a page cannot flood the review panel.
     return {'texts': [f for f in found.get('texts', []) if isinstance(f.get('key'), str)][:12],
-            'colors': [f for f in found.get('colors', []) if isinstance(f.get('key'), str)][:8]}
+            'colors': [f for f in found.get('colors', []) if isinstance(f.get('key'), str)][:8],
+            'fonts': [f for f in found.get('fonts', []) if isinstance(f, str)][:20]}
+
+
+def check_fonts(timeline, item, profile):
+    """A graphic that uses a look draws its text only in that look's typefaces."""
+    look = profile.get('look')
+    if not look:
+        return
+    allowed = {f['family'] for f in look['fonts']}
+    stray = [family for family in fields(timeline, item, profile)['fonts'] if family not in allowed]
+    if stray:
+        raise CustomRenderError('custom_component_font_outside_look', '、'.join(stray))
 
 
 def _run(job, timeout):

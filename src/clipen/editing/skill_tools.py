@@ -89,19 +89,24 @@ class SkillTools:
                            "available_resources": list(skill["resources"])+list(skill.get('assets',{}))})
 
     def _production_list_program_components(self, args):
-        """How graphics are made now, and the ones already in the film."""
+        """How graphics are made now, the looks they share, and the ones already in the film."""
+        from clipen.rendering.custom_components import FONT_CHOICES
+        from . import component_looks
         from .production_catalog import CUSTOM_COMPONENT_HELP
         from .production_media import load_text_styles
         styles = load_text_styles(self.repository.projects, self.project_id)
         timeline = self._timeline()
         existing = [{"element_id": item.item_id, "start_frame": item.start_frame, "duration_frames": item.duration_frames,
-                     "text": item.text, "designed_freely": styles.get(item.style_id, {}).get("component_id") == "custom"}
+                     "text": item.text, "designed_freely": styles.get(item.style_id, {}).get("component_id") == "custom",
+                     "look_id": (styles.get(item.style_id, {}).get("look") or {}).get("look_id")}
                     for track in timeline.tracks if track.track_id == "program-components" or track.track_id.startswith("program-components-")
                     for item in track.items]
         return ToolResult({"skill": self._skill_summary(), "how": "free_design_only", "tool": "add_custom_component",
                            "guidance": CUSTOM_COMPONENT_HELP,
                            "canvas": {"width": timeline.width, "height": timeline.height},
                            "existing_graphics": existing,
+                           "looks": component_looks.listing(self),
+                           "font_choices": [{"family": family, "label": label} for family, label in FONT_CHOICES.items()],
                            "older_graphics": "Graphics not designed_freely use retired built-in templates. Keep them, remove them with remove_program_component, "
                                              "or replace them: remove, then design the new one with add_custom_component."})
 
@@ -290,6 +295,12 @@ class SkillTools:
             return round(float(value), 4)
         shot, start, duration = self._component_time(args, item, profile)
         changed = {**profile, "x": shift("x"), "y": shift("y"), "anchor_item_id": shot.item_id, "start_offset_frames": start}
+        if args.get("look_id") is not None and args["look_id"] != (profile.get("look") or {}).get("look_id"):
+            from . import component_looks
+            look = component_looks.current(self).get(args["look_id"])
+            if look is None:
+                raise ProjectError("component_look_not_found", "沒有這個外觀，請重新讀取。", status_code=422)
+            changed["look"] = look
         fields = profile.get("fields") or {"texts": [], "colors": []}
         edits = {kind: dict((profile.get("edits") or {}).get(kind, {})) for kind in ("texts", "colors")}
         for kind, check_value, problem in (
@@ -311,7 +322,11 @@ class SkillTools:
                         style_id="agent.component." + digest(changed)[:24])
         try:
             custom_components.check(timeline, draft, changed)
+            if changed.get("look") != profile.get("look"):
+                custom_components.check_fonts(timeline, draft, changed)
         except custom_components.CustomRenderError as error:
+            if error.code == "custom_component_font_outside_look":
+                raise ProjectError(error.code, f"這個元件的設計用了「{changed['look']['name']}」外觀沒有的字型（{error.detail}），換不過去；請交給 AI 改。", status_code=422) from error
             raise ProjectError(error.code, _custom_problem(error), status_code=422) from error
         return draft, changed, item
 
@@ -331,6 +346,65 @@ class SkillTools:
         styles[draft.style_id] = profile
         atomic_json(text_style_path(self.repository.projects, self.project_id), styles)
         return self._save(replace(self._timeline(), tracks=tracks), args.get("summary") or "使用者修改元件")
+
+    def _production_set_component_look(self, args):
+        """The Agent creates or changes a look; graphics already using it follow."""
+        from . import component_looks
+        return self._apply_look(component_looks.normalize({k: v for k, v in args.items() if k != "summary"}), args["summary"])
+
+    def _edit_component_look(self, args):
+        """A person picks other typefaces or colours for a look; its keys stay as the Agent named them."""
+        from . import component_looks
+        base = component_looks.current(self).get(args.get("look_id"))
+        if base is None:
+            raise ProjectError("component_look_not_found", "找不到這個外觀，請重新讀取。", status_code=404)
+        fonts, colors = args.get("fonts") or {}, args.get("colors") or {}
+        if not isinstance(fonts, dict) or not isinstance(colors, dict) or not set(fonts) <= {f["key"] for f in base["fonts"]} \
+                or not set(colors) <= {c["key"] for c in base["colors"]}:
+            raise ProjectError("component_look_invalid", "這個外觀沒有這個字型或顏色。", status_code=422)
+        look = component_looks.normalize({**base, "fonts": [{**f, "family": fonts.get(f["key"], f["family"])} for f in base["fonts"]],
+                                          "colors": [{**c, "value": colors.get(c["key"], c["value"])} for c in base["colors"]]})
+        if look == base:
+            raise ProjectError("component_unchanged", "沒有任何變動。", status_code=422)
+        return self._apply_look(look, args.get("summary") or "使用者修改外觀")
+
+    def _apply_look(self, look, summary):
+        """Save a look and redraw every graphic that uses it; refused if one would then need a typeface the look lacks."""
+        from clipen.finishing.models import digest
+        from clipen.rendering import custom_components
+        from . import component_looks
+        from .production_media import atomic_json, load_text_styles, text_style_path
+        looks = component_looks.current(self)
+        if look["look_id"] not in looks and len(looks) >= component_looks.MAX_LOOKS:
+            raise ProjectError("component_look_limit", f"外觀最多 {component_looks.MAX_LOOKS} 套；請沿用或修改既有的外觀。", status_code=422)
+        timeline = self._timeline()
+        changed, problems = {}, []
+        for item, profile in component_looks.on_film(self, timeline):
+            if (profile.get("look") or {}).get("look_id") != look["look_id"] or profile["look"] == look:
+                continue
+            updated = {**profile, "look": look}
+            draft = replace(item, style_id="agent.component." + digest(updated)[:24])
+            try:
+                custom_components.check_fonts(timeline, draft, updated)
+            except custom_components.CustomRenderError as error:
+                if error.code != "custom_component_font_outside_look":
+                    raise ProjectError(error.code, _custom_problem(error), status_code=422) from error
+                problems.append(f"「{item.text}」（{error.detail}）")
+            changed[item.item_id] = (draft, updated)
+        if problems:
+            raise ProjectError("custom_component_font_outside_look", "改了之後，這些元件會用到外觀以外的字型：" + "、".join(problems)
+                               + "。保留它們用到的字型 key，或先更新這些元件。", status_code=422)
+        looks[look["look_id"]] = look
+        component_looks.store(self, looks)
+        public = component_looks.public(look, len(changed))
+        if not changed:
+            return ToolResult({"look": public, "updated_components": []})
+        styles = load_text_styles(self.repository.projects, self.project_id)
+        for draft, updated in changed.values():
+            styles[draft.style_id] = updated
+        atomic_json(text_style_path(self.repository.projects, self.project_id), styles)
+        tracks = tuple(replace(t, items=tuple(changed[i.item_id][0] if i.item_id in changed else i for i in t.items)) for t in timeline.tracks)
+        return self._save(replace(timeline, tracks=tracks), summary, look=public, updated_components=sorted(changed))
 
     def _component_time(self, args, item, profile):
         """Where a graphic sits in time: the shot it belongs to, its offset in that shot and its length.
@@ -400,12 +474,16 @@ class SkillTools:
                     "max_characters": limits.get(profile["component_id"], 48), "x": profile.get("x"), "y": profile.get("y"),
                     "visual_style_id": profile.get("visual_style_id"), "font_style_id": profile.get("font_style_id"),
                     "scale": profile.get("scale", 1), "colors": profile.get("colors", {}),
-                    **({"fields": profile.get("fields") or {"texts": [], "colors": []}, "edits": profile.get("edits") or {}} if custom else {}),
+                    **({"fields": profile.get("fields") or {"texts": [], "colors": []}, "edits": profile.get("edits") or {},
+                        "look_id": (profile.get("look") or {}).get("look_id")} if custom else {}),
                     "shot_start_frame": shot.start_frame, "shot_duration_frames": shot.duration_frames}
         def palette(identifier):
             colours = style_presets(skill, identifier)[1]["palette"]
             return {name: "#%02x%02x%02x" % tuple(colours[name][:3]) for name in sorted(COMPONENT_COLORS)}
-        return {"components": result, "visual_styles": [{"id": v["visual_style_id"], "name": v["name"], "colors": palette(v["visual_style_id"])} for v in public_styles(skill)],
+        from clipen.rendering.custom_components import FONT_CHOICES
+        from . import component_looks
+        return {"looks": component_looks.listing(self), "font_choices": [{"family": f, "label": l} for f, l in FONT_CHOICES.items()],
+                "components": result, "visual_styles": [{"id": v["visual_style_id"], "name": v["name"], "colors": palette(v["visual_style_id"])} for v in public_styles(skill)],
                 "font_styles": [{"id": f["font_style_id"], "name": f["name"]} for f in public_font_styles(skill)]}
 
     def _component_issues(self):
@@ -514,6 +592,14 @@ class SkillTools:
                    "skill_id": skill["skill_id"], "skill_version": skill["version"], "skill_hash": skill["content_hash"],
                    "html": settings["html"], "anchor_item_id": shot.item_id, "start_offset_frames": settings["start_offset_frames"],
                    "evidence": settings.get("evidence", ""), "x": previous.get("x", 0) if updating else 0, "y": previous.get("y", 0) if updating else 0}
+        from . import component_looks
+        look_id = args.get("look_id") or (previous.get("look") or {}).get("look_id")
+        if not look_id:
+            raise ProjectError("component_look_required", "先用 set_component_look 定下這類元件的外觀（字型與配色），再用 look_id 指定。", status_code=422)
+        look = component_looks.current(self).get(look_id)
+        if look is None:
+            raise ProjectError("component_look_not_found", "沒有這個外觀；先用 set_component_look 建立，或從 list_program_components 的 looks 選一個。", status_code=422)
+        profile["look"] = look
         item = TextClip(args["element_id"], shot.start_frame + settings["start_offset_frames"], settings["duration_frames"], settings["name"].strip() or "自由元件", "pending")
         try:
             profile["fields"] = custom_components.fields(timeline, item, profile)
@@ -524,13 +610,14 @@ class SkillTools:
                 profile["edits"] = {kind: values for kind, values in keep.items() if values}
             item = replace(item, style_id="agent.component." + digest(profile)[:24])
             custom_components.check(timeline, item, profile)
+            custom_components.check_fonts(timeline, item, profile)
         except custom_components.CustomRenderError as error:
             raise ProjectError(error.code, _custom_problem(error), status_code=422) from error
         styles[item.style_id] = profile
         atomic_json(text_style_path(self.repository.projects, self.project_id), styles)
         editable = {kind: [f["label"] for f in profile["fields"][kind]] for kind in ("texts", "colors")}
         result = self._save(replace(timeline, tracks=self._component_lanes(item)), args["summary"], element_id=item.item_id,
-                            anchor_item_id=shot.item_id, editable_by_people=editable,
+                            anchor_item_id=shot.item_id, editable_by_people=editable, look_id=look_id,
                             inspection_required="Look at both images: the resting still for legibility, faces and subtitles; the frame sheet (entry to exit, labelled by frame) for whether the motion reads and ends cleanly.",
                             **({} if any(editable.values()) else {"notes": ["沒有標出可編輯的文字或顏色，使用者只能請你重做。用 data-clipen-text 與 --clipen-* 顏色變數標出主要文字和顏色。"]}))
         return ToolResult(result.payload, self._custom_still(result.payload["revision"]["revision_id"], item))
@@ -607,6 +694,7 @@ def _custom_problem(error):
         "custom_component_script_error": "頁面的程式出錯" + detail + "。",
         "custom_component_frame_timeout": "有一格超過 10 秒還沒畫完；clipenFrame 要能直接畫出指定的那一格。",
         "custom_component_renderer_missing": "這台電腦沒有可用的 Chrome，無法繪製自由元件" + detail + "。",
+        "custom_component_font_outside_look": "頁面用了外觀以外的字型" + detail + "；文字的字型要寫成 var(--look-font-鍵名)。想換字或加一套字，先用 set_component_look 改外觀。",
     }.get(error.code, "自由元件繪製失敗" + detail + "。")
 
 

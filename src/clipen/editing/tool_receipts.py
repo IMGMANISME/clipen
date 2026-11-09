@@ -13,7 +13,7 @@ TIMELINE_MUTATIONS = frozenset({
     'set_source_audio','set_color_grade','set_mosaic','set_transition','set_fade',
     'remove_clip_effect','place_audio','remove_audio','restore_revision',
     'add_program_component','update_program_component','remove_program_component','restyle_program_components','add_custom_component','update_custom_component',
-    'set_component_text','edit_component',
+    'set_component_text','edit_component','set_component_look','edit_component_look',
 })
 
 

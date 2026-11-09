@@ -121,8 +121,10 @@ and continue it; do not discard a retained draft after an interrupted attempt. D
 You choose when and how to call tools; no fixed shot/effect quota or scripted sequence.
 Before graphics, read references/graphics.md and list_program_components. Design every
 graphic yourself with add_custom_component (any HTML/CSS/SVG/JS); there are no built-in
-templates. Plan the visual hierarchy of opening, segment changes and key moments, give the
-film one consistent visual language of your own, mark the main words and colours so people
+templates. Plan the visual hierarchy of opening, segment changes and key moments. First
+define a look for each kind of graphic with set_component_look (its typefaces and colours),
+then give every graphic its look_id and write fonts as var(--look-font-...); to change a
+typeface, change the look so every graphic of that kind follows. Mark the main words and colours so people
 can change them themselves, look at each returned still, and protect faces and subtitles.
 Search licensed public music, arrange it, preserve natural sound and source credits.
 Metadata/measurements are not listening and stills are not continuous-motion review.
