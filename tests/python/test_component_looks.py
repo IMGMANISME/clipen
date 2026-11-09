@@ -14,6 +14,27 @@ font: 700 40px var(--look-font-main); }</style><div class="t">SHIBUYA</div>"""
 LOOK = {'look_id': 'place', 'name': '地點', 'fonts': [{'key': 'main', 'family': 'PingFang TC'}], 'colors': [{'key': 'accent', 'value': '#ff2e63'}]}
 
 
+class BundledFontTests(unittest.TestCase):
+    def test_every_carried_font_is_pinned_licensed_and_offered(self):
+        import hashlib
+        from importlib.resources import files
+        from clipen.rendering.custom_components import BUNDLED, FONT_CHOICES
+        folder = files('clipen.rendering').joinpath('fonts')
+        self.assertIn('Yusei Magic', BUNDLED)
+        for family, entry in BUNDLED.items():
+            self.assertEqual(hashlib.sha256(folder.joinpath(entry['file']).read_bytes()).hexdigest(), entry['sha256'], family)
+            self.assertIn('Open Font License', folder.joinpath(entry['license_file']).read_text(encoding='utf-8'))
+            self.assertIn(family, FONT_CHOICES)
+
+    def test_a_missing_character_falls_to_a_face_of_the_same_feel(self):
+        from clipen.rendering.custom_components import font_stack, look_css
+        self.assertEqual(font_stack('Clipen Chenyu'), '"Clipen Chenyu", "Yomogi", "Clipen Iansui", "PingFang TC", sans-serif')
+        css = look_css({'fonts': [{'key': 'main', 'family': 'Clipen Chenyu'}], 'colors': []})
+        # Every carried face the stack may reach is declared for the page.
+        for name in ('chenyu.ttf', 'yomogi.ttf', 'iansui.ttf'):
+            self.assertIn(name, css)
+
+
 class NormalizeTests(unittest.TestCase):
     def test_a_look_names_known_typefaces_and_real_colours(self):
         self.assertEqual(normalize(LOOK)['fonts'], [{'key': 'main', 'label': 'main', 'family': 'PingFang TC'}])

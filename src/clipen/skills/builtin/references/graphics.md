@@ -40,7 +40,7 @@
 - 頁面就是整個畫面（window.clipen.width × height，例如 1920×1080）。只畫元件本身，其餘保持透明，讓素材透出來。用 vw／vh 或依 window.clipen 計算尺寸，不同解析度才會一致。
 - 時間由 Clipen 控制：CSS 動畫與 Web Animations 會逐格精準播放；用程式畫的話，定義 `window.clipenFrame = (frame, seconds) => {...}`，在裡面畫出那一格。requestAnimationFrame 迴圈、計時器與真實時鐘不會前進。第 0 格是元件出現的第一格，window.clipen 也提供 fps 與 durationFrames。
 - 沒有網路：圖片與圖形請內嵌（data: URL、inline SVG）。
-- 字型只能用元件外觀裡的：寫成 `font-family: var(--look-font-鍵名)`，外觀的顏色是 `var(--look-鍵名)`。用了外觀以外的字型（包括沒指定字型時的瀏覽器預設字）會被擋下。可選的字型列在 list_program_components 的 font_choices（系統字體，加上內附的 Clipen Iansui 芫荽楷書、Clipen Chenyu 辰宇落雁手寫）。想換字或加一套字，就改外觀；用這個外觀的元件會一起換。改外觀時不要拿掉元件還在用的字型鍵名。
+- 字型只能用元件外觀裡的：寫成 `font-family: var(--look-font-鍵名)`，外觀的顏色是 `var(--look-鍵名)`。用了外觀以外的字型（包括沒指定字型時的瀏覽器預設字）會被擋下。可選的字型列在 list_program_components 的 font_choices：系統字體，加上 Clipen 內附、任何電腦都能用的字型（中文手寫 Clipen Chenyu、楷書筆意 Clipen Iansui；日文手寫 Yusei Magic、Yomogi、Zen Kurenaido、Hachi Maru Pop；日文標題 Dela Gothic One、RocknRoll One、Zen Maru Gothic；英文 Bebas Neue、Anton、Caveat、Playfair Display）。字型缺字時，Clipen 會自動用同樣感覺的字型補上（例如辰宇缺日文假名時用 Yomogi），中日混排也維持同一種風格；日文為主的元件優先選日文字型。想換字或加一套字，就改外觀；用這個外觀的元件會一起換。改外觀時不要拿掉元件還在用的字型鍵名。
 - 標出使用者可以自己改的地方：主要文字放在加了 `data-clipen-text="鍵名"` 的元素裡（可加 `data-clipen-label="主標"` 當顯示名稱），元素內只放純文字；主要顏色寫成 `:root` 上的 `--clipen-名稱` 變數（例如 `--clipen-主色`、`--clipen-字色`），再用 `var(--clipen-主色)` 套用。使用者在審片頁改的字與顏色會在頁面腳本執行前套上；要逐字拆開做動畫時，在 DOMContentLoaded 之後依元素目前的文字拆。沒有標出時，使用者只能請你重做；每個元件都要標。
 - 除了字型要來自外觀，只有技術檢查：頁面要能載入、程式不出錯、每格 10 秒內畫完、確實畫出東西、200 KB 以內。
 - 工具會回傳兩張圖：元件停在畫面上的樣子，以及從進場到退場的多格對照（每格標了第幾格）。兩張都要看：字是否清楚、有沒有擋到臉或字幕、是否服務這一刻；動畫是否看得出順序、節奏是否合適、退場是否乾淨。不滿意就用 update_custom_component 改，只需要給要變的欄位。

@@ -159,7 +159,11 @@ LOOK_HELP = (
     "a reaction look). Design each look for its role; looks may differ completely. Pages use the look through CSS variables: "
     "font-family: var(--look-font-<key>) and color var(--look-<key>). Graphics already using this look_id are redrawn with it; a change is "
     "refused if one of them would then need a typeface the look no longer has. Typefaces: list_program_components gives font_choices "
-    "(system fonts plus the bundled 'Clipen Iansui' brush and 'Clipen Chenyu' handwriting). At most 8 looks, 3 typefaces and 6 colours each."
+    "(system fonts, plus fonts Clipen carries: Chinese handwriting 'Clipen Chenyu' and brush 'Clipen Iansui', Japanese handwriting "
+    "'Yusei Magic', 'Yomogi', 'Zen Kurenaido', 'Hachi Maru Pop', Japanese display 'Dela Gothic One', 'RocknRoll One', 'Zen Maru Gothic', "
+    "Latin 'Bebas Neue', 'Anton', 'Caveat', 'Playfair Display'). A character a typeface lacks is drawn by a face of the same feel "
+    "(Japanese kana in Clipen Chenyu fall to Yomogi), so mixed Chinese and Japanese keep one style; prefer a Japanese face for mainly "
+    "Japanese text. At most 8 looks, 3 typefaces and 6 colours each."
 )
 SKILL_TOOLS = (
     schema("list_production_skills", "List bundled production skills; selecting one never analyzes or uploads footage."),

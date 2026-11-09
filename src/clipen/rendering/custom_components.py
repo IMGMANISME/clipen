@@ -44,24 +44,51 @@ def _edits(profile):
     return {kind: dict(sorted((edits.get(kind) or {}).items())) for kind in ('texts', 'colors') if edits.get(kind)}
 
 
-# Typefaces a look may use: what every Mac has, plus the two fonts Clipen bundles.
-FONT_CHOICES = {
+def _bundled():
+    """Fonts Clipen carries itself (pinned in fonts/manifest.json), by family name: nothing to install."""
+    from importlib.resources import files
+    manifest = json.loads(files('clipen.rendering').joinpath('fonts', 'manifest.json').read_text(encoding='utf-8'))
+    return {entry['family']: entry for entry in manifest.values()}
+
+
+BUNDLED = _bundled()
+# Typefaces a look may use: what every Mac has, plus the fonts Clipen carries.
+_SYSTEM = {
     'PingFang TC': '蘋方', 'Heiti TC': '黑體', 'Songti TC': '宋體', 'Hiragino Sans': '冬青黑體', 'Hiragino Mincho ProN': '冬青明朝',
-    'Clipen Iansui': '芫荽（楷書筆意）', 'Clipen Chenyu': '辰宇落雁體（手寫）',
     'Helvetica Neue': 'Helvetica Neue', 'Avenir Next': 'Avenir Next', 'Futura': 'Futura', 'Gill Sans': 'Gill Sans', 'Optima': 'Optima',
     'Didot': 'Didot', 'Baskerville': 'Baskerville', 'Georgia': 'Georgia', 'Rockwell': 'Rockwell', 'Copperplate': 'Copperplate',
     'Impact': 'Impact', 'Arial Black': 'Arial Black', 'Chalkduster': 'Chalkduster', 'Marker Felt': 'Marker Felt', 'Noteworthy': 'Noteworthy', 'Menlo': 'Menlo',
 }
-_BUNDLED = {'Clipen Iansui': 'iansui.ttf', 'Clipen Chenyu': 'chenyu.ttf'}
+FONT_CHOICES = {**{family: entry['label'] for family, entry in BUNDLED.items()}, **_SYSTEM}
+# Where a typeface lacks a character (Japanese kana in a Chinese hand, Chinese in a Japanese one,
+# anything in a Latin face) the next face of the same feel draws it, so a line keeps its style.
+_HAND = ['Clipen Chenyu', 'Yomogi', 'Clipen Iansui']
+FALLBACKS = {
+    'Clipen Chenyu': ['Yomogi', 'Clipen Iansui'], 'Clipen Iansui': [],
+    'Yusei Magic': ['Clipen Chenyu', 'Clipen Iansui'], 'Yomogi': ['Clipen Chenyu', 'Clipen Iansui'],
+    'Zen Kurenaido': ['Clipen Iansui'], 'Hachi Maru Pop': ['Yomogi', 'Clipen Chenyu', 'Clipen Iansui'],
+    'Dela Gothic One': ['Heiti TC'], 'RocknRoll One': ['Zen Maru Gothic', 'PingFang TC'], 'Zen Maru Gothic': ['PingFang TC'],
+    'Bebas Neue': ['Heiti TC'], 'Anton': ['Heiti TC'], 'Caveat': _HAND, 'Playfair Display': ['Songti TC'],
+    'Chalkduster': _HAND, 'Marker Felt': _HAND, 'Noteworthy': _HAND,
+    'Songti TC': ['Hiragino Mincho ProN'], 'Hiragino Mincho ProN': ['Songti TC'], 'Didot': ['Songti TC'], 'Baskerville': ['Songti TC'], 'Georgia': ['Songti TC'],
+}
+
+
+def font_stack(family):
+    """The CSS font list for a typeface: itself, faces of the same feel for missing characters, then PingFang."""
+    chain = [family, *FALLBACKS.get(family, []), 'PingFang TC']
+    return ', '.join(f'"{name}"' for name in dict.fromkeys(chain)) + ', sans-serif'
 
 
 def look_css(look):
-    """The CSS a look gives a page: --look-font-<key> and --look-<key> variables on :root."""
+    """The CSS a look gives a page: --look-font-<key> and --look-<key> variables on :root, with the faces
+    Clipen carries declared for every typeface the look may draw with, fallbacks included."""
     if not look:
         return ''
-    faces = ''.join(f'@font-face {{ font-family: "{family}"; src: url(https://clipen.local/fonts/{name}); }}\n'
-                    for family, name in _BUNDLED.items() if any(f['family'] == family for f in look['fonts']))
-    names = [f'--look-font-{f["key"]}: "{f["family"]}", "PingFang TC", sans-serif;' for f in look['fonts']]
+    used = dict.fromkeys(name for f in look['fonts'] for name in [f['family'], *FALLBACKS.get(f['family'], [])])
+    faces = ''.join(f'@font-face {{ font-family: "{family}"; src: url(https://clipen.local/fonts/{BUNDLED[family]["file"]}); }}\n'
+                    for family in used if family in BUNDLED)
+    names = [f'--look-font-{f["key"]}: {font_stack(f["family"])};' for f in look['fonts']]
     names += [f'--look-{c["key"]}: {c["value"]};' for c in look['colors']]
     return faces + ':root { ' + ' '.join(names) + ' }'
 
