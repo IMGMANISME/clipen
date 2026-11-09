@@ -46,6 +46,9 @@ export function ComponentInspector({ edit, settings, editing, fps, busy, disable
           <span style={{ background: edit.paints[field.key] ?? field.value }} />{field.label}</label>)}
       </div>}
       {designChanged && <button type="button" className="rv-link" onClick={() => update(designDefaults)}>恢復 AI 的設計</button>}
+      {(editing.looks?.length ?? 0) > 0 && <label>外觀<select value={edit.look} disabled={disabled || busy} onChange={(e) => update({ look: e.target.value })}>
+        {!edit.saved.look && <option value="">（較早的元件，沒有外觀）</option>}
+        {editing.looks?.map((look) => <option key={look.look_id} value={look.look_id}>{look.name}</option>)}</select></label>}
       <p className="rv-hint">{(settings.fields?.texts.length ?? 0) + (settings.fields?.colors.length ?? 0) > 0
         ? '這是 AI 自由設計的元件。想改版面或動畫，在下方寫給 AI 修改。'
         : '這是 AI 自由設計的元件，沒有標出可以直接改的文字或顏色。想改它，在下方寫給 AI 修改。'}</p>

@@ -9,7 +9,7 @@ from test_custom_components import CHROME
 from clipen.projects import ProjectError
 
 PAGE = """<style>:root { --clipen-主色: #ff2e63; --clipen-字色: #ffffff; --clipen-size: 40px; }
-.t { position: absolute; left: 20px; top: 20px; padding: 10px; background: var(--clipen-主色); color: var(--clipen-字色); font: 700 40px sans-serif; }</style>
+.t { position: absolute; left: 20px; top: 20px; padding: 10px; background: var(--clipen-主色); color: var(--clipen-字色); font: 700 40px var(--look-font-main); }</style>
 <div class="t"><span data-clipen-text="title" data-clipen-label="主標">SHIBUYA</span></div>"""
 
 
@@ -22,6 +22,8 @@ class CustomFieldTests(unittest.TestCase):
         self.f = fixtures.SkillProductionTests()
         self.f.setUp()
         self.f.cut()
+        self.f.call('set_component_look', look_id='base', name='基本', fonts=[{'key': 'main', 'family': 'PingFang TC'}],
+                    colors=[{'key': 'accent', 'value': '#ff2e63'}], summary='外觀')
 
     def tearDown(self):
         self.f.tearDown()
@@ -34,7 +36,7 @@ class CustomFieldTests(unittest.TestCase):
         return load_text_styles(self.f.projects, self.f.project.project_id)[item.style_id]
 
     def test_marked_words_and_colours_are_editable_and_survive_a_redesign(self):
-        result = self.f.call('add_custom_component', **{'name': '澀谷'}, element_id='free', item_id='agent-video-0001', start_offset_frames=6,
+        result = self.f.call('add_custom_component', look_id='base', **{'name': '澀谷'}, element_id='free', item_id='agent-video-0001', start_offset_frames=6,
                              duration_frames=30, html=PAGE, summary='設計').payload
         self.assertEqual(result['editable_by_people'], {'texts': ['主標'], 'colors': ['主色', '字色']})
         self.assertEqual(self.profile()['fields']['texts'], [{'key': 'title', 'label': '主標', 'value': 'SHIBUYA'}])
@@ -58,7 +60,7 @@ class CustomFieldTests(unittest.TestCase):
         self.assertEqual(self.profile()['edits'], {'texts': {'title': 'TOKYO'}, 'colors': {'主色': '#2255ff'}})
 
     def test_a_design_with_nothing_marked_is_told_so(self):
-        result = self.f.call('add_custom_component', **{'name': '方塊'}, element_id='free', item_id='agent-video-0001', start_offset_frames=6,
+        result = self.f.call('add_custom_component', look_id='base', **{'name': '方塊'}, element_id='free', item_id='agent-video-0001', start_offset_frames=6,
                              duration_frames=30, html='<div style="width:40px;height:40px;background:red"></div>', summary='設計').payload
         self.assertEqual(result['editable_by_people'], {'texts': [], 'colors': []})
         self.assertTrue(any('data-clipen-text' in note for note in result['notes']))

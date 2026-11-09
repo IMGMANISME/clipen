@@ -42,6 +42,12 @@ def _graphic_change(before, after, styles, recut=False):
         return f'把「{old}」改成「{new}」' if old != new else f'改了{_name(after)}的補充文字'
     if before.get('style_id') != after.get('style_id'):
         old, new = styles.get(before.get('style_id'), {}), styles.get(after.get('style_id'), {})
+        old_look, new_look = old.get('look') or {}, new.get('look') or {}
+        if new_look and old_look.get('look_id') != new_look.get('look_id') and old.get('html') == new.get('html'):
+            return f'把{_name(after)}換成「{new_look["name"]}」外觀'
+        if new_look and old_look != new_look and old.get('html') == new.get('html'):
+            # Said once per look, not once per graphic that follows it.
+            return ('look', new_look['name'], old_look.get('fonts') != new_look.get('fonts'), old_look.get('colors') != new_look.get('colors'))
         if old.get('html') != new.get('html') and new.get('html'):
             return f'重新設計{_name(after)}'
         if old.get('edits') != new.get('edits') and new.get('html'):
@@ -97,8 +103,15 @@ def describe(before, after, styles=None):
         changes.append(f'新增{_name(new[key])}')
     for key in old.keys() - new.keys():
         changes.append(f'刪除{_name(old[key])}')
+    looks = {}
     for key in sorted(old.keys() & new.keys(), key=lambda k: new[k]['start_frame']):
         sentence = _graphic_change(old[key], new[key], styles, recut)
+        if isinstance(sentence, tuple):
+            _, name, fonts, colours = sentence
+            if name not in looks:
+                looks[name] = True
+                changes.append(f'換了「{name}」外觀的' + ('字型和配色' if fonts and colours else '字型' if fonts else '配色'))
+            continue
         if sentence is None and not recut and _lanes(before)[key] != _lanes(after)[key]:
             sentence = f'把{_name(new[key])}移到另一軌'
         if sentence:

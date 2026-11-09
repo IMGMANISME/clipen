@@ -136,20 +136,31 @@ CUSTOM_COMPONENT_HELP = (
     "themselves, frame-accurately; for script-driven drawing define window.clipenFrame = (frame, seconds) => {...} (may be async) "
     "and draw that exact frame there. requestAnimationFrame loops, timers and real clocks do not advance. Frame 0 is the first frame "
     "of the graphic; window.clipen also gives fps and durationFrames. The page has no network: inline everything (data: URLs, inline SVG). "
-    "Fonts: installed system fonts by name (e.g. 'PingFang TC', 'Hiragino Sans', 'Helvetica Neue'), or Clipen's bundled handwriting fonts "
-    "via @font-face src:url(https://clipen.local/fonts/iansui.ttf) or chenyu.ttf. Only technical checks apply: the page must load, run without "
+    "Looks: graphics of one kind (chapters, places, reactions...) share a look you define first with set_component_look: its typefaces and "
+    "colours. Pass its look_id; Clipen gives the page that look as CSS variables, font-family: var(--look-font-<key>) and colour var(--look-<key>). "
+    "Text may only use the look's typefaces (anything else is refused); colours, layout, shapes and motion stay free. To use another typeface, "
+    "change the look or make a new one; every graphic using a look follows its changes. Only technical checks apply otherwise: the page must load, run without "
     "errors, draw each frame within 10 seconds, draw something, and stay under 200 KB. The result returns two images: a still of the graphic at rest over the footage, and a sheet of frames from entry to exit (labelled by frame number), so you can judge the motion; look at both and fix what does not read. "
     "Mark what people may change themselves: put each main wording as plain text in an element with data-clipen-text=\"key\" "
     "(optional data-clipen-label=\"主標\"), and declare main colours as :root custom properties named --clipen-<name> (e.g. --clipen-主色) used via var(). "
     "Their changes are applied before your scripts run; split text into letters on DOMContentLoaded or later, from the element's current text."
 )
 CUSTOM_COMPONENT_FIELDS = {
-    "element_id": ID, "item_id": {**ID, "description": "The shot the graphic belongs to; it moves and trims with that shot."},
+    "element_id": ID, "item_id": {**ID, "description": "The shot the graphic starts in; it follows that footage on a recut and may run on past the cut."},
     "start_offset_frames": FRAME, "duration_frames": LENGTH,
     "name": {"type": "string", "minLength": 1, "maxLength": 40, "description": "Short label people see on the timeline, e.g. 澀谷地標標題."},
     "html": {"type": "string", "minLength": 1, "maxLength": 200000},
+    "look_id": {**ID, "description": "The look (typefaces and colours) this graphic uses, from set_component_look. Required when adding."},
     "evidence": TEXT, **SUMMARY,
 }
+LOOK_KEY = {"type": "string", "minLength": 1, "maxLength": 24}
+LOOK_HELP = (
+    "Create or change a look: a named set of typefaces and colours that graphics of one kind share (e.g. a chapter look, a place look, "
+    "a reaction look). Design each look for its role; looks may differ completely. Pages use the look through CSS variables: "
+    "font-family: var(--look-font-<key>) and color var(--look-<key>). Graphics already using this look_id are redrawn with it; a change is "
+    "refused if one of them would then need a typeface the look no longer has. Typefaces: list_program_components gives font_choices "
+    "(system fonts plus the bundled 'Clipen Iansui' brush and 'Clipen Chenyu' handwriting). At most 8 looks, 3 typefaces and 6 colours each."
+)
 SKILL_TOOLS = (
     schema("list_production_skills", "List bundled production skills; selecting one never analyzes or uploads footage."),
     schema("read_production_skill", "Read one resource from the skill version frozen for this session. Start with SKILL.md, then load relevant references.",
@@ -160,8 +171,15 @@ SKILL_TOOLS = (
     schema("restyle_program_components", "Restyle all existing programme graphics or selected element IDs using one visual style frozen in the session. Optional font_style_id changes the type pairing independently. Keeps text, timing, anchors, cuts, captions and music. Does not change the default for future additions; pass visual_style_id when adding new graphics.",
            {"font_style_id":{"enum":["default","japanese","street","travel","handwriting","calligraphy"]},"visual_style_id":ID,"element_ids":{"type":"array","minItems":1,"maxItems":128,"uniqueItems":True,"items":ID},**SUMMARY}, ["visual_style_id","summary"]),
     schema("remove_program_component", "Remove one programme graphic without changing the cut, captions or music.", {"element_id": ID, **SUMMARY}),
-    schema("add_custom_component", CUSTOM_COMPONENT_HELP, CUSTOM_COMPONENT_FIELDS, ["element_id", "item_id", "start_offset_frames", "duration_frames", "name", "html", "summary"]),
-    schema("update_custom_component", "Replace any part of a graphic made with add_custom_component (its page, name, shot or timing); anything left out stays as it is. Preserves its identity and supports exact revision undo.",
+    schema("set_component_look", LOOK_HELP, {
+        "look_id": ID, "name": {"type": "string", "minLength": 1, "maxLength": 24, "description": "What people see, e.g. 章節, 地點, 反應字."},
+        "fonts": {"type": "array", "minItems": 1, "maxItems": 3, "items": {"type": "object", "properties": {
+            "key": LOOK_KEY, "label": LOOK_KEY, "family": {"type": "string", "maxLength": 40}}, "required": ["key", "family"], "additionalProperties": False}},
+        "colors": {"type": "array", "maxItems": 6, "items": {"type": "object", "properties": {
+            "key": LOOK_KEY, "label": LOOK_KEY, "value": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"}}, "required": ["key", "value"], "additionalProperties": False}},
+        **SUMMARY}, ["look_id", "name", "fonts", "summary"]),
+    schema("add_custom_component", CUSTOM_COMPONENT_HELP, CUSTOM_COMPONENT_FIELDS, ["element_id", "item_id", "start_offset_frames", "duration_frames", "name", "html", "look_id", "summary"]),
+    schema("update_custom_component", "Replace any part of a graphic made with add_custom_component (its page, name, shot, timing or look); anything left out stays as it is. An older graphic without a look needs look_id. Preserves its identity and supports exact revision undo.",
            CUSTOM_COMPONENT_FIELDS, ["element_id", "summary"]),
 )
 

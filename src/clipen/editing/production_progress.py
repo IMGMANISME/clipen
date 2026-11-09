@@ -12,7 +12,7 @@ _TOOL_GROUPS = (
     ('準備本機語音模型', ('prepare_local_speech',)),
     ('辨識與對齊來源口語', ('transcribe_source_range', 'align_source_speech', 'revise_source_speech', 'list_transcripts')),
     ('安排故事與剪輯', ('record_story_plan', 'read_story_plan', 'plan_episode', 'replace_sequence', 'replace_clip_source', 'trim_clip', 'reorder_clips', 'split_clip', 'insert_clip', 'set_canvas', 'remove_item')),
-    ('製作字幕與畫面設計', ('replace_subtitles', 'edit_text', 'configure_text_style', 'add_clip_title', 'add_program_component', 'update_program_component', 'remove_program_component', 'add_custom_component', 'update_custom_component', 'set_color_grade', 'set_mosaic', 'set_transition', 'set_fade', 'add_effect', 'remove_clip_effect')),
+    ('製作字幕與畫面設計', ('replace_subtitles', 'edit_text', 'configure_text_style', 'add_clip_title', 'add_program_component', 'update_program_component', 'remove_program_component', 'add_custom_component', 'update_custom_component', 'set_component_look', 'set_color_grade', 'set_mosaic', 'set_transition', 'set_fade', 'add_effect', 'remove_clip_effect')),
     ('尋找與安排配樂、音效', ('search_music', 'list_audio_assets', 'extract_audio', 'inspect_audio', 'place_audio', 'remove_audio', 'set_source_audio')),
     ('輸出樣片預覽', ('render_preview',)),
     ('檢查畫面、字幕與聲音', ('inspect_preview', 'inspect_cut', 'review_cut', 'validate_sequence', 'inspect_mix', 'inspect_pacing')),

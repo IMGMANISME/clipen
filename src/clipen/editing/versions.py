@@ -24,7 +24,7 @@ _MANUAL = {'edit_text': '文字與時間', 'configure_text_style': '文字外觀
            'add_program_component': '新增節目元件', 'update_program_component': '修改節目元件',
            'remove_program_component': '移除節目元件', 'restyle_program_components': '更換元件風格與字體',
            'add_custom_component': '新增自由設計元件', 'update_custom_component': '修改自由設計元件',
-           'set_component_text': '元件文字', 'edit_component': '修改元件'}
+           'set_component_text': '元件文字', 'edit_component': '修改元件', 'edit_component_look': '元件外觀'}
 
 
 def _name(provider_id):

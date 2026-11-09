@@ -40,12 +40,13 @@ _PRELUDE = """
     new MutationObserver((records) => records.forEach((r) => r.addedNodes.forEach(word))).observe(document, { childList: true, subtree: true });
   }
   const paint = () => document.documentElement && Object.entries(colors).forEach(([key, value]) => document.documentElement.style.setProperty('--clipen-' + key, value));
-  // The page is the picture: no default margins, though the page may set its own.
+  // The page is the picture: no default margins, though the page may set its own. The look it uses
+  // (shared fonts and colours as --look-* variables) comes first, so the page's own rules build on it.
   document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('[data-clipen-text]').forEach(word);
     paint();
     const base = document.createElement('style');
-    base.textContent = ':where(html, body) { margin: 0; padding: 0; background: transparent; }';
+    base.textContent = ':where(html, body) { margin: 0; padding: 0; background: transparent; }\\n' + __LOOK__;
     document.head.prepend(base);
   });
 })();
@@ -84,7 +85,15 @@ _FIELDS = """
   const root = getComputedStyle(document.documentElement);
   names.forEach((name) => { const value = hex(root.getPropertyValue(name)); if (value) colors.push({ key: name.slice(9), label: name.slice(9), value }); });
   probe.remove();
-  return { texts, colors };
+  // The typeface each piece of visible text asks for first (fallbacks for missing glyphs are not counted).
+  const fonts = new Set();
+  document.querySelectorAll('body *').forEach((el) => {
+    if (!Array.from(el.childNodes).some((n) => n.nodeType === 3 && n.textContent.trim())) return;
+    const style = getComputedStyle(el);
+    if (style.display === 'none' || style.visibility === 'hidden') return;
+    fonts.add(style.fontFamily.split(',')[0].trim().replace(/^["']|["']$/g, ''));
+  });
+  return { texts, colors, fonts: Array.from(fonts) };
 }
 """
 
@@ -146,7 +155,8 @@ def render(job):
             page.set_default_timeout(float(job.get('frame_timeout', 10)) * 1000)
             problems = []
             page.on('pageerror', lambda error: problems.append(str(error)))
-            page.add_init_script(_PRELUDE.replace('__INFO__', json.dumps(info)).replace('__EDITS__', json.dumps(job.get('edits') or {}, ensure_ascii=False)))
+            page.add_init_script(_PRELUDE.replace('__INFO__', json.dumps(info)).replace('__EDITS__', json.dumps(job.get('edits') or {}, ensure_ascii=False))
+                                .replace('__LOOK__', json.dumps(job.get('look') or '', ensure_ascii=False)))
             try:
                 page.goto(PAGE, wait_until='load')
                 page.evaluate('document.fonts.ready.then(() => true)')

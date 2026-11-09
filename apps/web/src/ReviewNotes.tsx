@@ -214,6 +214,10 @@ export function ReviewNotes({ visible, projectId, csrf, runId, data, video, disa
     <ReviewTimeline timeline={timeline} now={now} video={video?.media_url ?? null} selected={selection?.id ?? null} onSelect={form ? undefined : select}
       draft={selection ? { id: selection.id, start: selection.at, end: selection.at + selection.duration, lane: selection.lane } : null}
       onPlace={form || disabled || locked || busy ? undefined : place}
+      looks={Object.fromEntries(Object.entries(editing?.components ?? {}).flatMap(([id, settings]) => {
+        const index = editing?.looks?.findIndex((look) => look.look_id === (id === selection?.id ? selection.look : settings.look_id)) ?? -1
+        return index >= 0 ? [[id, { name: editing!.looks![index].name, index }]] : []
+      }))}
       onSeek={(seconds) => { seek(seconds); if (form) setForm({ ...form, at: seconds }) }}
       notes={notes.map(({ item, at, target: label }) => ({ id: item.reference_id, at, label: `${kindLabel[item.kind]} ${label}`, kind: item.kind }))} />
   </section>

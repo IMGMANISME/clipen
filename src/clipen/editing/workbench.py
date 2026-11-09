@@ -8,7 +8,7 @@ from .production_media import AgentAudioStore
 from .refinement_references import public_state, sent
 
 # Changes go through review notes to the AI; the user picks which version is current and edits graphics directly.
-USER_TOOLS = frozenset({'restore_revision','set_component_text','edit_component','remove_program_component'})
+USER_TOOLS = frozenset({'restore_revision','set_component_text','edit_component','edit_component_look','remove_program_component'})
 
 def idle(repository, project_id, run_id):
     run=repository.get(project_id,run_id)
