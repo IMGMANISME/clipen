@@ -18,9 +18,6 @@ from .codex import (
     ProviderUsageLimitError,
 )
 from .recovery import (
-    ProviderArtifactDecision,
-    ProviderArtifactDisposition,
-    ProviderArtifactRole,
     ProviderAttemptState,
     ProviderUsage,
 )
@@ -34,9 +31,6 @@ __all__ = [
     "CodexProbeResult",
     "CodexReconciliation",
     "ProviderAttemptState",
-    "ProviderArtifactDecision",
-    "ProviderArtifactDisposition",
-    "ProviderArtifactRole",
     "ProviderAuthenticationError",
     "ProviderCancelled",
     "ProviderNetworkError",

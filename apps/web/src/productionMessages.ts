@@ -1,5 +1,5 @@
 /** Human explanations describe only known causes; raw codes stay in diagnostics. */
-export type ProductionProblem = { title: string; reason: string; next: string }
+type ProductionProblem = { title: string; reason: string; next: string }
 const problems: Record<string, ProductionProblem> = {
   provider_protocol_error: { title: 'AI 未正常完成製作流程', reason: 'AI 的回傳結果未能完成 Clipen 的交付流程。', next: '先確認保留的製作結果，再決定是否重新製作。' },
   delivery_blocked: { title: '影片還沒通過交付檢查', reason: 'AI 做出了草稿，但下方列出的項目還沒通過 Clipen 的檢查，所以不算完成。', next: '草稿已保留，可以先看影片。到「審片修改」說明要怎麼處理尚待完成的項目，例如快剪段落改用配樂、對話段落保留完整句子。' },

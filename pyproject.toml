@@ -23,6 +23,6 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 clipen = ["py.typed"]
-"clipen.skills" = ["builtin/*.md", "builtin/*.json", "builtin/references/*.md", "builtin/references/*.txt", "builtin/assets/*.png", "builtin/assets/*.mp4", "builtin/scripts/*.py", "builtin/template-skills/*/*.md", "builtin/template-skills/*/*.json", "builtin/skills/*/*.md", "builtin/skills/*/*.json"]
+"clipen.skills" = ["builtin/*.md", "builtin/*.json", "builtin/references/*.md", "builtin/references/*.txt", "builtin/assets/*.png", "builtin/assets/*.mp4", "builtin/template-skills/*/*.md", "builtin/template-skills/*/*.json", "builtin/skills/*/*.md", "builtin/skills/*/*.json"]
 
 "clipen.rendering" = ["fonts/*.ttf", "fonts/*.txt", "fonts/*.json"]

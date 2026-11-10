@@ -11,7 +11,7 @@ export const placeholders: Record<Kind, string> = {
   highlight: '例如：第一口之後的反應是笑點，請留鋪陳再強調。', location: '例如：這裡是銀座的某某店，不是淺草。', audio: '例如：風聲太大，壓低原音，讓配樂接上；保留說話內容。', note: '補充只有你知道的拍攝背景或想法。',
 }
 
-export type Target = { id: string; label: string; start: number; end: number; text?: boolean }
+type Target = { id: string; label: string; start: number; end: number; text?: boolean }
 
 export function clock(seconds: number, precise = false) {
   const minutes = Math.floor(seconds / 60), rest = seconds - minutes * 60
@@ -27,7 +27,7 @@ export function when(iso: string, now = new Date()) {
   return days === 0 ? `今天 ${time}` : days === 1 ? `昨天 ${time}` : `${at.getMonth() + 1}/${at.getDate()} ${time}`
 }
 /** A token count people can read: 4,213 · 45.2 萬 · 1.7 億. */
-export function tokens(count: number) {
+function tokens(count: number) {
   if (count >= 1e8) return `${(count / 1e8).toFixed(count >= 1e9 ? 0 : 1)} 億`
   if (count >= 1e4) return `${(count / 1e4).toFixed(count >= 1e6 ? 0 : 1)} 萬`
   return count.toLocaleString('en-US')

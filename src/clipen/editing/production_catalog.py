@@ -24,9 +24,8 @@ RECT={**SPAN,'x':UNIT,'y':UNIT,'width':{'type':'number','exclusiveMinimum':0,'ma
       'height':{'type':'number','exclusiveMinimum':0,'maximum':1},'block_size':{'type':'integer','minimum':4,'maximum':96}}
 EXTRA_TOOLS=(
  schema('list_editing_tools','Discover executable tools, limits and explicitly unsupported capabilities.'),
- schema('get_program_reference','Read the human-selected programme style reference frozen when this run started. Its example speech is not a script to copy; style acceptance does not verify ASR or audio.'),
- schema('search_source_dialogue','Search all current source transcripts before choosing clips. Empty query browses complete utterances. Includes adjacent speech for context; inspect actual footage before inferring events. By default excludes approved reference source files to test a new event.',
-        {'query':{'type':'string','maxLength':120},'version_id':ID,'include_drafts':{'type':'boolean'},'exclude_reference_sources':{'type':'boolean'},
+ schema('search_source_dialogue','Search all current source transcripts before choosing clips. Empty query browses complete utterances. Includes adjacent speech for context; inspect actual footage before inferring events.',
+        {'query':{'type':'string','maxLength':120},'version_id':ID,'include_drafts':{'type':'boolean'},
          'offset':{'type':'integer','minimum':0,'maximum':100000},'limit':{'type':'integer','minimum':1,'maximum':30}},[]),
  schema('list_source_media','Page through all currently inventoried source streams, including material absent from earlier candidate selection. Never copies reference footage.',
         {'offset':{'type':'integer','minimum':0,'maximum':100000},'limit':{'type':'integer','minimum':1,'maximum':50}},[]),

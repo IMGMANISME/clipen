@@ -771,13 +771,11 @@ def create_app(
     async def production_style_preview(request: Request) -> Response:
         import base64
         from clipen.skills import get_skill
-        from clipen.skills.visual_styles import public_styles, public_font_styles
+        from clipen.skills.visual_styles import public_styles
         try:
             skill=get_skill(request.path_params['skill_id'])
-            options=public_font_styles(skill) if 'font_id' in request.path_params else public_styles(skill)
-            key='font_style_id' if 'font_id' in request.path_params else 'visual_style_id'
-            identifier=request.path_params.get('font_id',request.path_params.get('style_id'))
-            style=next((s for s in options if s[key]==identifier and 'preview_resource' in s),None)
+            identifier=request.path_params['style_id']
+            style=next((s for s in public_styles(skill) if s['visual_style_id']==identifier and 'preview_resource' in s),None)
             if style is None:
                 raise ProjectError('visual_style_unavailable','找不到這套畫面風格。',status_code=404)
             asset=skill['assets'][style['preview_resource']]
@@ -1313,7 +1311,6 @@ def create_app(
             Route("/api/production/skill-library/{skill_id}/commands/remove", remove_skill, methods=["POST"]),
             Route("/api/production/skills/{skill_id}/styles/{style_id}/preview", production_style_preview, methods=["GET"]),
             Route('/api/production/skills/{skill_id}/templates/{template_id}/sample', production_template_sample, methods=['GET']),
-            Route("/api/production/skills/{skill_id}/fonts/{font_id}/preview", production_style_preview, methods=["GET"]),
             Route("/api/projects/{project_id}/production/commands/start", start_production, methods=["POST"]),
             Route("/api/session/connect", connect_local_browser, methods=["POST"]),
             Route("/api/instance/reopen", reopen_instance, methods=["POST"]),

@@ -541,7 +541,7 @@ class SkillProductionTests(unittest.TestCase):
         self.assertEqual(self.repository.resume_stopped(self.project.project_id,self.run.run_id).current_revision_id,before.current_revision_id)
 
     def test_duration_revision_reconciles_music_length_without_changing_the_film(self):
-        from clipen.editing.production_limits import limits_for,valid_production
+        from clipen.editing.production_limits import limits_for,production_limit_issues
         self.repository.cancel(self.project.project_id,self.run.run_id)
         run,_=self.repository.create_run(self.project.project_id,'music-length',production={
             'skill_id':'travel-program','intent':'五分鐘旅遊精華','target_duration_seconds':300})
@@ -558,8 +558,8 @@ class SkillProductionTests(unittest.TestCase):
             film=tools._timeline();revision=self.repository.current_revision(self.project.project_id,run.run_id).revision_id
             self.assertEqual(film.duration_frames,6420)
             self.assertEqual(len(tools._video().items),115)
-            self.assertTrue(valid_production(tools,film))
-            self.assertFalse(valid_production(tools,film,complete=True))
+            self.assertFalse(production_limit_issues(tools,film))
+            self.assertTrue(production_limit_issues(tools,film,complete=True))
             validation=tools.call('validate_sequence',{}).payload
             issue=next(i for i in validation['delivery_issues'] if i['code']=='production_duration_below_target')
             self.assertEqual((issue['actual'],issue['minimum']),(214,270))
@@ -580,7 +580,7 @@ class SkillProductionTests(unittest.TestCase):
             self.assertEqual(updated['limits']['delivery_min_seconds'],193)
             self.assertEqual(updated['limits']['clips'],180)
             self.assertEqual(tools.call('get_edit_status',{}).payload['intent']['target_duration_seconds'],214)
-            self.assertTrue(valid_production(tools,film,complete=True))
+            self.assertFalse(production_limit_issues(tools,film,complete=True))
             self.assertFalse(any(i['code']=='production_duration_below_target' for i in tools.call('validate_sequence',{}).payload['issues']))
             self.assertEqual(tools._timeline(),film)
             self.assertEqual(self.repository.current_revision(self.project.project_id,run.run_id).revision_id,revision)
@@ -622,10 +622,10 @@ class SkillProductionTests(unittest.TestCase):
             timeline=long._timeline()
             self.assertEqual(timeline.duration_frames,18000);self.assertEqual(len(long._video().items),50)
             from dataclasses import replace
-            from clipen.editing.production_limits import valid_production
+            from clipen.editing.production_limits import production_limit_issues
             short=replace(timeline,duration_frames=1080,tracks=(replace(timeline.tracks[0],items=timeline.tracks[0].items[:3]),))
-            self.assertTrue(valid_production(long,short))
-            self.assertFalse(valid_production(long,short,complete=True))
+            self.assertFalse(production_limit_issues(long,short))
+            self.assertTrue(production_limit_issues(long,short,complete=True))
             revision=self.repository.current_revision(self.project.project_id,run.run_id).revision_id
             with self.assertRaises(ProjectError):
                 long.call('replace_sequence',{'clips':clips+clips[:6],'reprise_reason':'測試超出本次長片上限','summary':'必須拒絕','expected_revision_id':revision,'mutation_id':'too-long'})
@@ -806,9 +806,6 @@ class SkillProductionTests(unittest.TestCase):
             self.assertEqual(json.loads(body)['production']['skill']['skill_id'],'travel-program')
             self.assertEqual(json.loads(body)['production']['skill']['selected_visual_style_id'],'editorial')
             self.assertEqual(json.loads(body)['production']['skill']['selected_font_style_id'],'street')
-            font_code,_,font_body=request('GET','/api/production/skills/travel-program/fonts/street/preview',headers={'cookie':cookie})
-            self.assertEqual(font_code,200);self.assertTrue(font_body.startswith(b'\x89PNG'))
-            self.assertEqual(request('GET','/api/production/skills/travel-program/fonts/unknown/preview',headers={'cookie':cookie})[0],404)
             image_code,image_headers,image_body=request('GET','/api/production/skills/travel-program/styles/editorial/preview',headers={'cookie':cookie})
             self.assertEqual(image_code,200)
             self.assertTrue(image_body.startswith(b'\x89PNG'))

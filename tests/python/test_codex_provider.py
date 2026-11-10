@@ -22,8 +22,6 @@ from clipen.providers.recovery import (
     AttemptReceiptStore,
     ProviderAttemptReceipt,
     ProviderAttemptState,
-    ProviderArtifactDisposition,
-    ProviderArtifactRole,
     ProviderUsage,
     sha256_bytes,
     sha256_file,
@@ -186,15 +184,6 @@ class CodexProviderTests(unittest.TestCase):
             self.workspace, "attempt-1"
         ).path.read_text(encoding="utf-8")
         self.assertNotIn("Return the approved candidate plan", receipt_text)
-        inventory = {item.role: item.disposition for item in adapter.artifact_inventory(self.attempt())}
-        self.assertEqual(
-            inventory[ProviderArtifactRole.OUTPUT],
-            ProviderArtifactDisposition.RETAIN_RESULT,
-        )
-        self.assertEqual(
-            inventory[ProviderArtifactRole.DIAGNOSTICS],
-            ProviderArtifactDisposition.CLEANABLE,
-        )
 
     def test_probe_checks_auth_and_required_cli_capabilities_without_an_attempt(self) -> None:
         adapter = CodexExecAdapter(
@@ -566,20 +555,6 @@ class CodexProviderTests(unittest.TestCase):
         receipt = AttemptReceiptStore(self.workspace, "attempt-1").read()
         self.assertEqual(receipt.state, ProviderAttemptState.FAILED)
         self.assertEqual(receipt.usage, ProviderUsage(40, 10, 2))
-        inventory = {
-            item.role: item.disposition
-            for item in CodexExecAdapter(
-                self.root, fake, environment={"PATH": "/usr/bin"}
-            ).artifact_inventory(self.attempt())
-        }
-        self.assertEqual(
-            inventory[ProviderArtifactRole.EVENTS],
-            ProviderArtifactDisposition.RETAIN_DIAGNOSTIC,
-        )
-        self.assertEqual(
-            inventory[ProviderArtifactRole.OUTPUT_SCHEMA],
-            ProviderArtifactDisposition.CLEANABLE,
-        )
 
     def test_persisted_provider_artifacts_redact_prompt_and_credentials(self) -> None:
         fake = self.fake_codex(

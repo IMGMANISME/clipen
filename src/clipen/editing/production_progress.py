@@ -7,7 +7,7 @@ import json
 
 
 _TOOL_GROUPS = (
-    ('理解製作需求與影片風格', ('get_edit_status', 'list_editing_tools', 'list_production_skills', 'read_production_skill', 'list_program_components', 'get_program_reference')),
+    ('理解製作需求與影片風格', ('get_edit_status', 'list_editing_tools', 'list_production_skills', 'read_production_skill', 'list_program_components')),
     ('尋找與檢視來源素材', ('list_source_media', 'search_media', 'search_source_dialogue', 'register_source_range', 'sample_source', 'inspect_candidates', 'inspect_clip')),
     ('準備本機語音模型', ('prepare_local_speech',)),
     ('辨識與對齊來源口語', ('transcribe_source_range', 'align_source_speech', 'revise_source_speech', 'list_transcripts')),

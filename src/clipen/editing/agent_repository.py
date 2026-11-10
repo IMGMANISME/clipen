@@ -195,11 +195,8 @@ class EditAgentRepository:
                         run_id, encoded({**({'template':template} if template else {}),"authority": "user", "brief": production["intent"], "allow_local_model_downloads": True, "visual_style_id":selected, "font_style_id":selected_font, "target_duration_seconds":target, "music_choice":selected_music}),
                         encoded(skill), encoded(sources), inventory["run_id"], now,
                     ))
-                from .program_reference import latest_reference
-                reference=latest_reference(database) if creative_direction else None
                 self._append_event(database, run_id, "run_created", {"revision_id": revision_id,
-                    **({"creative_direction":creative_direction} if creative_direction is not None else {}),
-                    **({'program_reference':reference} if reference else {})}, now)
+                    **({"creative_direction":creative_direction} if creative_direction is not None else {})}, now)
                 database.execute(
                     "INSERT INTO edit_agent_command_receipts VALUES(?,?,?,?,?)",
                     (request, "start", request_hash, encoded({"run_id": run_id}), now),

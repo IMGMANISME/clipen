@@ -63,7 +63,6 @@ class ProviderRegistryTests(unittest.TestCase):
             mock.patch("clipen.cli._data_root", return_value=Path(tempfile.mkdtemp())),
             mock.patch("clipen.cli.prepare_workspace", return_value=workspace),
             mock.patch("clipen.cli.inspect_workspace_projects", return_value=SimpleNamespace(project_count=0)),
-            mock.patch("clipen.cli.verify_system_skill_release"),
             mock.patch("clipen.cli.probe_codex", side_effect=lambda path: calls.append("codex")),
             mock.patch("clipen.cli.probe_claude", side_effect=lambda path: calls.append("claude")),
             mock.patch("clipen.cli.run_server", return_value=0),

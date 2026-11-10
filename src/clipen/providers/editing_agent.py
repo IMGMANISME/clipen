@@ -158,9 +158,7 @@ under dialogue, and preserve credits. When transitions are required, choose an
 actual incoming transition at a meaningful edit/time jump; an ending fade alone
 does not meet that request. Make purposeful source edits, not only captions.
 Use all three as a coherent production, never blanket effects over every cut.
-read get_program_reference to learn the user's accepted storytelling and subtitle
-direction. Make a NEW event with comparable coherence, not a replay of reference
-clips or a compulsory cold-open formula. search_source_dialogue can browse/search
+Do not force a compulsory cold-open formula. search_source_dialogue can browse/search
 all inventoried transcripts with adjacent speech before selecting candidate ranges.
 Use include_drafts=true explicitly when the available ASR needs review. Query
 empty text to discover topics instead of guessing a restaurant name. Browse further
