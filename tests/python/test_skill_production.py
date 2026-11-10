@@ -71,7 +71,8 @@ class SkillProductionTests(unittest.TestCase):
         # Production now requires an explicit placement; tests pick each component's designed spot.
         spot=next((c['default_position'] for c in get_skill()['components'] if c['component_id']==args['component_id']),{'x':.06,'y':.12})
         for axis in ('x','y'):args.setdefault(axis,spot[axis])
-        return self.call('add_program_component',**args)
+        from legacy_components import place
+        return place(self.tools,**args)
 
     def real_media(self):
         source=self.root/'source.mp4'
@@ -125,10 +126,10 @@ class SkillProductionTests(unittest.TestCase):
         # Stages only move forward to the furthest real step; no percentage is invented.
         from clipen.editing.production_progress import STAGES
         self.assertEqual(list(progress['stages']),list(STAGES))
-        self.assertEqual(STAGES[progress['reached']],'graphics')
+        self.assertEqual(STAGES[progress['reached']],'edit')
         self.call('validate_sequence')
         checked=coordinator.status(self.project.project_id)['production']['progress']
-        self.assertEqual(STAGES[checked['reached']],'graphics')
+        self.assertEqual(STAGES[checked['reached']],'edit')
         self.assertIsNotNone(checked['started_at'])
         progress=checked
         self.assertEqual([e['sequence'] for e in progress['activity']],sorted(e['sequence'] for e in progress['activity']))
@@ -224,39 +225,6 @@ class SkillProductionTests(unittest.TestCase):
             self.repository.create_run(self.project.project_id,'unknown-style-request',production={
                 'skill_id':'travel-program','intent':'元件風格','visual_style_id':'unknown'})
 
-    def test_restyle_preserves_cuts_text_timing_and_other_tracks_with_undo(self):
-        from clipen.editing.production_media import load_text_styles
-        self.cut()
-        self.component(element_id='title',component_id='program_title',text='城市慢遊',y=.1)
-        self.component(element_id='person',component_id='person',text='現場人物',y=.58)
-        self.call('set_color_grade',item_id='agent-video-0001',contrast=1.1,saturation=1,brightness=0,summary='保留調色')
-        self.call('set_source_audio',item_id='agent-video-0001',mode='dialogue',gain_db=-1,summary='保留人聲設定')
-        from dataclasses import replace
-        from clipen.domain import Track
-        current=self.tools._timeline()
-        self.repository.save_revision(self.project.project_id,self.run.run_id,
-            replace(current,tracks=current.tracks+(Track('agent-subtitles',TrackKind.TITLE,
-                (TextClip('unchanged-subtitle',12,30,'保留這句字幕','title.caption'),)),)),'保留字幕測試')
-        before=self.repository.current_revision(self.project.project_id,self.run.run_id)
-        result=self.call('restyle_program_components',visual_style_id='cinema',summary='整套切換影誌風格')
-        after=self.tools._timeline();profiles=load_text_styles(self.projects,self.project.project_id)
-        self.assertEqual(after.tracks[0],before.timeline.tracks[0])
-        for a,b in zip(before.timeline.tracks[1:],after.tracks[1:]):
-            if a.track_id=='agent-subtitles':
-                self.assertEqual(a,b);continue
-            for left,right in zip(a.items,b.items):
-                self.assertEqual((left.item_id,left.start_frame,left.duration_frames,left.text),
-                                 (right.item_id,right.start_frame,right.duration_frames,right.text))
-                self.assertEqual(profiles[right.style_id]['visual_style_id'],'cinema')
-                self.assertIn(left.style_id,profiles)
-        self.assertEqual(set(result.payload['changed_element_ids']),{'title','person'})
-        self.call('update_program_component',element_id='title',item_id='agent-video-0001',component_id='program_title',
-                  start_offset_frames=6,duration_frames=45,text='城市慢遊計畫',evidence='編輯標題',summary='換字保留風格',y=.1)
-        updated=next(i for t in self.tools._timeline().tracks for i in t.items if i.item_id=='title')
-        self.assertEqual(load_text_styles(self.projects,self.project.project_id)[updated.style_id]['visual_style_id'],'cinema')
-        self.call('restore_revision',revision_id=before.revision_id,summary='還原整套樣式')
-        self.assertEqual(self.tools._timeline(),before.timeline)
-        with self.assertRaises(ProjectError):self.call('restyle_program_components',visual_style_id='editorial',element_ids=['missing'],summary='不可部分修改')
 
     def test_all_component_styles_draw_distinct_frames_with_complete_traditional_glyphs(self):
         from PIL import Image,ImageChops,ImageDraw
@@ -318,7 +286,6 @@ class SkillProductionTests(unittest.TestCase):
         self.assertEqual(snapshot['skill']['selected_font_style_id'],'street')
         self.assertEqual(snapshot['intent']['font_style_id'],'street')
         self.assertIn('font_styles.json',snapshot['skill']['resources'])
-        self.assertIn('assets/font-street.png',snapshot['skill']['assets'])
         repeated,created=self.repository.create_run(self.project.project_id,'font-request',production=request)
         self.assertFalse(created);self.assertEqual(repeated.run_id,run.run_id)
         with self.assertRaises(ProjectError):
@@ -326,24 +293,6 @@ class SkillProductionTests(unittest.TestCase):
         with self.assertRaises(ProjectError):
             self.repository.create_run(self.project.project_id,'invalid-font',production={**request,'font_style_id':'unknown'})
 
-    def test_font_restyle_retains_layout_identity_text_and_timing_and_is_undoable(self):
-        from clipen.editing.production_media import load_text_styles
-        self.cut();self.component(element_id='title',component_id='program_title',text='城市慢遊',y=.1)
-        before=self.repository.current_revision(self.project.project_id,self.run.run_id)
-        self.call('restyle_program_components',visual_style_id='variety',font_style_id='street',summary='只換字體搭配')
-        after=self.tools._timeline()
-        self.assertEqual(before.timeline.tracks[0],after.tracks[0])
-        left=next(i for t in before.timeline.tracks for i in t.items if i.item_id=='title')
-        right=next(i for t in after.tracks for i in t.items if i.item_id=='title')
-        self.assertEqual((left.text,left.start_frame,left.duration_frames),(right.text,right.start_frame,right.duration_frames))
-        profile=load_text_styles(self.projects,self.project.project_id)[right.style_id]
-        self.assertEqual(profile['visual_style_id'],'variety');self.assertEqual(profile['font_style_id'],'street')
-        self.assertEqual(profile['presets']['font_roles']['title']['family'],'serif')
-        self.call('update_program_component',element_id='title',item_id='agent-video-0001',component_id='program_title',start_offset_frames=6,duration_frames=45,text='城市慢遊',evidence='編輯主標',summary='改字保留字體',y=.1)
-        right=next(i for t in self.tools._timeline().tracks for i in t.items if i.item_id=='title')
-        self.assertEqual(load_text_styles(self.projects,self.project.project_id)[right.style_id]['font_style_id'],'street')
-        self.call('restore_revision',revision_id=before.revision_id,summary='還原字體')
-        self.assertEqual(self.tools._timeline(),before.timeline)
 
     def test_font_pairings_measure_and_draw_every_component_and_preserve_legacy(self):
         from PIL import Image,ImageDraw
@@ -702,7 +651,7 @@ class SkillProductionTests(unittest.TestCase):
         self.assertFalse(created);self.assertEqual(repeated.run_id,self.run.run_id)
         previous=self.cut().payload['revision']['revision_id']
         self.call('set_color_grade',item_id='agent-video-0001',contrast=1.1,saturation=1,brightness=0,summary='改版')
-        with self.assertRaises(ProjectError) as error:self.component(expected_revision_id=previous)
+        with self.assertRaises(ProjectError) as error:self.call('remove_program_component',element_id='dish-label',summary='舊版本',expected_revision_id=previous)
         self.assertEqual(error.exception.code,'revision_conflict')
         self.assertFalse(any(t.track_id=='program-components' for t in self.tools._timeline().tracks))
 
@@ -744,7 +693,7 @@ class SkillProductionTests(unittest.TestCase):
         self.assertTrue({'mutation_id','expected_revision_id'}<=set(component['inputSchema']['required']))
         response=server.handle({'jsonrpc':'2.0','id':2,'method':'tools/call','params':{'name':'read_production_skill','arguments':{'resource':'SKILL.md'}}})
         self.assertIn('travel-program',response['result']['content'][0]['text'])
-        preview=server.handle({'jsonrpc':'2.0','id':3,'method':'tools/call','params':{'name':'read_production_skill','arguments':{'resource':'assets/pointer.png'}}})
+        preview=server.handle({'jsonrpc':'2.0','id':3,'method':'tools/call','params':{'name':'read_production_skill','arguments':{'resource':'assets/style-cinema.png'}}})
         self.assertEqual([item['type'] for item in preview['result']['content']],['text','image'])
         self.assertIn('style_example_not_source_evidence',preview['result']['content'][0]['text'])
 
@@ -838,23 +787,6 @@ class SkillProductionTests(unittest.TestCase):
         self.tools._expected_revision_id=None
         self.tools._save(replace(timeline,tracks=tracks),'測試字幕')
 
-    def test_content_rules_are_advice_the_agent_may_overrule(self):
-        self.cut()
-        def advised(phrase,element_id,**args):
-            result=self.call('add_program_component',**{
-                'element_id':element_id,'item_id':'agent-video-0001','start_offset_frames':6,'duration_frames':45,
-                'evidence':'測試來源','summary':'測試','x':.3,'y':.3,**args}).payload
-            self.assertTrue(any(phrase in note for note in result['notes']),result.get('notes'))
-        result=self.call('add_program_component',element_id='unplaced',item_id='agent-video-0001',component_id='headline',
-                         start_offset_frames=6,duration_frames=45,text='意外的第三碗',evidence='測試來源',summary='未指定位置').payload
-        self.assertTrue(any('預設位置' in note for note in result['notes']))
-        advised('具體資訊','plain-fact',component_id='fact',text='熱熱上桌',start_offset_frames=55)
-        advised('秒以內','long-beat',component_id='impact',text='有點難度',duration_frames=90,start_offset_frames=0)
-        with self.assertRaises(ProjectError) as error:
-            self.call('add_program_component',element_id='outside',item_id='agent-video-0001',component_id='headline',start_offset_frames=6,
-                      duration_frames=45,text='畫面外',evidence='測試來源',summary='測試',x=1.2,y=.3)
-        self.assertEqual(error.exception.code,'agent_input_invalid')
-        self.assertTrue(all(any(i.item_id==k for t in self.tools._timeline().tracks for i in t.items) for k in ('unplaced','plain-fact','long-beat')))
 
     def test_components_must_not_restate_concurrent_subtitles(self):
         from clipen.editing.component_review import restated_ratio
@@ -862,8 +794,7 @@ class SkillProductionTests(unittest.TestCase):
         self.assertLess(restated_ratio('兩個人，三碗麵？',['我們手滑點到了三碗拉麵']),.5)
         self.cut()
         self.add_subtitle('這是我們看的第一個不用錢的夜景。',0,60)
-        copy=self.component(element_id='copy',component_id='headline',text='不用錢的夜景',x=.08,y=.25).payload
-        self.assertTrue(any('字幕' in note for note in copy['notes']))
+        self.component(element_id='copy',component_id='headline',text='不用錢的夜景',x=.08,y=.25)
         self.component(element_id='later',component_id='headline',text='第一次的夜景',start_offset_frames=70,duration_frames=40,x=.08,y=.25)
         self.add_subtitle('第一次的夜景真的很漂亮',60,60)
         validation=self.call('validate_sequence').payload
@@ -889,26 +820,19 @@ class SkillProductionTests(unittest.TestCase):
         self.assertIn('design_notes',validation)
         self.assertFalse(any(i['code'].startswith('component_') and i['code']!='component_restates_subtitle' for i in validation['issues']))
 
-    def test_component_safety_and_actual_layout_overflow(self):
+    def test_older_graphics_are_listed_as_not_designed_freely(self):
         self.cut()
-        for args in ({'start_offset_frames':110,'duration_frames':20}, {'component_id':'pointer'},
-                     {'x':.9}, {'text':'很長的價格和品名資訊'*4}):
-            with self.assertRaises((ProjectError,RuntimeError)):self.component(**args)
         self.component(component_id='pointer',target={'x':.7,'y':.45,'radius':.04})
         listed=self.call('list_program_components').payload
         self.assertEqual((listed['how'],listed['tool']),('free_design_only','add_custom_component'))
         self.assertTrue(listed['existing_graphics'])
         self.assertFalse(any(g['designed_freely'] for g in listed['existing_graphics']))
 
-    def test_simultaneous_graphics_keep_separate_lanes_through_update_recut_and_remove(self):
+    def test_simultaneous_graphics_keep_separate_lanes_through_recut_and_remove(self):
         self.cut()
         self.component(element_id='identity',component_id='program_title',text='節目主題',y=.10)
         self.component(element_id='speaker',component_id='person',text='現場人物',y=.58)
         self.assertEqual(self.tools._component_issues(),[])
-        args={'element_id':'identity','item_id':'agent-video-0001','component_id':'program_title',
-              'start_offset_frames':6,'duration_frames':45,'text':'新版節目主題',
-              'y':.10,'evidence':'編輯命名，非人物引言','summary':'修改主標'}
-        self.call('update_program_component',**args)
         self.call('reorder_clips',item_ids=['agent-video-0002','agent-video-0001'],summary='交換鏡頭')
         elements=[i for t in self.tools._timeline().tracks if t.track_id.startswith('program-components') for i in t.items]
         self.assertEqual({i.item_id for i in elements},{'identity','speaker'})
@@ -919,7 +843,7 @@ class SkillProductionTests(unittest.TestCase):
         self.assertFalse(any(i['code'] in {'program_graphics_missing','title_cards_disabled'} for i in validation['issues']))
         self.assertEqual(self.tools._component_issues(),[])
 
-    def test_motion_families_are_executable_frozen_and_keep_layout_guards(self):
+    def test_motion_families_animate_and_stay_inside_their_layout(self):
         from PIL import Image, ImageChops, ImageDraw
         from clipen.rendering.program_components import animation_boundaries, component_bounds, draw_program_component
         from clipen.rendering.program_motion import FAMILIES
@@ -942,15 +866,7 @@ class SkillProductionTests(unittest.TestCase):
                 bounds,_,_=component_bounds(ImageDraw.Draw(images[0]),TitleCardRenderer._font_path(),self.tools._timeline(),element,profile)
                 self.assertLessEqual(bounds[2],640*.945)
                 self.assertLessEqual(bounds[3],360*.77)
-                asset=self.call('read_production_skill',resource='assets/'+kind+'.png')
-                self.assertTrue(asset.images)
         self.assertTrue(any(i['code']=='program_component_collision' for i in self.tools._component_issues()))
-        with self.assertRaises(ProjectError):self.component(component_id='program_title',element_id='unsafe',y=.68,text='節目主題')
-        frozen=self.tools._skill_value()
-        self.tools._session_cache={**self.tools._session_value(),'skill':{**frozen,'components':[
-            c for c in frozen['components'] if c['component_id'] not in FAMILIES]}}
-        with self.assertRaises(ProjectError) as error:self.component(component_id='headline',element_id='old-session',text='主題')
-        self.assertEqual(error.exception.code,'component_unavailable')
 
     @unittest.skipUnless(shutil.which('ffmpeg') and shutil.which('ffprobe'),'FFmpeg required')
     def test_all_new_families_animate_in_actual_video_and_exit(self):

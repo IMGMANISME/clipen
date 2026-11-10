@@ -6,6 +6,7 @@ import threading
 import unittest
 from unittest.mock import patch
 import test_skill_production as fixtures
+from legacy_components import place
 from clipen.editing.workbench import edit, state, import_music
 from clipen.projects import ProjectError
 from clipen.domain import TrackKind
@@ -81,7 +82,7 @@ class ProductionWorkbenchTests(unittest.TestCase):
         self.assertEqual(self.repository.current_revision(self.project, self.run), revision)
 
     def test_user_can_only_restore_versions_without_ai_budget_and_export(self):
-        self.f.call('add_program_component',element_id='header',item_id='agent-video-0001',component_id='headline',start_offset_frames=0,duration_frames=60,text='原來的標題',x=.08,y=.25,evidence='測試畫面標註',summary='元件')
+        place(self.f.tools,element_id='header',item_id='agent-video-0001',component_id='headline',start_offset_frames=0,duration_frames=60,text='原來的標題',x=.08,y=.25,evidence='測試畫面標註',summary='元件')
         before=self.repository.current_revision(self.project,self.run)
         self.f.call('remove_item',item_id='header',summary='AI 拿掉標題')
         changed=self.repository.current_revision(self.project,self.run);budget=self.repository.get(self.project,self.run).tool_calls
@@ -109,7 +110,7 @@ class ProductionWorkbenchTests(unittest.TestCase):
         path=self.f.root/'projects'/self.project/'agent-production'/self.run/'exports'/(exported['revision_id']+'.json')
         self.assertEqual(json.loads(path.read_text())['timeline'],current.timeline.to_payload())
     def test_user_rewords_a_component_and_keeps_its_look(self):
-        self.f.call('add_program_component',element_id='header',item_id='agent-video-0001',component_id='headline',start_offset_frames=0,duration_frames=60,text='原來的標題',x=.08,y=.25,evidence='測試畫面標註',summary='元件')
+        place(self.f.tools,element_id='header',item_id='agent-video-0001',component_id='headline',start_offset_frames=0,duration_frames=60,text='原來的標題',x=.08,y=.25,evidence='測試畫面標註',summary='元件')
         before=self.repository.current_revision(self.project,self.run)
         budget=self.repository.get(self.project,self.run).tool_calls
         self.stop()
@@ -141,8 +142,8 @@ class ProductionWorkbenchTests(unittest.TestCase):
 
     def test_user_moves_restyles_retimes_and_removes_a_component(self):
         from clipen.editing.production_media import load_text_styles
-        self.f.call('add_program_component',element_id='header',item_id='agent-video-0001',component_id='headline',start_offset_frames=0,duration_frames=60,text='原來的標題',x=.08,y=.25,evidence='測試畫面標註',summary='元件')
-        self.f.call('add_program_component',element_id='later',item_id='agent-video-0001',component_id='headline',start_offset_frames=70,duration_frames=30,text='後面的標題',x=.08,y=.25,evidence='測試畫面標註',summary='元件')
+        place(self.f.tools,element_id='header',item_id='agent-video-0001',component_id='headline',start_offset_frames=0,duration_frames=60,text='原來的標題',x=.08,y=.25,evidence='測試畫面標註',summary='元件')
+        place(self.f.tools,element_id='later',item_id='agent-video-0001',component_id='headline',start_offset_frames=70,duration_frames=30,text='後面的標題',x=.08,y=.25,evidence='測試畫面標註',summary='元件')
         self.stop()
         current=lambda:self.repository.current_revision(self.project,self.run)
         item=lambda key:next(i for t in current().timeline.tracks for i in t.items if i.item_id==key)
@@ -178,7 +179,7 @@ class ProductionWorkbenchTests(unittest.TestCase):
         from clipen.editing.production_media import load_text_styles
         from clipen.rendering.program_components import component_bounds, draw_program_component
         from clipen.rendering.titles import TitleCardRenderer
-        self.f.call('add_program_component',element_id='header',item_id='agent-video-0001',component_id='headline',start_offset_frames=0,duration_frames=60,text='標題',x=.08,y=.2,evidence='測試畫面標註',summary='元件')
+        place(self.f.tools,element_id='header',item_id='agent-video-0001',component_id='headline',start_offset_frames=0,duration_frames=60,text='標題',x=.08,y=.2,evidence='測試畫面標註',summary='元件')
         self.stop()
         current=lambda:self.repository.current_revision(self.project,self.run)
         item=lambda:next(i for t in current().timeline.tracks for i in t.items if i.item_id=='header')
@@ -249,7 +250,7 @@ class ProductionWorkbenchTests(unittest.TestCase):
         from clipen.providers import ProviderCancelled
         from test_project_api import request_app
         original=self.repository.current_revision(self.project,self.run)
-        self.f.call('add_program_component',element_id='editable-header',item_id='agent-video-0001',component_id='headline',start_offset_frames=0,duration_frames=60,text='原標題',x=.08,y=.25,evidence='測試標題',summary='標題')
+        place(self.f.tools,element_id='editable-header',item_id='agent-video-0001',component_id='headline',start_offset_frames=0,duration_frames=60,text='原標題',x=.08,y=.25,evidence='測試標題',summary='標題')
         self.stop();before=self.repository.current_revision(self.project,self.run)
         started=threading.Event()
         class LocalAgent:

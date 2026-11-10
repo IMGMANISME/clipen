@@ -191,19 +191,6 @@ class CustomSkillProductionTests(unittest.TestCase):
         self.library.remove("talking-head")
         self.assertIn("用跳剪去掉停頓", self.call("read_production_skill").payload["content"])
 
-    def test_components_outside_the_skill_allowlist_are_refused(self):
-        self.call("register_source_range", version_id=self.call("list_source_media").payload["sources"][0]["version_id"],
-                  stream_index=0, start_offset_seconds=0, duration_seconds=8, description="口播")
-        candidate = self.call("search_media").payload["candidates"][-1]["candidate_id"]
-        self.call("set_canvas", width=640, height=360, summary="畫布")
-        self.call("replace_sequence", clips=[{"candidate_id": candidate, "start_offset_seconds": 0, "duration_seconds": 4}], summary="一段")
-        with self.assertRaises(ProjectError) as error:
-            self.call("add_program_component", element_id="c1", item_id="agent-video-0001", component_id="chapter",
-                      start_offset_frames=0, duration_frames=45, text="第一章", x=.06, y=.1, evidence="測試", summary="章節")
-        self.assertEqual(error.exception.code, "component_not_allowed")
-        self.call("add_program_component", element_id="c2", item_id="agent-video-0001", component_id="headline",
-                  start_offset_frames=0, duration_frames=45, text="重點來了", x=.08, y=.25, evidence="測試", summary="重點")
-
 
 class SkillLibraryApiTests(unittest.TestCase):
     def test_import_uses_the_native_picker_and_reports_ignored_files(self):

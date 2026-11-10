@@ -150,14 +150,6 @@ class CustomComponentToolTests(unittest.TestCase):
         with self.assertRaises(ProjectError) as caught:
             self.f.call('update_custom_component', element_id='free', html='<div></div>', summary='空白')
         self.assertEqual(caught.exception.code, 'custom_component_empty')
-        with self.assertRaises(ProjectError) as caught:
-            self.f.call('update_program_component', element_id='free', item_id='agent-video-0001', component_id='headline', start_offset_frames=6,
-                        duration_frames=30, text='x', evidence='e', summary='s')
-        self.assertEqual(caught.exception.code, 'component_identity_conflict')
-        # Built-in restyling leaves free designs alone.
-        self.f.component()
-        self.f.call('restyle_program_components', visual_style_id='editorial', summary='換風格')
-        self.assertEqual(self.styles()[self.element().style_id]['html'], SLIDE)
         # A person drags it: the whole page shifts, the design itself is untouched.
         self.f.tools._user_edit = True
         draft, moved, _ = self.f.tools._component_draft({'element_id': 'free', 'x': .1, 'y': -.05})

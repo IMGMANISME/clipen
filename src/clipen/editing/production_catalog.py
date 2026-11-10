@@ -110,23 +110,6 @@ EXTRA_TOOLS=(
  schema('restore_revision','Restore a run-owned immutable revision as a new current selection.',{'revision_id':ID,**SUMMARY}),
  schema('export_edit','Save native editable timeline JSON and source/license credits for the current revision. This is not a Resolve project.'),
 )
-TARGET = {"type": "object", "properties": {"x": UNIT, "y": UNIT,
-          "radius": {"type": "number", "minimum": 0.015, "maximum": 0.2}},
-          "required": ["x", "y", "radius"], "additionalProperties": False}
-COMPONENT_FIELDS = {
-    "element_id": ID, "item_id": ID,
-    "font_style_id": {"enum":["default","japanese","street","travel","handwriting","calligraphy"]},
-    "visual_style_id": ID,
-    "component_id": {"enum": ["location", "person", "fact", "pointer", "circle", "reaction", "program_title", "headline", "impact", "chapter", "burst"]},
-    "start_offset_frames": FRAME, "duration_frames": LENGTH,
-    "text": {"type": "string", "minLength": 1, "maxLength": 48},
-    "detail": {"type":"string","minLength":1,"maxLength":48,"description":"Grounded secondary line, e.g. the observed price or person's role. Required for fact unless the text itself has a number or price."},
-    "evidence": TEXT,
-    "x": {**UNIT, "description": "Required when adding. Chosen after looking at this shot: keep faces, hands, food and action clear; do not reuse one corner for every graphic."},
-    "y": {**UNIT, "description": "Required when adding. See x."},
-    "target": TARGET, **SUMMARY,
-}
-COMPONENT_REQUIRED = [key for key in COMPONENT_FIELDS if key not in {"x", "y", "target", "detail", "visual_style_id", "font_style_id"}]
 CUSTOM_COMPONENT_HELP = (
     "Design an in-picture graphic freely as one self-contained web page: any HTML, CSS, SVG, Canvas or JavaScript, any layout, "
     "typeface, colour, shape or motion. Use it when the built-in components cannot give the look the film needs. "
@@ -169,10 +152,6 @@ SKILL_TOOLS = (
     schema("read_production_skill", "Read one resource from the skill version frozen for this session. Start with SKILL.md, then load relevant references.",
            {"resource": {"type": "string", "maxLength": 120}}, []),
     schema("list_program_components", "Read executable components, visual presets, exact tool parameters and limitations for the selected skill."),
-    schema("add_program_component", "Add a purposeful in-picture programme graphic, anchored to a shot and bound to this skill. Not an independent title card. Positions are normalized canvas coordinates. Provide real source evidence; inspect faces/targets yourself. Add only where a moment needs it: never restate the concurrent subtitle or describe what is already visible; reaction/impact/burst land on the reaction beat for at most 2 seconds.", COMPONENT_FIELDS, COMPONENT_REQUIRED),
-    schema("update_program_component", "Replace the settings of an existing programme graphic; preserves its identity and supports exact revision undo.", COMPONENT_FIELDS, COMPONENT_REQUIRED),
-    schema("restyle_program_components", "Restyle all existing programme graphics or selected element IDs using one visual style frozen in the session. Optional font_style_id changes the type pairing independently. Keeps text, timing, anchors, cuts, captions and music. Does not change the default for future additions; pass visual_style_id when adding new graphics.",
-           {"font_style_id":{"enum":["default","japanese","street","travel","handwriting","calligraphy"]},"visual_style_id":ID,"element_ids":{"type":"array","minItems":1,"maxItems":128,"uniqueItems":True,"items":ID},**SUMMARY}, ["visual_style_id","summary"]),
     schema("remove_program_component", "Remove one programme graphic without changing the cut, captions or music.", {"element_id": ID, **SUMMARY}),
     schema("set_component_look", LOOK_HELP, {
         "look_id": ID, "name": {"type": "string", "minLength": 1, "maxLength": 24, "description": "What people see, e.g. 章節, 地點, 反應字."},
@@ -203,11 +182,10 @@ EXTRA_TOOLS += (
  schema('read_mutation_receipt','Read one run-owned mutation outcome after a lost response. A started receipt means outcome unknown: inspect the current revision before choosing another action.',{'mutation_id':ID}),
 )
 EXTRA_NAMES=tuple(t['name'] for t in EXTRA_TOOLS)
-# Built-in component designs stay in Clipen so existing films keep drawing, but the AI designs every
-# new graphic itself (add_custom_component); it may still remove an old one.
-BUILTIN_COMPONENT_TOOLS=frozenset({'add_program_component','update_program_component','restyle_program_components'})
-AGENT_TOOLS=tuple(t for t in EXTRA_TOOLS if t['name'] not in BUILTIN_COMPONENT_TOOLS)
-AGENT_NAMES=tuple(t['name'] for t in AGENT_TOOLS)
+# Older films keep graphics made with the retired built-in templates; Clipen still draws them, and the
+# AI may remove one, but it designs every new graphic itself (add_custom_component).
+AGENT_TOOLS=EXTRA_TOOLS
+AGENT_NAMES=EXTRA_NAMES
 BY_NAME={t['name']:t for t in EXTRA_TOOLS}
 
 

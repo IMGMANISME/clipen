@@ -51,8 +51,7 @@ def _core():
     samples = {t["sample_resource"]: {"mime_type": "video/mp4", "sha256": hashlib.sha256(
         root.joinpath(t["sample_resource"]).read_bytes()).hexdigest()} for t in templates}
     assets = {}
-    names = (["assets/" + c["component_id"] + ".png" for c in components] + [s["preview_resource"] for s in styles]
-             + [s["preview_resource"] for s in fonts if "preview_resource" in s])
+    names = [s["preview_resource"] for s in styles]
     for name in names:
         data = root.joinpath(name).read_bytes()
         assets[name] = {"mime_type": "image/png", "sha256": hashlib.sha256(data).hexdigest(),
@@ -118,7 +117,7 @@ def compose(chain, *, core=None, binding=None, assets=None, source="builtin"):
                         | {"source": e.get("source", "builtin")} for e in chain],
         "resources": resources, "assets": merged_assets, "samples": core["samples"],
         "visual_styles": core["visual_styles"], "font_styles": core["font_styles"], "presets": core["presets"],
-        "components": [{**c, "preview_resource": "assets/" + c["component_id"] + ".png"} for c in core["components"]],
+        "components": core["components"],
         # Only the travel genre offers the template gallery in the UI.
         "templates": core["templates"] if selected["skill_id"] == BUILTIN_SKILL else [],
         "selected_visual_style_id": binding.get("visual_style_id", "variety"),

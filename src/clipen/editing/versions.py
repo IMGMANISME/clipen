@@ -21,8 +21,7 @@ _MANUAL = {'edit_text': '文字與時間', 'configure_text_style': '文字外觀
            'reorder_clips': '重排片段', 'split_clip': '分割片段', 'replace_clip_source': '替換來源', 'insert_clip': '插入片段',
            'set_source_audio': '原音', 'set_color_grade': '調色', 'set_mosaic': '馬賽克', 'set_transition': '轉場',
            'set_fade': '淡入淡出', 'remove_clip_effect': '移除效果', 'place_audio': '音樂與音效', 'remove_audio': '移除聲音',
-           'add_program_component': '新增節目元件', 'update_program_component': '修改節目元件',
-           'remove_program_component': '移除節目元件', 'restyle_program_components': '更換元件風格與字體',
+           'remove_program_component': '移除節目元件',
            'add_custom_component': '新增自由設計元件', 'update_custom_component': '修改自由設計元件',
            'set_component_text': '元件文字', 'edit_component': '修改元件', 'edit_component_look': '元件外觀'}
 
