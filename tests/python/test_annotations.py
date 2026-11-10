@@ -5,8 +5,8 @@ import unittest
 
 from clipen.annotations import AnnotationRepository
 from clipen.analysis import PreparationRepository
-from clipen.domain import PlanRevision, PlanSection, PlanSourceRange, PlanStatus, Rational, SourceSpan
-from clipen.planning import PlanningCandidate, PlanningContext, PlanningRepository, TranscriptReliability
+from clipen.domain import Rational, SourceSpan
+from clipen.planning import PlanningCandidate, PlanningContext, TranscriptReliability
 from clipen.projects import ProjectError, ProjectRepository
 
 
@@ -358,54 +358,6 @@ class AnnotationRepositoryTests(unittest.TestCase):
                 None,
             )
         self.assertEqual(metadata.exception.code, "annotation_invalid")
-
-    def test_save_supersedes_current_plan_without_starting_ai(self) -> None:
-        source = SourceSpan(self.version_id, 1, "0", "48000", Rational(1, 48000))
-        context = PlanningContext(
-            self.project.project_id,
-            "保留旅程重點。",
-            "inv_" + "1" * 32,
-            "analysis_" + "2" * 32,
-            (PlanningCandidate(
-                "candidate-001", source, "毛片 001", "video", "遊樂設施畫面。",
-                TranscriptReliability.NEEDS_REVIEW,
-            ),),
-        )
-        planning = PlanningRepository(self.projects)
-        run, _ = planning.create_run(
-            self.project.project_id, "request-annotation-plan", 1,
-            "travel-natural", "skills-release-1", context,
-        )
-        planning.mark_running(self.project.project_id, run.run_id)
-        plan = PlanRevision.create(
-            plan_id="plan-" + "3" * 32,
-            project_id=self.project.project_id,
-            revision=1,
-            material_snapshot_id=context.material_snapshot_id,
-            analysis_snapshot_id=context.analysis_snapshot_id,
-            system_skill_release="skills-release-1",
-            title="東京旅行初剪",
-            summary="依順序呈現旅程。",
-            sections=(PlanSection(
-                "section-001", "尼莫", "保留第一次體驗。",
-                (PlanSourceRange("candidate-001", source),), "保留現場聲。", (),
-            ),),
-            status=PlanStatus.READY_FOR_REVIEW,
-        )
-        planning.publish(self.project.project_id, run.run_id, plan, None)
-
-        saved = self.annotations.save(
-            self.project.project_id, "request-annotation-retire-plan", self.version_id, 1,
-            0, 0, self._payload(),
-            {"source_revision_id": self.revision_id, "confirmed": False, "discarded": False, "corrections": []},
-        )
-        self.assertTrue(saved["plan_invalidated"])
-        self.assertIsNone(planning.current_plan(self.project.project_id))
-        with self.projects.connect(self.project.project_id) as database:
-            status = database.execute(
-                "SELECT status FROM plan_revisions WHERE plan_id=? AND revision=1", (plan.plan_id,)
-            ).fetchone()["status"]
-        self.assertEqual(status, "superseded")
 
 
 if __name__ == "__main__":

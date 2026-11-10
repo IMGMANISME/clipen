@@ -20,7 +20,6 @@ from clipen.domain import (
     TrackKind,
 )
 from clipen.domain import PlanRevision, PlanStatus
-from clipen.planning import PlanningRepository
 from clipen.planning.models import PlanningCandidate, PlanningContext
 from clipen.projects import ProjectError
 from clipen.projects.models import validate_project_id
@@ -50,14 +49,15 @@ class EditAgentTools(SkillTools, EvidenceTools, ProductionTools):
         project_id: str,
         run_id: str,
         *,
-        planning: PlanningRepository | None = None,
+        planning: object | None = None,
         artifacts: ArtifactStore | None = None,
     ) -> None:
         validate_project_id(project_id)
         self.repository = repository
         self.project_id = project_id
         self.run_id = run_id
-        self.planning = planning or PlanningRepository(repository.projects)
+        # Runs started before AI production read a confirmed plan through this; production runs never do.
+        self.planning = planning
         self.artifacts = artifacts or ArtifactStore(repository.projects)
         self._plan: PlanRevision | None = None
         self._context: PlanningContext | None = None
@@ -129,6 +129,8 @@ class EditAgentTools(SkillTools, EvidenceTools, ProductionTools):
 
     def _confirmed_input(self) -> tuple[PlanRevision, PlanningContext]:
         if self._plan is None or self._context is None:
+            if self.planning is None:
+                raise ProjectError("production_required", "這個版本需要 AI 節目製作工作。", status_code=422)
             plan, context = self.planning.execution_input(self.project_id)
             revision = self.repository.current_revision(self.project_id, self.run_id)
             timeline = revision.timeline
