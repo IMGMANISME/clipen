@@ -289,7 +289,6 @@ export type MaterialAnnotationState = {
     capture_time: string | null
     time_source: 'filename' | 'metadata' | null
   }
-  plan_invalidated?: boolean
 }
 
 

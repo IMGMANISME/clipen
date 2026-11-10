@@ -7,7 +7,6 @@ import re
 import sqlite3
 from collections.abc import Mapping
 
-from clipen.domain import PlanRevision, PlanStatus
 from clipen.projects.models import ProjectError, validate_project_id, validate_request_id
 from clipen.projects.storage import ProjectRepository, command_digest, utc_now
 
@@ -167,7 +166,6 @@ class AnnotationRepository:
                             now,
                         ),
                     )
-                plan_invalidated = self._retire_current_plan(database)
                 material_row = database.execute(
                     "SELECT * FROM material_annotations WHERE version_id=?", (version_id,)
                 ).fetchone()
@@ -180,7 +178,6 @@ class AnnotationRepository:
                     self._current_transcript_revision(database, version_id, stream_index),
                     annotation_suggestion(database, version_id),
                 )
-                response["plan_invalidated"] = plan_invalidated
                 database.execute(
                     "INSERT INTO annotation_command_receipts "
                     "(request_id,command_type,request_hash,response_json,created_at) "
@@ -318,38 +315,6 @@ class AnnotationRepository:
         if any(item["ordinal"] not in available for item in corrections):
             raise ProjectError("annotation_transcript_changed", "逐字稿片段已更新，請重新載入。", status_code=409)
 
-    @staticmethod
-    def _retire_current_plan(database: sqlite3.Connection) -> bool:
-        row = database.execute(
-            "SELECT revisions.* FROM current_plan AS current JOIN plan_revisions AS revisions "
-            "ON revisions.plan_id=current.plan_id AND revisions.revision=current.revision "
-            "WHERE current.slot=1"
-        ).fetchone()
-        if row is None:
-            return False
-        plan = PlanRevision.from_payload(json.loads(row["payload_json"]))
-        if plan.status not in {PlanStatus.READY_FOR_REVIEW, PlanStatus.CONFIRMED}:
-            raise ProjectError(
-                "annotation_plan_active",
-                "目前的剪輯版本仍在執行，暫時不能修改素材標註。",
-                status_code=409,
-            )
-        retired = plan.transition(PlanStatus.SUPERSEDED)
-        database.execute(
-            "UPDATE plan_revisions SET status=?,payload_json=? WHERE plan_id=? AND revision=?",
-            (
-                retired.status.value,
-                json.dumps(retired.to_payload(), ensure_ascii=False, sort_keys=True, separators=(",", ":")),
-                retired.plan_id,
-                retired.revision,
-            ),
-        )
-        # Keep immutable history for diagnostics, but remove every "current" pointer
-        # derived from the superseded plan so no stale edit can be exported later.
-        database.execute("DELETE FROM current_timeline_validation WHERE slot=1")
-        database.execute("DELETE FROM current_timeline WHERE slot=1")
-        database.execute("DELETE FROM current_plan WHERE slot=1")
-        return True
 
     @staticmethod
     def _public(

@@ -1,13 +1,5 @@
 """Pure product-domain types without transport or provider dependencies."""
 
-from .operations import (
-    Attempt,
-    AttemptState,
-    InvalidTransition,
-    Operation,
-    OperationKind,
-    OperationState,
-)
 from .plans import PlanRevision, PlanSection, PlanSourceRange, PlanStatus, plan_content_hash
 from .blueprints import (
     AudioTreatment,
@@ -42,28 +34,10 @@ from .timeline import (
     Track,
     TrackKind,
 )
-from .capabilities import (
-    CapabilityProfile,
-    DeliveryMode,
-    EffectCapability,
-    ElementCapability,
-    VerifiedDelivery,
-)
-from .reports import (
-    ValidationIssue,
-    ValidationReport,
-    ValidationSeverity,
-    ValidationStatus,
-)
-from .timeline_validation import TimelineReferences, TimelineValidator
+from .errors import InvalidTransition
 
 __all__ = [
-    "Attempt",
-    "AttemptState",
     "InvalidTransition",
-    "Operation",
-    "OperationKind",
-    "OperationState",
     "PlanRevision",
     "PlanSection",
     "PlanSourceRange",
@@ -99,15 +73,4 @@ __all__ = [
     "TextClip",
     "Track",
     "TrackKind",
-    "CapabilityProfile",
-    "DeliveryMode",
-    "EffectCapability",
-    "ElementCapability",
-    "VerifiedDelivery",
-    "ValidationIssue",
-    "ValidationReport",
-    "ValidationSeverity",
-    "ValidationStatus",
-    "TimelineReferences",
-    "TimelineValidator",
 ]

@@ -291,7 +291,7 @@ export function MaterialAnnotationEditor({
       <div className={`annotation-actions ${dirty ? 'has-changes' : ''}`}>
         <div aria-live="polite">
           {error && <p className="form-error" role="alert">{error}</p>}
-          {saved && <p className="save-success">{annotation.plan_invalidated ? '已保存並清除舊剪輯計畫。下一次產生會使用這些線索。' : '已保存。下一次產生剪輯計畫時會使用這些線索。'}</p>}
+          {saved && <p className="save-success">已保存。AI 製作時會參考這些標註。</p>}
           {!error && !saved && dirty && <p className="unsaved-hint">有尚未保存的修改</p>}
         </div>
         {dirty || saving

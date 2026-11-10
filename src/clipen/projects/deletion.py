@@ -183,7 +183,6 @@ class ProjectDeletion:
         queries = (
             "SELECT 1 FROM inventory_runs WHERE state IN (?, ?, ?) LIMIT 1",
             "SELECT 1 FROM preparation_runs WHERE state IN (?, ?, ?) LIMIT 1",
-            "SELECT 1 FROM planning_runs WHERE state IN (?, ?, ?) LIMIT 1",
         )
         with self.storage.connect(project_id) as connection:
             active = any(
