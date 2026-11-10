@@ -8,7 +8,7 @@ import unittest
 from clipen.editing import ToolResult
 from clipen.mcp_editing import EditingMcpServer, run_stdio
 from clipen.projects import ProjectError
-from clipen.editing.production_catalog import AGENT_NAMES, BUILTIN_COMPONENT_TOOLS
+from clipen.editing.production_catalog import AGENT_NAMES
 
 
 class FakeTools:
@@ -51,7 +51,7 @@ class EditingMcpServerTests(unittest.TestCase):
             } | set(AGENT_NAMES),
         )
         # The AI designs every graphic itself; retired built-in templates are not offered.
-        self.assertFalse(BUILTIN_COMPONENT_TOOLS & names)
+        self.assertFalse({'add_program_component', 'update_program_component', 'restyle_program_components'} & names)
         self.assertIn("add_custom_component", names)
         self.assertNotIn("shell", json.dumps(response))
         self.assertNotIn("filesystem", names)
@@ -149,7 +149,7 @@ class EditingMcpServerTests(unittest.TestCase):
     def test_tools_it_does_not_list_never_reach_clipen(self):
         tools = FakeTools()
         response = EditingMcpServer(tools).handle(
-            {"jsonrpc": "2.0", "id": 10, "method": "tools/call", "params": {"name": "add_program_component", "arguments": {}}}
+            {"jsonrpc": "2.0", "id": 10, "method": "tools/call", "params": {"name": "invented_tool", "arguments": {}}}
         )
         self.assertEqual(response["error"]["code"], -32602)
         self.assertEqual(tools.calls, [])

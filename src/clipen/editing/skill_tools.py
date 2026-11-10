@@ -8,12 +8,10 @@ from clipen.domain import TextClip, Track, TrackKind
 from clipen.projects import ProjectError
 from clipen.skills import get_skill, list_skills
 from .agent_models import ToolResult
-from .production_catalog import COMPONENT_FIELDS
 from clipen.skills.visual_styles import style_presets, public_styles, font_presets, public_font_styles
 
 # The colours a person may change on a graphic: its accent, its light and its dark colour.
 COMPONENT_COLORS = frozenset({"accent", "paper", "ink"})
-
 
 
 @dataclass(frozen=True)
@@ -110,101 +108,6 @@ class SkillTools:
                            "older_graphics": "Graphics not designed_freely use retired built-in templates. Keep them, remove them with remove_program_component, "
                                              "or replace them: remove, then design the new one with add_custom_component."})
 
-    def _production_add_program_component(self, args):
-        return self._write_component(args, updating=False)
-
-    def _production_update_program_component(self, args):
-        return self._write_component(args, updating=True)
-
-    def _write_component(self, args, *, updating):
-        from clipen.finishing.models import digest
-        from .production_media import atomic_json, load_text_styles, text_style_path
-        timeline = self._timeline()
-        shot = next((i for i in self._video().items if i.item_id == args["item_id"]), None)
-        if shot is None:
-            raise ProjectError("component_anchor_missing", "畫面元件需要有效的鏡頭錨點。", status_code=422)
-        current = next((i for t in timeline.tracks for i in t.items if i.item_id == args["element_id"]), None)
-        if (updating and (not isinstance(current, TextClip) or not current.style_id.startswith("agent.component."))) or (not updating and current is not None):
-            raise ProjectError("component_identity_conflict", "元件識別已存在，或找不到要更新的元件。", status_code=409)
-        if updating and load_text_styles(self.repository.projects, self.project_id).get(current.style_id, {}).get("component_id") == "custom":
-            raise ProjectError("component_identity_conflict", "這是自由設計元件，請用 update_custom_component 修改。", status_code=409)
-        skill = self._skill_value()
-        component = next((c for c in skill["components"] if c["component_id"] == args["component_id"]), None)
-        if component is None:
-            allowed = (skill.get("custom_skill") or {}).get("binding", {}).get("components")
-            if allowed:
-                # The selected custom Skill narrows the vocabulary; this is enforced, not advisory.
-                raise ProjectError("component_not_allowed", "這套 Skill 只允許使用這些元件：" + "、".join(allowed) + "。", status_code=422)
-            raise ProjectError("component_unavailable", "此製作工作凍結的 Skill 沒有這種元件，請另開新版製作工作。", status_code=422)
-        if len(args["text"]) > component["max_characters"] or not args["text"].strip():
-            raise ProjectError("component_text_overflow", "請縮短這個元件的文字。", status_code=422)
-        if '\n' in args['text'] or '\n' in args.get('detail',''):
-            raise ProjectError('component_text_overflow','主標與補充資訊各使用一行，換行由元件處理。',status_code=422)
-        if args["start_offset_frames"] + args["duration_frames"] > shot.duration_frames:
-            raise ProjectError("component_time_out_of_bounds", "元件必須位於錨定鏡頭內。", status_code=422)
-        if component["requires_target"] and "target" not in args:
-            raise ProjectError("component_target_required", "指示元件需要指定目標位置。", status_code=422)
-        from .component_review import (REACTION_COMPONENTS, REACTION_MAX_SECONDS, RESTATE_RATIO,
-                                       concurrent_subtitles, fact_has_information, restated_ratio)
-        # Content judgement belongs to the Agent; these are advice, returned with the result.
-        notes = []
-        if not updating and not {"x", "y"} <= set(args):
-            notes.append("沒有指定 x、y，用了這種元件的預設位置；請看預覽確認沒有擋到人物或重點。")
-        if component["component_id"] == "fact" and not fact_has_information(args["text"], args.get("detail", "")):
-            notes.append("fact 通常帶有畫面看不出的具體資訊（品名、價格、數字）。")
-        fps = timeline.frame_rate.numerator/timeline.frame_rate.denominator
-        if component["component_id"] in REACTION_COMPONENTS and args["duration_frames"] > REACTION_MAX_SECONDS*fps:
-            notes.append(f"反應類元件通常對準反應那一刻，{REACTION_MAX_SECONDS} 秒以內比較有力；確定要停久一點就保留。")
-        start_frame = shot.start_frame+args["start_offset_frames"]
-        if restated_ratio(args["text"], concurrent_subtitles(timeline, start_frame, args["duration_frames"])) >= RESTATE_RATIO:
-            notes.append("這段文字和同時出現的字幕大部分重複；如果不是刻意強調，可以改寫成補充資訊。")
-        previous_style=load_text_styles(self.repository.projects,self.project_id).get(current.style_id,{}) if updating else {}
-        visual_style,presets=style_presets(skill,args.get('visual_style_id',previous_style.get('visual_style_id')))
-        font_style,presets=font_presets(skill,presets,args.get('font_style_id',previous_style.get('font_style_id')))
-        defaults = presets.get('component_positions', {}).get(component['component_id'], component['default_position'])
-        position = {axis: args.get(axis, previous_style.get(axis, defaults[axis])) for axis in ('x', 'y')}
-        if not 0 <= position["x"] < 1 or not 0 <= position["y"] < 1:
-            raise ProjectError("component_unsafe_position", "元件位置要在畫面內。", status_code=422)
-        if not .055 <= position["x"] <= .65 or not .055 <= position["y"] <= .68:
-            notes.append("元件靠近畫面邊緣或底部字幕區；請看預覽確認沒有被切到或擋住字幕。")
-        if "target" in args:
-            target = args["target"]
-            if not all(target["radius"] <= target[axis] <= 1-target["radius"] for axis in ("x", "y")):
-                raise ProjectError("component_unsafe_target", "目標圈選範圍超出畫面。", status_code=422)
-        profile = {"kind": "program_component", "component_id": component["component_id"],
-                   "skill_id": skill["skill_id"], "skill_version": skill["version"], "skill_hash": skill["content_hash"],
-                   "presets": presets, "visual_style_id":visual_style, "font_style_id":font_style, "eyebrow":component.get('eyebrow',''),"anchor_item_id": shot.item_id,
-                   "start_offset_frames": args["start_offset_frames"], "evidence": args["evidence"],
-                   **position, **({"target": args["target"]} if "target" in args else {})}
-        style_id = "agent.component." + digest(profile)[:24]
-        text=args['text']+('\n'+args['detail'] if args.get('detail') else '')
-        item = TextClip(args["element_id"], shot.start_frame+args["start_offset_frames"], args["duration_frames"], text, style_id)
-        styles = load_text_styles(self.repository.projects, self.project_id)
-        styles[item.style_id] = profile
-        # Fail early on actual typography overflow, before publishing a revision.
-        from PIL import Image, ImageDraw
-        from clipen.rendering.program_components import draw_program_component
-        from clipen.rendering.titles import TitleCardRenderer
-        font = TitleCardRenderer._font_path()
-        if font is None:
-            raise ProjectError("preview_title_font_missing", "缺少可用的中文字型。", status_code=409)
-        from clipen.rendering.titles import TitleRenderError
-        try:
-            draw_program_component(ImageDraw.Draw(Image.new("RGBA", (timeline.width, timeline.height))), font, timeline, item, profile, 8)
-        except TitleRenderError as error:
-            message='缺少這套字型或字型檔校驗失敗，請重新安裝對應版本。' if error.code=='program_font_unavailable' else '目前字型無法顯示部分字元，請使用可用字型或等價標點。' if error.code=='program_component_missing_glyph' else '文字超出元件版面，請縮短文字或調整位置。'
-            raise ProjectError(error.code,message,status_code=422) from error
-        atomic_json(text_style_path(self.repository.projects, self.project_id), styles)
-        previous = [i for t in timeline.tracks if (t.track_id == "program-components" or t.track_id.startswith("program-components-")) for i in t.items if i.item_id != item.item_id]
-        from .production_limits import limits_for
-        if not updating and len(previous) >= limits_for(self).components:
-            notes.append(f"畫面元件已經有 {len(previous)+1} 個，超過這類作品建議的 {limits_for(self).components} 個；請確認每一個都有必要。")
-        # Separate overlay lanes preserve the domain rule: clips on one track
-        # cannot overlap. Spatial collisions remain delivery findings below.
-        tracks = self._component_lanes(item)
-        return self._save(replace(timeline, tracks=tracks), args["summary"], element_id=item.item_id,
-                          anchor_item_id=shot.item_id, inspection_required="Check actual target, faces, timing and usefulness in preview.",
-                          **({"notes": notes} if notes else {}))
 
     def _component_draft(self, args):
         """A programme graphic as a person's changes would leave it, checked but not saved.
@@ -527,38 +430,6 @@ class SkillTools:
         elements=[i for t in timeline.tracks if (t.track_id=='program-components' or t.track_id.startswith('program-components-')) for i in t.items]
         return design_notes(timeline,elements,load_text_styles(self.repository.projects,self.project_id))
 
-    def _production_restyle_program_components(self, args):
-        from clipen.finishing.models import digest
-        from .production_media import atomic_json,load_text_styles,text_style_path
-        from PIL import Image,ImageDraw
-        from clipen.rendering.program_components import component_bounds
-        from clipen.rendering.titles import TitleCardRenderer,TitleRenderError
-        timeline=self._timeline();styles=load_text_styles(self.repository.projects,self.project_id)
-        identifier,presets=style_presets(self._skill_value(),args['visual_style_id'])
-        eligible={i.item_id:i for t in timeline.tracks for i in t.items
-                  if isinstance(i,TextClip) and styles.get(i.style_id,{}).get('kind')=='program_component'
-                  and styles[i.style_id].get('component_id')!='custom'}
-        targets=set(args.get('element_ids',eligible))
-        if not targets or not targets<=eligible.keys():
-            raise ProjectError('component_not_found','找不到要更換風格的畫面元件。',status_code=422)
-        font=TitleCardRenderer._font_path()
-        if font is None:raise ProjectError('preview_title_font_missing','缺少可用的中文字型。',status_code=409)
-        replacements={}
-        for key in targets:
-            item=eligible[key]
-            font_style,resolved=font_presets(self._skill_value(),presets,args.get('font_style_id',styles[item.style_id].get('font_style_id')))
-            profile={**styles[item.style_id],'presets':resolved,'visual_style_id':identifier,'font_style_id':font_style}
-            try:component_bounds(ImageDraw.Draw(Image.new('RGBA',(1,1))),font,timeline,item,profile)
-            except TitleRenderError as error:
-                message='缺少這套字型或字型檔校驗失敗，請重新安裝對應版本。' if error.code=='program_font_unavailable' else '這套風格的字型無法顯示部分字元，請更換風格或使用等價標點。' if error.code=='program_component_missing_glyph' else '這套風格的文字超出版面，請先縮短文字或調整位置。'
-                raise ProjectError(error.code,message,status_code=422) from error
-            style_id='agent.component.'+digest(profile)[:24];styles[style_id]=profile
-            replacements[key]=replace(item,style_id=style_id)
-        # Publish nothing until every replacement passes actual font/layout checks.
-        atomic_json(text_style_path(self.repository.projects,self.project_id),styles)
-        tracks=tuple(replace(t,items=tuple(replacements.get(i.item_id,i) for i in t.items)) for t in timeline.tracks)
-        return self._save(replace(timeline,tracks=tracks),args['summary'],visual_style_id=identifier,
-                          changed_element_ids=sorted(targets),inspection_required='Render and inspect this exact revision; font changes can affect composition.')
 
     def _production_add_custom_component(self, args):
         return self._write_custom_component(args, updating=False)
@@ -576,7 +447,7 @@ class SkillTools:
         current = next((i for t in timeline.tracks for i in t.items if i.item_id == args["element_id"]), None)
         previous = styles.get(current.style_id, {}) if isinstance(current, TextClip) else {}
         if updating and not custom_components.is_custom(previous):
-            raise ProjectError("component_not_found", "找不到要更新的自由元件；內建元件請用 update_program_component。", status_code=404)
+            raise ProjectError("component_not_found", "找不到要更新的自由元件。", status_code=404)
         if not updating and current is not None:
             raise ProjectError("component_identity_conflict", "這個 element_id 已經被使用。", status_code=409)
         settings = {**({"item_id": previous["anchor_item_id"], "start_offset_frames": previous["start_offset_frames"],

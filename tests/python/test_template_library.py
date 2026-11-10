@@ -87,8 +87,6 @@ class TemplateLibraryTests(unittest.TestCase):
         # The existing session already freezes the newly installed template collection.
         frozen=self.repo.production_session(self.project,self.f.run.run_id)['skill']
         self.assertIn('tpl-daily-vlog',{s['visual_style_id'] for s in frozen['visual_styles']})
-        from clipen.editing.production_catalog import validate_arguments
-        validate_arguments('restyle_program_components',{'visual_style_id':'tpl-daily-vlog','summary':'更換模板'})
         skill=get_skill();old={**skill,'visual_styles':[s for s in skill['visual_styles'] if s['visual_style_id']=='variety']}
         with self.assertRaises(ProjectError):style_presets(old,'tpl-daily-vlog')
 
@@ -280,21 +278,12 @@ class NativeIdentityTests(unittest.TestCase):
         try:
             from clipen.editing.production_media import load_text_styles
             f.cut()
-            # Template positions are suggestions; leaving x, y out uses them and says so.
             expected=style_presets(get_skill(),'tpl-travel-highlight')[1]['component_positions']['program_title']
-            unplaced=f.call('add_program_component',element_id='unplaced',item_id='agent-video-0001',component_id='program_title',
-                            start_offset_frames=60,duration_frames=45,text='今天的故事',evidence='來源有此事件',summary='未指定位置').payload
-            self.assertTrue(any('預設位置' in note for note in unplaced['notes']))
-            f.call('remove_program_component',element_id='unplaced',summary='移除')
             f.component(component_id='program_title',text='今天的故事',visual_style_id='tpl-travel-highlight',**expected)
             def profile():
                 item=next(i for t in f.tools._timeline().tracks for i in t.items if i.item_id=='dish-label')
                 return load_text_styles(f.projects,f.project.project_id)[item.style_id]
             self.assertEqual({axis:profile()[axis] for axis in ('x','y')},expected)
-            common={'element_id':'dish-label','item_id':'agent-video-0001','component_id':'program_title','text':'調整過的故事','start_offset_frames':6,'duration_frames':45,'evidence':'來源有此事件','summary':'更新文字'}
-            f.call('update_program_component',**common,x=.11,y=.23)
-            f.call('update_program_component',**{**common,'text':'保留手動位置'})
-            self.assertEqual((profile()['x'],profile()['y']),(.11,.23))
             self.assertEqual(profile()['presets']['appearance']['identity'],'travel-highlight')
             frozen=f.repository.production_session(f.project.project_id,f.run.run_id)['skill']
             self.assertIn('references/channel-design.md',frozen['resources'])
