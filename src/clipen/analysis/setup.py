@@ -296,9 +296,6 @@ class ASRSetupManager:
         binding = self.runtime_binding()
         return None if binding is None else binding[0]
 
-    def model_snapshot(self) -> dict[str, object] | None:
-        binding = self.runtime_binding()
-        return None if binding is None else binding[1]
 
     def runtime_binding(
         self,

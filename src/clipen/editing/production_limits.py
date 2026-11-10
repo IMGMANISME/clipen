@@ -19,10 +19,6 @@ def limits_for(tools):
     return ProductionLimits(max(75,round(target*1.1)),180,960,128,1024,round(target*.9)) if target>75 else ProductionLimits()
 
 
-def valid_production(tools,timeline,*,complete=False):
-    return not production_limit_issues(tools,timeline,complete=complete)
-
-
 def production_limit_issues(tools,timeline,*,complete=False):
     limits=limits_for(tools);stats=style_proof_stats(timeline)
     bounds=(('duration_seconds','片長（秒）',stats.duration_seconds,limits.delivery_min_seconds if complete else .75,limits.duration_seconds),

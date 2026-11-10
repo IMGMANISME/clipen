@@ -32,39 +32,6 @@ class ProviderAttemptState(str, Enum):
     UNKNOWN = "unknown"
 
 
-class ProviderArtifactRole(str, Enum):
-    RECEIPT = "receipt"
-    OUTPUT_SCHEMA = "output_schema"
-    OUTPUT = "output"
-    EVENTS = "events"
-    DIAGNOSTICS = "diagnostics"
-
-
-class ProviderArtifactDisposition(str, Enum):
-    RETAIN_RECOVERY = "retain_recovery"
-    RETAIN_RESULT = "retain_result"
-    RETAIN_DIAGNOSTIC = "retain_diagnostic"
-    CLEANABLE = "cleanable"
-
-
-@dataclass(frozen=True)
-class ProviderArtifactDecision:
-    role: ProviderArtifactRole
-    filename: str
-    disposition: ProviderArtifactDisposition
-    reason: str
-
-    def __post_init__(self) -> None:
-        if (
-            not isinstance(self.filename, str)
-            or not self.filename
-            or Path(self.filename).name != self.filename
-        ):
-            raise ValueError("provider artifact filename must be one local name")
-        if not isinstance(self.reason, str) or not self.reason or len(self.reason) > 128:
-            raise ValueError("provider artifact reason must be bounded")
-
-
 @dataclass(frozen=True)
 class ProviderUsage:
     input_tokens: int

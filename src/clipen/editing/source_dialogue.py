@@ -3,7 +3,6 @@ from fractions import Fraction
 import json
 import math
 from .production_media import source_rows
-from .program_reference import reference_for
 from .agent_models import ToolResult
 
 
@@ -12,8 +11,6 @@ def search_dialogue(tools,args):
     sources={}
     for source in (tools._source_rows() if hasattr(tools,'_source_rows') else source_rows(tools.repository.projects,tools.project_id)):
         if source['kind']=='video':sources.setdefault(source['version_id'],source)
-    reference=reference_for(tools.repository,tools.project_id,tools.run_id)
-    excluded=set(reference['source_version_ids']) if reference and args.get('exclude_reference_sources',True) else set()
     query=args.get('query','').strip().casefold();version=args.get('version_id');drafts=args.get('include_drafts',False)
     results=[];unreviewed=0;incomplete=0
     with tools.repository.projects.connect(tools.project_id) as db:
@@ -21,7 +18,7 @@ def search_dialogue(tools,args):
         seen=set()
         for row in rows:
             vid=row['version_id']
-            if vid not in sources or vid in excluded or vid in seen or (version and version!=vid):continue
+            if vid not in sources or vid in seen or (version and version!=vid):continue
             seen.add(vid);source=sources[vid]
             annotation=db.execute('SELECT * FROM transcript_annotations WHERE version_id=? AND stream_index=? AND source_revision_id=?',(vid,row['stream_index'],row['revision_id'])).fetchone()
             if annotation and annotation['discarded']:continue
@@ -56,7 +53,7 @@ def search_dialogue(tools,args):
     local_seen=set()
     for job in jobs:
         value=json.loads(job['result_json']);span=value['source'];vid=span['version_id']
-        if vid not in sources or vid in excluded or (version and vid!=version):continue
+        if vid not in sources or (version and vid!=version):continue
         source=sources[vid];unit=Fraction(source['time_base']['num'],source['time_base']['den'])
         local_ranges.append(span)
         for n,segment in enumerate(value['segments']):
@@ -76,10 +73,10 @@ def search_dialogue(tools,args):
     results.sort(key=lambda r:(r['display_name'],r['version_id'],r['start_offset_seconds']))
     offset=args.get('offset',0);limit=args.get('limit',12)
     return ToolResult({'utterances':results[offset:offset+limit],'total':len(results),'next_offset':offset+limit if offset+limit<len(results) else None,
-        'unreviewed_omitted':unreviewed,'incomplete_omitted':incomplete,'excluded_reference_sources':len(excluded),
+        'unreviewed_omitted':unreviewed,'incomplete_omitted':incomplete,
         'coverage': {'video_sources': len(sources), 'sources_with_transcripts': len(seen|{r['version_id'] for r in local_ranges}),
                      'untranscribed_version_ids': sorted(set(sources)-seen-{r['version_id'] for r in local_ranges}),
                      'local_transcribed_ranges':local_ranges,
                      'limitations':'A source with transcripts may still have uncovered intervals; local ranges cover only their recorded source span.'},
         'scope':'Inventoried authorized sources; only existing transcripts searched. Unknown footage is not evidence of absence. Text matches are not proof of event continuity.',
-        'next_step':'Choose a promising event, register_source_range around complete speech and nearby context, then inspect_candidates/sample_source. Explore another event rather than reproducing reference footage.'})
+        'next_step':'Choose a promising event, register_source_range around complete speech and nearby context, then inspect_candidates/sample_source.'})

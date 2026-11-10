@@ -201,27 +201,6 @@ class AutonomousProgrammeTests(unittest.TestCase):
                 self.assertIn('production_music_required',codes())
         finally:f.tearDown()
 
-    def test_reference_is_user_only_and_frozen_per_new_run(self):
-        from clipen.editing.program_reference import accept_reference,reference_for
-        f=ProgramEditingTests();f.setUp()
-        try:
-            pid=f.f.project.project_id;repo=f.f.repository
-            self.assertIsNone(f.call('get_program_reference').payload['reference'])
-            with self.assertRaises(ProjectError):accept_reference(repo,pid,f.run.run_id,f.tools._timeline().timeline_id)
-            f.call('plan_episode',**f.episode())
-            repo.finish(pid,f.run.run_id,'測試已完成節目版本')
-            final=repo.get(pid,f.run.run_id).final_revision_id
-            accepted=accept_reference(repo,pid,f.run.run_id,final)
-            self.assertEqual(accepted['authority'],'user_selected_style_reference')
-            self.assertIsNone(reference_for(repo,pid,f.run.run_id))
-            next_run,_=repo.create_run(pid,'autonomous-followup',creative_direction=PROGRAM_DIRECTION)
-            self.assertEqual(reference_for(repo,pid,next_run.run_id),accepted)
-            # A later human choice cannot silently change the running brief.
-            with f.f.projects.connect(pid) as db:db.execute("DELETE FROM edit_agent_events WHERE event_type='user_program_reference'")
-            self.assertEqual(reference_for(repo,pid,next_run.run_id),accepted)
-            self.assertNotIn('accept_program_reference',__import__('clipen.providers.codex_editing',fromlist=['_MCP_TOOLS'])._MCP_TOOLS)
-        finally:f.tearDown()
-
     def test_dialogue_discovery_uses_live_sources_corrections_and_explicit_drafts(self):
         from types import SimpleNamespace
         from clipen.editing.source_dialogue import search_dialogue
@@ -229,7 +208,7 @@ class AutonomousProgrammeTests(unittest.TestCase):
         source={'version_id':'av_'+'b'*32,'display_name':'source.mp4','stream_index':0,'kind':'video','start_pts':'90000','end_pts':'630000','time_base':{'num':1,'den':90000}}
         tools=SimpleNamespace(repository=SimpleNamespace(projects=f.projects),project_id=f.timeline.project_id,run_id='test-run')
         try:
-            with patch('clipen.editing.source_dialogue.source_rows',return_value=[source]),patch('clipen.editing.source_dialogue.reference_for',return_value=None):
+            with patch('clipen.editing.source_dialogue.source_rows',return_value=[source]):
                 result=search_dialogue(tools,{'query':'臺北'}).payload
                 self.assertEqual(result['total'],1);self.assertEqual(result['utterances'][0]['text'],'我們抵達臺北了')
                 self.assertEqual(result['utterances'][0]['start_offset_seconds'],.5)
@@ -241,8 +220,6 @@ class AutonomousProgrammeTests(unittest.TestCase):
                 self.assertEqual(search_dialogue(tools,{'include_drafts':True,'offset':1}).payload['utterances'],[])
                 f.db.execute("UPDATE transcript_segments SET end_pts='900000'")
                 self.assertEqual(search_dialogue(tools,{'include_drafts':True}).payload['incomplete_omitted'],1)
-            with patch('clipen.editing.source_dialogue.source_rows',return_value=[source]),patch('clipen.editing.source_dialogue.reference_for',return_value={'source_version_ids':[source['version_id']]}):
-                self.assertEqual(search_dialogue(tools,{'include_drafts':True}).payload['total'],0)
         finally:f.tearDown()
 
 

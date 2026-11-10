@@ -173,7 +173,6 @@ class ControllerServerTests(unittest.TestCase):
         lease = _InstanceLease.acquire(self.root)
         assert lease is not None
         provider = ProviderStatus("Codex", ProviderState.LOGIN_REQUIRED, "請登入")
-        skills = mock.Mock(summaries=())
 
         def request(port, method, path, headers=None):
             connection = http.client.HTTPConnection("127.0.0.1", port, timeout=2)
@@ -208,7 +207,7 @@ class ControllerServerTests(unittest.TestCase):
                 mock.patch.object(sys, "stdin", io.StringIO()),
                 mock.patch.object(sys, "stdout", io.StringIO()),
             ):
-                serving = asyncio.create_task(_serve(paths, provider, LocalSessionAuthority(), skills, browser_open=browser_open, lease=lease))
+                serving = asyncio.create_task(_serve(paths, provider, LocalSessionAuthority(), browser_open=browser_open, lease=lease))
                 try:
                     await asyncio.wait_for(ready.wait(), 5)
                     record = _read_instance_record(self.root / ".controller.json")
@@ -235,7 +234,7 @@ class ControllerServerTests(unittest.TestCase):
                     self.assertEqual(status, 400)
                     status, _, _ = await asyncio.to_thread(request, port, "POST", "/api/instance/reopen", {"X-Clipen-Instance": "incorrect"})
                     self.assertEqual(status, 404)
-                    result = await asyncio.to_thread(run_server, paths, provider, LocalSessionAuthority(), skills, browser_open=browser_open)
+                    result = await asyncio.to_thread(run_server, paths, provider, LocalSessionAuthority(), browser_open=browser_open)
                     self.assertEqual(result, 0)
                     self.assertEqual(opened, [url, url])
                     self.assertEqual(len(servers), 1)
@@ -280,7 +279,6 @@ class ControllerServerTests(unittest.TestCase):
                 ServerPaths(static, self.attempt_root),
                 ProviderStatus("Codex", ProviderState.READY, "AI 已連接"),
                 LocalSessionAuthority(),
-                mock.Mock(),
                 browser_open=lambda url: opened.append(url) is None,
             )
 

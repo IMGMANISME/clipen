@@ -40,7 +40,6 @@ from clipen.provider_registry import exec_adapter_factory
 from clipen.analysis.evidence_service import EvidenceService
 from clipen.annotations import AnnotationRepository
 from clipen.projects import ProjectWorkspace
-from clipen.system_skills import VerifiedSystemSkillRelease
 
 from .app import (
     ControllerConfig,
@@ -351,7 +350,6 @@ async def _serve(
     paths: ServerPaths,
     provider: ProviderStatus,
     authority: LocalSessionAuthority,
-    system_skills: VerifiedSystemSkillRelease,
     *,
     browser_open: Callable[[str], bool],
     lease: _InstanceLease,
@@ -500,7 +498,6 @@ def run_server(
     paths: ServerPaths,
     provider: ProviderStatus,
     authority: LocalSessionAuthority,
-    system_skills: VerifiedSystemSkillRelease,
     *,
     browser_open: Callable[[str], bool] = webbrowser.open,
 ) -> int:
@@ -531,7 +528,6 @@ def run_server(
                 paths,
                 provider,
                 authority,
-                system_skills,
                 browser_open=browser_open,
                 lease=lease,
             )

@@ -70,17 +70,6 @@ class PreviewRenderRepository:
             ).fetchone()
         return None if row is None else self._public(row)
 
-    def by_request(
-        self, project_id: str, request_id: object
-    ) -> dict[str, object] | None:
-        validate_project_id(project_id)
-        request = validate_request_id(request_id)
-        with self.projects.connect(project_id) as database:
-            row = database.execute(
-                "SELECT * FROM preview_renders WHERE request_id=? AND project_id=?",
-                (request, project_id),
-            ).fetchone()
-        return None if row is None else self._public(row)
 
     def get(self, project_id: str, render_id: str) -> dict[str, object]:
         validate_project_id(project_id)
@@ -205,16 +194,6 @@ class PreviewRenderRepository:
             database.commit()
             return cursor.rowcount
 
-    def cleanup_partial_outputs(self, project_id: str) -> None:
-        directory = self.projects.root / project_id / "previews"
-        if not directory.exists():
-            return
-        if directory.is_symlink() or not directory.is_dir():
-            raise ProjectError(
-                "storage_corrupt", "Clipen 無法安全讀取初剪資料。", status_code=500
-            )
-        for candidate in directory.glob(".render_*.partial.*"):
-            candidate.unlink(missing_ok=True)
 
     def output_path(
         self,

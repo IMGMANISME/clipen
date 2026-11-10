@@ -115,9 +115,6 @@ class EditAgentCoordinator:
                     "effect_count": stats.effect_count,
                 },
             }
-        from .program_reference import latest_reference
-        with self.repository.projects.connect(project_id) as db:
-            reference=latest_reference(db)
         production = None
         if latest is not None:
             session = self.repository.production_session(project_id, latest.run_id)
@@ -168,13 +165,8 @@ class EditAgentCoordinator:
         return {
             "latest_run": None if latest is None else latest.to_public(),
             "result": result,
-            "program_reference": reference,
             "production": production,
         }
-
-    def accept_program_reference(self,project_id,run_id,revision_id):
-        from .program_reference import accept_reference
-        return accept_reference(self.repository,project_id,run_id,revision_id)
 
     def _export_url(self,project_id,run_id,revision_id):
         try:self.export_path(project_id,run_id,revision_id)

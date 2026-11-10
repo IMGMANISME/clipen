@@ -95,11 +95,6 @@ class ProductionTools:
         return ToolResult({'sources':rows[offset:offset+limit],'total':len(rows),'next_offset':offset+limit if offset+limit<len(rows) else None,
                           'next_step':'register_source_range creates candidates for sample_source, transcripts and editing; no prior analysis window is required.'})
 
-    def _production_get_program_reference(self,args):
-        from .program_reference import reference_for
-        return ToolResult({'reference':reference_for(self.repository,self.project_id,self.run_id),
-            'fallback':'Use the user creative_direction when no accepted reference exists. Do not invent user approval.'})
-
     def _production_search_source_dialogue(self,args):
         from .source_dialogue import search_dialogue
         return search_dialogue(self,args)
@@ -577,14 +572,12 @@ class ProductionTools:
         from .production_media import load_text_styles
         from .program_story import read_episode
         from .program_subtitles import subtitle_status
-        from .program_reference import reference_for
         from .production_requirements import production_contents
         styles=load_text_styles(self.repository.projects,self.project_id)
         used_styles={i.style_id for t in revision.timeline.tracks if t.kind is TrackKind.TITLE for i in t.items}
         atomic_json(path,{'timeline':revision.timeline.to_payload(),'credits':credits,'text_styles':{k:v for k,v in styles.items() if k in used_styles},
             'production_contents':production_contents(self.repository.projects,self.project_id,revision.timeline),
             **({'production_skill':self._skill_value(),'production_intent':self._session_value()['intent']} if self._session_value() else {}),
-            'program_reference':reference_for(self.repository,self.project_id,self.run_id),
             'creative_direction':self.repository.creative_direction(self.project_id,self.run_id),
             'episode':read_episode(self.repository.projects,self.project_id,self.run_id,revision.timeline),
             'subtitle_review':subtitle_status(self.repository.projects,self.project_id,revision.timeline),'format':'clipen.native.v1'})

@@ -37,7 +37,7 @@ export type Project = {
   directories: DirectoryReference[]
 }
 
-export type DirectorySelection = {
+type DirectorySelection = {
   selection_token: string
   role: DirectoryRole
   display_path: string
@@ -297,7 +297,7 @@ export type MaterialAnnotationState = {
 
 
 
-export type PreviewRenderState =
+type PreviewRenderState =
   | 'queued'
   | 'running'
   | 'cancelling'
@@ -328,7 +328,7 @@ export type FilmVersion = { report?: ChangeReport; revision_id: string; number: 
 export type FilmPreview = PreviewRender & { stale: boolean; revision_id: string; media_url: string; version?: FilmVersion | null }
 
 
-export type EditAgentState =
+type EditAgentState =
   | 'queued'
   | 'running'
   | 'succeeded'
@@ -430,7 +430,6 @@ export type EditAgentResult = {
 export type EditAgentStatus = {
   latest_run: EditAgentRun | null
   result: EditAgentResult | null
-  program_reference?: ProgramReference | null
   production?: {
     intent: { authority: string; brief: string; target_duration_seconds?: number; music_choice?: { mode: string; asset_id: string; name: string } | null }
     skill: ProductionSkill & { limitations: string[] }
@@ -481,7 +480,6 @@ export async function startProduction(csrf: string, projectId: string, skillId: 
     { request_id: crypto.randomUUID(), consent: true, skill_id: skillId, intent, ...(visualStyleId ? { visual_style_id: visualStyleId } : {}), ...(fontStyleId ? { font_style_id: fontStyleId } : {}), ...(targetDurationSeconds ? { target_duration_seconds: targetDurationSeconds } : {}), ...(musicAssetId ? { music_asset_id: musicAssetId } : {}), ...(templateId ? { template_id: templateId } : {}) })).run
 }
 
-export type ProgramReference = { run_id: string; revision_id: string; authority: 'user_selected_style_reference' }
 
 
 
@@ -1027,7 +1025,7 @@ export function saveProductionPrompt(csrf: string, projectId: string, kind: 'pro
   return command(`/api/projects/${projectId}/production/prompts`, csrf, { request_id: crypto.randomUUID(), kind, text })
 }
 
-export type EditingFrame = { revision_id: string; frame: number; source_item_id: string; image_data_url: string; scope: string; component_box?: { x: number; y: number; width: number; height: number } | null }
+type EditingFrame = { revision_id: string; frame: number; source_item_id: string; image_data_url: string; scope: string; component_box?: { x: number; y: number; width: number; height: number } | null }
 /** One still of the current version; with a component draft it shows that graphic's unsaved settings and where it sits. */
 export function getEditingFrame(csrf: string, projectId: string, runId: string, revisionId: string, frame: number, signal?: AbortSignal, component?: ComponentDraft): Promise<EditingFrame> {
   return request(`/api/projects/${projectId}/production/${runId}/workbench/frame`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Clipen-CSRF': csrf }, body: JSON.stringify({ expected_revision_id: revisionId, frame, ...(component ? { component } : {}) }), signal })

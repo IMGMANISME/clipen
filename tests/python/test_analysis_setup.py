@@ -116,7 +116,7 @@ class ASRSetupManagerTests(unittest.TestCase):
         restarted = self.manager()
         self.assertEqual(restarted.status().state, ASRSetupState.READY)
         self.assertIsNotNone(restarted.adapter_factory())
-        self.assertEqual(restarted.model_snapshot()["revision"], "fixed-test-revision")
+        self.assertEqual(restarted.runtime_binding()[1]["revision"], "fixed-test-revision")
 
         self.requirements.write_text("example==2.0\n", encoding="utf-8")
         changed_contract = self.manager()

@@ -2,7 +2,7 @@ import { useId } from 'react'
 import type { ProductionSkill, VideoTemplate } from './api'
 import { TemplateLibrary } from './TemplateLibrary'
 
-export type SkillChoice = { skillId: string; templateId: string; visualStyleId: string; fontStyleId: string; defaultDurationSeconds?: number }
+type SkillChoice = { skillId: string; templateId: string; visualStyleId: string; fontStyleId: string; defaultDurationSeconds?: number }
 type Props = { skills: ProductionSkill[]; skillId: string; templateId: string; disabled: boolean; onChoose: (choice: SkillChoice) => void }
 
 /** Choose an editing template: the user's own first, then the built-in gallery. */

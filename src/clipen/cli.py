@@ -10,7 +10,6 @@ from typing import Sequence
 from clipen.controller import LocalSessionAuthority
 from clipen.controller.server import ServerPaths, probe_claude, probe_codex, run_server
 from clipen.provider_registry import PROVIDERS, implemented_providers
-from clipen.system_skills import verify_system_skill_release
 from clipen.workspace import (
     WorkspaceError,
     inspect_workspace_projects,
@@ -60,10 +59,6 @@ def main(arguments: Sequence[str] | None = None) -> int:
             print("目前沒有作品，可在 UI 建立第一個作品。", flush=True)
         attempt_root = data_root / "provider-attempts"
         attempt_root.mkdir(mode=0o700, parents=True, exist_ok=True)
-        print("正在驗證系統剪輯規則…", flush=True)
-        system_skills = verify_system_skill_release(
-            repo_root / "resources" / "system-skills"
-        )
         print(f"正在檢查 {descriptor.display_name}…", flush=True)
         provider = probe(attempt_root)
         return run_server(
@@ -76,7 +71,6 @@ def main(arguments: Sequence[str] | None = None) -> int:
             ),
             provider,
             LocalSessionAuthority(),
-            system_skills,
         )
     except KeyboardInterrupt:
         print("\nClipen 已停止", flush=True)
