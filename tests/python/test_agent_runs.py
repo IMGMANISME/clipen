@@ -115,14 +115,26 @@ class AgentRunTests(unittest.TestCase):
             with self.assertRaises(ProjectError) as unreported:
                 self.call(tools, "finish_edit", summary="完成第一版旅行初剪")
             self.assertEqual(unreported.exception.code, "change_report_invalid")
-            final = self.call(tools, "finish_edit", summary="完成第一版旅行初剪",
-                              changes=[{"what": "剪出八個街景鏡頭", "why": "交代早上的東京"}])
+            report = dict(summary="完成第一版旅行初剪", changes=[{"what": "剪出八個街景鏡頭", "why": "交代早上的東京"}])
+            left = [{"what": "片尾店名", "reason": "needs_you", "detail": "請告訴我拉麵店的名字"}]
+            # Work left undone is sent back once, to be finished with the tools first...
+            with self.assertRaises(ProjectError) as challenged:
+                self.call(tools, "finish_edit", **report, not_done=left)
+            self.assertEqual(challenged.exception.code, "change_report_unfinished")
+            # ...and kept only when the AI confirms it really needs the person.
+            final = self.call(tools, "finish_edit", **report, not_done=left)
         self.assertEqual(final.payload["state"], "succeeded")
         self.assertEqual(final.payload["final_revision_id"], restored.payload["revision"]["revision_id"])
         with self.projects.connect(self.project.project_id) as database:
             finished = database.execute("SELECT payload_json FROM edit_agent_events WHERE run_id=? AND event_type='run_finished'",
                                         (run.run_id,)).fetchone()
         self.assertEqual(json.loads(finished["payload_json"])["report"]["changes"][0]["what"], "剪出八個街景鏡頭")
+        # What was left for the person travels with the next request.
+        self.repository.request_refinement(self.project.project_id, run.run_id, "request-refine-left",
+                                           final.payload["final_revision_id"], "店名是一蘭")
+        with self.projects.connect(self.project.project_id) as database:
+            intent = json.loads(database.execute("SELECT intent_json FROM production_sessions WHERE run_id=?", (run.run_id,)).fetchone()["intent_json"])
+        self.assertEqual(intent["latest_revision_request"]["left_last_time"], left)
 
         recorded = self.repository.record_provider_outcome(
             self.project.project_id, run.run_id, "agent-attempt-0001",

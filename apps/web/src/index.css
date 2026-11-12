@@ -1753,6 +1753,11 @@ video { background: #000; }
 .is-done .rv-report-outcome, .is-kept .rv-report-outcome { color: #8fd19e; border-color: rgba(143, 209, 158, .4); }
 .is-partly .rv-report-outcome { color: var(--accent); border-color: rgba(233, 180, 76, .45); }
 .is-not_done .rv-report-outcome { color: #f0a1a1; border-color: rgba(240, 161, 161, .45); }
-.rv-report-missing ul { margin: 0; padding-left: 20px; color: #f0c2a1; }
+.rv-report-missing ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.rv-report-missing li { display: grid; gap: 2px; }
+.rv-report-missing li strong { color: #f0c2a1; font-weight: 500; }
+.rv-report-missing li > span:not(.rv-report-reason) { color: var(--text-2); }
+.rv-report-reason { justify-self: start; font-size: 11px; color: var(--text-3); }
+.rv-report-missing .is-needs_you .rv-report-reason { color: var(--accent); }
 .rv-report-open { justify-self: start; font-size: 12px; }
 .rv-dialog-body h4 small { font-weight: 400; color: var(--text-3); font-size: 12px; }
