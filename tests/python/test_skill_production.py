@@ -88,8 +88,9 @@ class SkillProductionTests(unittest.TestCase):
 
     def test_starts_without_preparation_plan_or_timeline_and_freezes_skill(self):
         with self.projects.connect(self.project.project_id) as db:
-            for table in ('preparation_runs','plan_revisions','edit_timelines'):
+            for table in ('preparation_runs','edit_timelines'):
                 self.assertEqual(db.execute(f'SELECT COUNT(*) FROM {table}').fetchone()[0],0)
+            self.assertIsNone(db.execute("SELECT name FROM sqlite_master WHERE name='plan_revisions'").fetchone())
         status=self.call('get_edit_status').payload
         self.assertEqual(status['mode'],'skill_production')
         self.assertIsNone(status['base_timeline_id'])
@@ -698,29 +699,45 @@ class SkillProductionTests(unittest.TestCase):
         self.assertIn('style_example_not_source_evidence',preview['result']['content'][0]['text'])
 
     def test_v17_migration_preserves_real_legacy_revision_and_foreign_keys(self):
-        import test_edit_agent as legacy
+        # Runs made before AI production started from a compiled base timeline; old databases still hold them.
+        import hashlib
+        from clipen.domain import ClipSource, MediaClip, Rational, SourceSpan, Track
+        from clipen.editing import OutputSettings, TimelineRepository
+        from clipen.editing.agent_models import encoded, make_id
         from clipen.projects.agent_schema import EDIT_AGENT_SCHEMA
-        fixture=legacy.EditAgentTests();fixture.setUp()
-        try:
-            run,tools=fixture.create_tools()
-            original=fixture.repository.current_revision(fixture.project.project_id,run.run_id)
-            tools.close_production()
-            path=fixture.projects.root/fixture.project.project_id/'project.sqlite3'
-            db=sqlite3.connect(path)
-            create=EDIT_AGENT_SCHEMA.split('CREATE TABLE edit_agent_revisions',1)[0].replace('CREATE TABLE edit_agent_runs','CREATE TABLE runs_v17',1)
-            create=create.replace('base_timeline_id TEXT REFERENCES','base_timeline_id TEXT NOT NULL REFERENCES')
-            db.executescript('PRAGMA foreign_keys=OFF; BEGIN IMMEDIATE;'+create+
-                'INSERT INTO runs_v17 SELECT * FROM edit_agent_runs; DROP TABLE edit_agent_runs; ALTER TABLE runs_v17 RENAME TO edit_agent_runs;'
-                'CREATE INDEX edit_agent_runs_project_created ON edit_agent_runs(project_id,created_at DESC);'
-                'DROP TABLE production_tool_receipts; DROP TABLE production_evidence_jobs; DROP TABLE production_sessions; PRAGMA user_version=17; COMMIT;')
-            db.close()
-            restored=fixture.repository.current_revision(fixture.project.project_id,run.run_id)
-            self.assertEqual(restored,original)
-            with fixture.projects.connect(fixture.project.project_id) as db:
-                self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0],18)
-                self.assertEqual(db.execute('PRAGMA foreign_key_check').fetchall(),[])
-                self.assertEqual(db.execute('PRAGMA foreign_keys').fetchone()[0],1)
-        finally:fixture.tearDown()
+        pid=self.project.project_id
+        span=SourceSpan('av_'+'a'*32,0,'0','900000',Rational(1,90000))
+        timeline=EditTimeline('timeline-'+'b'*32,pid,'plan-'+'c'*32,1,'d'*64,Rational(30,1),1920,1080,300,
+                              (Track('video-main',TrackKind.VIDEO,(MediaClip('clip-0001',0,300,ClipSource(span)),)),))
+        TimelineRepository(self.projects).save(pid,'request-timeline',timeline.plan_id,1,OutputSettings('landscape_1080p',30),timeline)
+        payload=timeline.to_payload();digest=hashlib.sha256(encoded(payload).encode('utf-8')).hexdigest()
+        run_id=make_id('editrun_',[pid,'legacy-run']);revision_id=make_id('editrev_',[run_id,0,digest])
+        self.tools.close_production()
+        with self.projects.connect(pid) as db:
+            db.execute("INSERT INTO edit_agent_runs (run_id,project_id,request_id,base_timeline_id,state,phase,max_tool_calls,"
+                       "max_preview_renders,current_revision_id,provider,created_at) VALUES(?,?,'legacy-run',?,'succeeded','finished',20,2,?,'codex','2026-01-01')",
+                       (run_id,pid,timeline.timeline_id,revision_id))
+            db.execute("INSERT INTO edit_agent_revisions (revision_id,run_id,ordinal,parent_revision_id,payload_digest,payload_json,summary,created_at) "
+                       "VALUES(?,?,0,NULL,?,?,'原始剪輯版本','2026-01-01')",(revision_id,run_id,digest,encoded(payload)))
+            db.execute('DELETE FROM edit_agent_events WHERE run_id=?',(self.run.run_id,))
+            db.execute('DELETE FROM edit_agent_revisions WHERE run_id=?',(self.run.run_id,))
+            db.execute('DELETE FROM edit_agent_command_receipts');db.execute('DELETE FROM production_sessions')
+            db.execute('DELETE FROM edit_agent_runs WHERE run_id=?',(self.run.run_id,))
+        original=self.repository.current_revision(pid,run_id)
+        self.assertEqual(original.timeline,timeline)
+        db=sqlite3.connect(self.projects.root/pid/'project.sqlite3')
+        create=EDIT_AGENT_SCHEMA.split('CREATE TABLE edit_agent_revisions',1)[0].replace('CREATE TABLE edit_agent_runs','CREATE TABLE runs_v17',1)
+        create=create.replace('base_timeline_id TEXT REFERENCES','base_timeline_id TEXT NOT NULL REFERENCES')
+        db.executescript('PRAGMA foreign_keys=OFF; BEGIN IMMEDIATE;'+create+
+            'INSERT INTO runs_v17 SELECT * FROM edit_agent_runs; DROP TABLE edit_agent_runs; ALTER TABLE runs_v17 RENAME TO edit_agent_runs;'
+            'CREATE INDEX edit_agent_runs_project_created ON edit_agent_runs(project_id,created_at DESC);'
+            'DROP TABLE production_tool_receipts; DROP TABLE production_evidence_jobs; DROP TABLE production_sessions; PRAGMA user_version=17; COMMIT;')
+        db.close()
+        self.assertEqual(self.repository.current_revision(pid,run_id),original)
+        with self.projects.connect(pid) as db:
+            self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0],19)
+            self.assertEqual(db.execute('PRAGMA foreign_key_check').fetchall(),[])
+            self.assertEqual(db.execute('PRAGMA foreign_keys').fetchone()[0],1)
 
     def test_authenticated_production_entry_uses_inventory_without_old_plan(self):
         import asyncio

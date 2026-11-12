@@ -27,20 +27,21 @@ class SourceContext:
 
 class SkillTools:
     def _session_value(self):
-        if not hasattr(self, "_session_cache"):
-            self._session_cache = self.repository.production_session(self.project_id, self.run_id)
+        """Every run is an AI production session; there is no session-less path."""
+        if getattr(self, "_session_cache", None) is None:
+            session = self.repository.production_session(self.project_id, self.run_id)
+            if session is None:
+                raise ProjectError("production_required", "這個版本需要 AI 節目製作工作。", status_code=422)
+            self._session_cache = session
         return self._session_cache
 
     def _skill_value(self):
-        session = self._session_value()
-        return session["skill"] if session else get_skill()
+        return self._session_value()["skill"]
 
     def _source_rows(self):
         from .production_media import source_rows
         rows = source_rows(self.repository.projects, self.project_id)
         session = self._session_value()
-        if session is None:
-            return rows
         granted = {(r["version_id"], r["stream_index"]) for r in session["sources"]}
         return [r for r in rows if (r["version_id"], r["stream_index"]) in granted]
 

@@ -57,8 +57,6 @@ class FinishingEvidenceMappingTests(unittest.TestCase):
         self.timeline=replace(self.timeline,tracks=(replace(video,items=tuple(replace(c,source=ClipSource(SourceSpan(c.source.span.version_id,0,'90000','630000',Rational(1,90000)))) for c in video.items)),self.timeline.tracks[1]))
         self.db=sqlite3.connect(':memory:');self.db.row_factory=sqlite3.Row
         self.db.executescript('''
-            CREATE TABLE current_plan(slot,plan_id,revision);
-            CREATE TABLE plan_revisions(plan_id,revision,status,content_hash);
             CREATE TABLE media_streams(version_id,stream_index,kind,details_json);
             CREATE TABLE transcription_revisions(revision_id,version_id,stream_index,status,source_span_json);
             CREATE TABLE preparation_items(transcript_revision_id,run_id,review_required);
@@ -66,8 +64,6 @@ class FinishingEvidenceMappingTests(unittest.TestCase):
             CREATE TABLE transcript_annotations(version_id,stream_index,source_revision_id,discarded,corrections_json,confirmed);
             CREATE TABLE transcript_segments(revision_id,segment_id,start_pts,end_pts,text,ordinal,confidence);
         ''')
-        self.db.execute("INSERT INTO current_plan VALUES(1,?,1)",(self.timeline.plan_id,))
-        self.db.execute("INSERT INTO plan_revisions VALUES(?,1,'confirmed',?)",(self.timeline.plan_id,self.timeline.plan_content_hash))
         version='av_'+'b'*32
         self.db.execute("INSERT INTO media_streams VALUES(?,1,'audio','{}')",(version,))
         self.db.execute("INSERT INTO media_streams VALUES(?,0,'video','{}')",(version,))

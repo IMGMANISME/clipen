@@ -17,7 +17,7 @@ from .agent_models import ToolResult, encoded, make_id
 class EvidenceTools:
     def _production_prepare_local_speech(self,args):
         session=self._session_value()
-        if session is None or not session['intent'].get('allow_local_model_downloads'):
+        if not session['intent'].get('allow_local_model_downloads'):
             raise ProjectError('local_model_grant_required','這次製作尚未授權準備本機模型。',status_code=409)
         return self._start_evidence('setup',{'target':args['target'],'release':'clipen-local-speech-v1'},None)
 

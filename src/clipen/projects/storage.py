@@ -7,6 +7,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import sqlite3
@@ -28,7 +29,6 @@ from .models import (
 )
 from .evidence_schema import EVIDENCE_SCHEMA, OBSERVATION_SCHEMA
 from .validation_schema import VALIDATION_WORKFLOW_SCHEMA
-from .planning_schema import PLANNING_SCHEMA
 from .timeline_schema import TIMELINE_SCHEMA
 from .preview_schema import PREVIEW_SCHEMA
 from .finishing_schema import FINISHING_SCHEMA, FINISHING_RUNS_SCHEMA
@@ -37,7 +37,11 @@ from .agent_schema import EDIT_AGENT_SCHEMA, PRODUCTION_SESSION_SCHEMA
 from .deletion import ProjectDeletion
 
 
-PROJECT_SCHEMA_VERSION = 18
+PROJECT_SCHEMA_VERSION = 19
+# Tables of the retired confirmed-plan flow, children before parents. Version 19
+# archives any rows they still hold beside the database and drops them.
+RETIRED_PLANNING_TABLES = ("current_plan", "plan_revisions", "planning_runs", "plan_command_receipts")
+RETIRED_PLANNING_ARCHIVE = "retired-planning.json"
 _PROJECT_DIRECTORY = re.compile(r"prj_[0-9a-f]{32}\Z")
 
 _INVENTORY_SCHEMA = """
@@ -652,7 +656,6 @@ class ProjectRepository:
                 + EVIDENCE_SCHEMA
                 + OBSERVATION_SCHEMA
                 + VALIDATION_WORKFLOW_SCHEMA
-                + PLANNING_SCHEMA
                 + TIMELINE_SCHEMA
                 + ANNOTATION_SCHEMA
                 + PREVIEW_SCHEMA
@@ -660,7 +663,7 @@ class ProjectRepository:
                 + PRODUCTION_SESSION_SCHEMA
                 + FINISHING_SCHEMA
                 + """
-                PRAGMA user_version = 18;
+                PRAGMA user_version = 19;
                 """
             )
             connection.execute(
@@ -762,6 +765,9 @@ class ProjectRepository:
             if version == 17:
                 self._migrate_v17_to_v18(connection)
                 version = 18
+            if version == 18:
+                self._migrate_v18_to_v19(connection, project_dir)
+                version = 19
             if version != PROJECT_SCHEMA_VERSION:
                 connection.close()
                 raise ProjectError(
@@ -805,6 +811,51 @@ class ProjectRepository:
             raise
         finally:
             connection.execute("PRAGMA foreign_keys=ON")
+
+    @staticmethod
+    def _migrate_v18_to_v19(connection: sqlite3.Connection, project_dir: Path) -> None:
+        """Drop the retired confirmed-plan tables without losing what they held.
+
+        Rows still in those tables are first written to a private JSON archive
+        beside the database (replaced atomically, so an interrupted migration
+        simply writes it again). The drop and the version bump then commit in
+        one transaction, and the foreign keys must still hold afterwards.
+        """
+
+        present = [
+            table for table in RETIRED_PLANNING_TABLES
+            if connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)
+            ).fetchone() is not None
+        ]
+        archive = {
+            table: [dict(row) for row in connection.execute(f"SELECT * FROM {table}")]
+            for table in present
+        }
+        if any(archive.values()):
+            target = project_dir / RETIRED_PLANNING_ARCHIVE
+            if target.is_symlink():
+                raise sqlite3.DatabaseError("unsafe retired planning archive")
+            temporary = project_dir / (RETIRED_PLANNING_ARCHIVE + ".tmp")
+            temporary.unlink(missing_ok=True)
+            descriptor = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+                json.dump({"schema_version": 18, "tables": archive}, output, ensure_ascii=False, indent=1)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(temporary, target)
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            prior_violations = {tuple(row) for row in connection.execute("PRAGMA foreign_key_check")}
+            for table in present:
+                connection.execute(f"DROP TABLE {table}")
+            if {tuple(row) for row in connection.execute("PRAGMA foreign_key_check")} - prior_violations:
+                raise sqlite3.DatabaseError("retiring planning tables broke foreign keys")
+            connection.execute("PRAGMA user_version = 19")
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
 
     @staticmethod
     def _migrate_v1_to_v2(connection: sqlite3.Connection) -> None:
@@ -906,63 +957,9 @@ class ProjectRepository:
 
     @staticmethod
     def _migrate_v8_to_v9(connection: sqlite3.Connection) -> None:
-        """Create or verify planning tables after an interrupted migration."""
+        """Version 9 added the retired planning tables; version 19 drops them again."""
 
-        expected_columns = {
-            "planning_runs": (
-                "run_id", "project_id", "request_id", "project_revision",
-                "editing_skill_id", "system_skill_release", "context_hash",
-                "context_json", "estimated_input_tokens", "state", "phase",
-                "plan_id", "plan_revision", "usage_json", "error_code",
-                "created_at", "started_at", "completed_at",
-            ),
-            "plan_revisions": (
-                "plan_id", "revision", "project_id", "status", "content_hash",
-                "material_snapshot_id", "analysis_snapshot_id",
-                "system_skill_release", "payload_json", "source_run_id", "created_at",
-            ),
-            "current_plan": ("slot", "plan_id", "revision"),
-            "plan_command_receipts": (
-                "request_id", "command_type", "request_hash", "response_json", "created_at",
-            ),
-        }
-        observed = {
-            row["name"]
-            for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table' "
-                "AND name IN (?, ?, ?, ?)",
-                tuple(expected_columns),
-            )
-        }
-        if observed and observed != set(expected_columns):
-            raise sqlite3.DatabaseError("incomplete planning schema")
-        if observed:
-            for table, expected in expected_columns.items():
-                columns = tuple(
-                    row["name"]
-                    for row in connection.execute(f"PRAGMA table_info({table})")
-                )
-                if columns != expected:
-                    raise sqlite3.DatabaseError("unexpected planning schema")
-            indexes = {
-                row["name"]
-                for row in connection.execute(
-                    "SELECT name FROM sqlite_master WHERE type = 'index'"
-                )
-            }
-            if not {
-                "planning_runs_project_created",
-                "plan_revisions_project_created",
-            }.issubset(indexes):
-                raise sqlite3.DatabaseError("incomplete planning indexes")
-            migration_sql = ""
-        else:
-            migration_sql = PLANNING_SCHEMA
-        connection.executescript(
-            "BEGIN IMMEDIATE;\n"
-            + migration_sql
-            + "\nPRAGMA user_version = 9;\nCOMMIT;"
-        )
+        connection.executescript("BEGIN IMMEDIATE;\nPRAGMA user_version = 9;\nCOMMIT;")
 
     @staticmethod
     def _migrate_v9_to_v10(connection: sqlite3.Connection) -> None:

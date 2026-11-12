@@ -94,14 +94,14 @@ flowchart LR
 | 元件 | 負責 | 不負責 |
 | --- | --- | --- |
 | Launcher | 首次設定、runtime 驗證、provider 選擇、Controller 生命週期 | 啟動 AI 對話、修改 shell、暗中安裝或登入 |
-| React UI | 作品操作、資料授權、Plan 編輯、進度、預覽與交付選擇 | 直接讀檔、呼叫 provider、執行 shell、修改資料庫 |
+| React UI | 作品操作、資料授權、製作需求、審片注記、進度、預覽與交付選擇 | 直接讀檔、呼叫 provider、執行 shell、修改資料庫 |
 | Controller | 權限、版本、命令、排程、狀態、驗證、恢復與交付協調 | 將模型文字直接視為執行成功 |
 | Provider Adapter | 核對能力、執行單一 AI Attempt、提交結構化候選結果 | 常駐輪詢、擴大資料範圍、自行批准下一階段 |
 | Media Workers | FFprobe、代理檔、取樣、ASR、畫面與聲音分析 | 自行呼叫 AI 或修改原始素材 |
 | Editing Workers | 執行受 schema 約束的剪輯描述、預覽與 export | 執行任意模型 shell 或未驗證 script |
 | Artifact Store | 保存具 hash、版本與來源的衍生成果 | 把任意路徑當成受管理檔案 |
 | 製作 Skill | 製作核心、設計素材庫與指引 Skill 鏈的組合、驗證與凍結（見第 7 節） | 執行 Skill 內的程式、擴大工具權限、覆寫核心邊界 |
-| System Skills | 內部流程與剪輯判斷方法 | 作為使用者可編輯 Plan 或 UI 可讀內容 |
+| System Skills | 內部流程與剪輯判斷方法 | 作為使用者可編輯內容或 UI 可讀內容 |
 
 AI 負責創作理解與決策；Controller 和受控 worker 負責檔案、影音處理、驗證與交付。
 
@@ -154,9 +154,8 @@ provider prompt 與開發資訊不進入首頁。
 | Event | append-only 的狀態改變與重要事實 |
 | Receipt | 冪等命令第一次接受後的持久回覆 |
 
-Operation 類型至少包含素材清單、素材／參考分析、Plan 生成、剪輯、修改、成片匯出
-與 Resolve 工程匯出。每個 Operation 綁定不可變的需求、素材、分析、能力、系統
-Skill release 與 Plan revision 快照。
+Operation 類型至少包含素材清單、素材／參考分析、AI 節目製作（含修改）、成片匯出
+與 Resolve 工程匯出。每個 Operation 綁定不可變的需求、素材與 Skill 快照。
 
 ### 4.2 Operation 與 Attempt 狀態
 
@@ -182,24 +181,23 @@ stateDiagram-v2
 - AI 結果須通過 schema、素材引用、能力與 Artifact 驗證後才可標為成功。
 - 取消是持久意圖；取消送出時工作可能已完成，必須核對真實結果。
 
-### 4.3 Plan 版本
+### 4.3 製作工作與剪輯版本
 
-正在輸入的 Working Draft 可自動保存，但不因每次按鍵建立永久 revision。AI 生成、
-使用者完成一輪修改、AI 重規劃、確認開始與預覽後修改都會建立不可變 revision。
+每次 AI 剪輯都是一個製作工作：建立時凍結使用者需求、授權素材與 Skill，從空白
+草稿開始；沒有製作工作就不能執行剪輯工具。AI 的每次修改都建立不可變的剪輯
+revision，時間軸修改必須帶上預期 revision 與 mutation ID。完成時 AI 必須附上
+可讀的修改說明；修改輪次逐筆回應使用者的審片注記。成片與 Resolve 工程都能追溯
+到同一 revision 與 Artifact lineage。
 
-```text
-draft → ready_for_review → confirmed → executing → reviewed → accepted
-```
-
-Confirmed revision 永不原地修改。剪輯 Operation 必須綁定一個 confirmed revision。
-執行期間可以準備下一版草稿，但不能改變正在執行的版本。所有成片與 Resolve 工程
-都能追溯到同一 Plan revision 與 Artifact lineage。
+早期的「確認剪輯計畫」流程已退役。作品資料庫升級到第 19 版時會移除它的資料表；
+表內若仍有資料，先寫入作品資料夾的 `retired-planning.json` 封存後才移除。舊時間軸
+保留的 `plan_id` 等欄位只作為來源記錄，仍可讀取。
 
 ## 5. API 與即時狀態
 
 ### 5.1 REST
 
-GET 只讀取 project snapshot、materials、analysis、plans、operations 與 artifacts；
+GET 只讀取 project snapshot、materials、analysis、operations 與 artifacts；
 不得建立工作、呼叫 AI、修改檔案或重試失敗工作。
 
 Mutation 使用明確 POST command，並包含：
@@ -233,7 +231,7 @@ progress、artifact created、cancel requested、failed、succeeded 與 action r
 | 層級 | 內容 | 預設 |
 | --- | --- | --- |
 | 專案資料 | 名稱、需求、目錄、狀態 | 本機 |
-| 衍生成果 | 技術資訊、縮圖、ASR、分析、Plan | 本機 |
+| 衍生成果 | 技術資訊、縮圖、ASR、分析、剪輯 revision | 本機 |
 | Provider Payload | 單一 Attempt 明列且獲准的內容 | 依 provider 而定 |
 
 Provider 不自動取得整個毛片目錄。Controller 建立 Input Manifest，只列出該 Attempt
@@ -358,7 +356,7 @@ Clipen 有兩類 Skill：AI 製作流程使用的製作 Skill（可由使用者�
 固定 core Skill 負責流程；其他 system editing Skills 提供內部剪輯判斷。Controller
 在啟動與 Attempt 建立前驗證簽章、release hash、完整 inventory 與實際內容。
 
-瀏覽器只取得獨立編寫的名稱、用途與可調參數，不取得原文。Plan、API、event log、
+瀏覽器只取得獨立編寫的名稱、用途與可調參數，不取得原文。API、event log、
 錯誤與 Artifact 不複製 system Skill 原文。system Skill 不可由使用者編輯；需要
 自訂剪輯方式時使用 7.1 的製作 Skill。
 
@@ -403,12 +401,12 @@ Temp System Log 是由 Event 與 Artifact 生成的恢復摘要，可描述上�
 
 清除可重新產生的 Clipen 資料，包括暫存、staging output、proxy、縮圖、預覽快取、
 無引用 Artifact、過期 recovery 與 worker 暫存。保留 Project SQLite、需求、分析、
-逐字稿、Plan、accepted revision、使用者匯出的成片／Resolve 工程、毛片與參考作品。
+逐字稿、舊計畫封存、accepted revision、使用者匯出的成片／Resolve 工程、毛片與參考作品。
 
 ### 10.2 `clipen reset`
 
 刪除單一剪輯專案的所有 Clipen 管理資料並從作品首頁移除，包括 Project SQLite、
-Operation、Attempt、Event、分析、逐字稿、Plan、剪輯描述、proxy、預覽、快取與
+Operation、Attempt、Event、分析、逐字稿、舊計畫封存、剪輯描述、proxy、預覽、快取與
 recovery。永不刪除毛片、參考作品、使用者選擇的素材目錄、已匯出成品、Resolve
 工程、runtime、shared model 或 provider 登入資料。
 
