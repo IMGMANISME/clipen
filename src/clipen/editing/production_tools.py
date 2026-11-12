@@ -65,7 +65,7 @@ class ProductionTools:
         from .production_limits import limits_for
         from clipen.mcp_editing.server import _TOOLS
         return ToolResult({'tools':[{'name':t['name'],'description':t['description']} for t in _TOOLS],'decision_owner':'LLM','execution_owner':'Clipen',
-            'limits':{'production':asdict(limits_for(self)), 'target_duration_seconds':(self._session_value() or {}).get('intent',{}).get('target_duration_seconds',60), 'max_tool_calls':self.repository.get(self.project_id,self.run_id).max_tool_calls,
+            'limits':{'production':asdict(limits_for(self)), 'target_duration_seconds':self._session_value()['intent'].get('target_duration_seconds',60), 'max_tool_calls':self.repository.get(self.project_id,self.run_id).max_tool_calls,
                       'max_preview_renders':self.repository.get(self.project_id,self.run_id).max_preview_renders,
                       'preview_scope':'SDR production within session limits; technical validation is not aesthetic approval'},
             'unsupported':{'automatic_object_tracking':'Use explicit time intervals and rectangles; inspect every affected interval.',
@@ -350,7 +350,7 @@ class ProductionTools:
         return AgentAudioStore(self.repository.projects,self.project_id)
 
     def _production_search_music(self,args):
-        choice=(self._session_value() or {}).get('intent',{}).get('music_choice')
+        choice=self._session_value()['intent'].get('music_choice')
         if choice and choice.get('mode')=='user':raise problem('使用者已指定配樂，請使用 list_audio_assets 取得該曲，不要另行搜尋替換。')
         from clipen.finishing.catalog import PublicMusicCatalog
         store=self._asset_store()
@@ -439,68 +439,66 @@ class ProductionTools:
         from clipen.finishing.audio import open_asset
         from .production_limits import limits_for,production_limit_issues
         issues=validate_production_timeline(self._timeline(),max_texts=limits_for(self).titles)
-        limit_issues=production_limit_issues(self,self._timeline()) if self._session_value() else []
+        limit_issues=production_limit_issues(self,self._timeline())
         issues+=limit_issues
         component_issues=self._component_issues()
         content_codes={'program_component_collision','component_restates_subtitle'}
         issues+=[i for i in component_issues if i['code'] not in content_codes]
         from .program_direction import direction_issues
         delivery_issues=direction_issues(self)
-        if self._session_value():
-            invalid_fields={i['field'] for i in limit_issues}
-            delivery_issues += [i for i in production_limit_issues(self,self._timeline(),complete=True) if i['field'] not in invalid_fields]
+        invalid_fields={i['field'] for i in limit_issues}
+        delivery_issues += [i for i in production_limit_issues(self,self._timeline(),complete=True) if i['field'] not in invalid_fields]
         # Overlaps and echoes of a subtitle are the Agent's call: advice, never a blocker.
         advisories=[i for i in component_issues if i['code'] in content_codes]
         from .production_requirements import requirement_issues
         delivery_issues+=requirement_issues(self)
-        if self._session_value() and not any(t.items for t in self._timeline().tracks if (t.track_id=='program-components' or t.track_id.startswith('program-components-'))):
+        if not any(t.items for t in self._timeline().tracks if (t.track_id=='program-components' or t.track_id.startswith('program-components-'))):
             delivery_issues.append({'code':'program_graphics_missing','message':'節目 Skill 需要有用途的後製畫面，請檢視素材後選擇合適元件。'})
-        if self._session_value():
-            from .speech_coverage import speech_coverage
-            coverage=speech_coverage(self)
-            if not coverage['complete']:delivery_issues.append({'code':'source_speech_evidence_missing','ranges':coverage['unknown_ranges'],
-                'message':'保留的原音仍有未取證範圍，請按需轉寫或明確調整剪輯；空搜尋不能視為沒有對話。'})
-            from .program_subtitles import subtitle_status
-            subtitle_review=subtitle_status(self.repository.projects,self.project_id,self._timeline())
-            pending=subtitle_review['unaligned_item_ids']
-            if pending:delivery_issues.append({'code':'subtitle_alignment_required','item_ids':pending,
-                'message':'字幕時間尚未核對，或修改文字後原對齊已失效。請核對來源並修復相關字幕；可以先看草稿。'})
-            if not subtitle_review['count'] and self._production_list_transcripts({'include_drafts':True}).payload['cues']:
-                delivery_issues.append({'code':'program_subtitles_missing','message':'目前保留口語但沒有節目字幕，請依來源建立並對齊字幕。'})
-            from .programme_review import caption_coverage
-            captions=caption_coverage(self,self._production_list_transcripts({'include_drafts':True}).payload)
-            if captions['missing_cues']:
-                delivery_issues.append({'code':'subtitle_coverage_incomplete','ranges':captions['missing_cues'],
-                    'message':'保留口語仍有缺漏字幕；少數已對齊字幕不能代表整片完成。請修復來源辨識／對齊並重建字幕，或明確調整原音剪輯。'})
-            if captions['unresolved_item_ids']:
-                delivery_issues.append({'code':'subtitle_source_range_unresolved','item_ids':captions['unresolved_item_ids'],
-                    'message':'部分原音切在尚未對齊的句段內，尚無完整可用字幕；請按需重新轉寫該區間，不能以刪除字幕消除待辦。'})
-            from .production_media import load_text_styles
-            profiles=load_text_styles(self.repository.projects,self.project_id)
-            shots={i.item_id:i for i in self._video().items}
-            caption_items=[i for t in self._timeline().tracks if t.track_id=='agent-subtitles' for i in t.items]
-            for clip in shots.values():
-                anchored=[i.item_id for i in caption_items if profiles.get(i.style_id,{}).get('anchor_item_id')==clip.item_id]
-                muted=any(e.effect_id=='audio.source' and e.parameters['mode']=='mute' for e in clip.effects)
-                if muted and anchored:delivery_issues.append({'code':'subtitle_muted_source','item_ids':anchored,'message':'字幕所引用的原音已靜音，請確認聲音安排並重建對應字幕。'})
-                if any(e.effect_id=='video.speed_ramp' for e in clip.effects) and (not muted or anchored):
-                    delivery_issues.append({'code':'retimed_speech_mapping_unavailable','item_id':clip.item_id,
-                        'message':'這段變速尚無可靠的語音時間映射。請移除語音鏡頭的變速，或將它改為不帶口語字幕的靜音畫面。'})
-            with self.repository.projects.connect(self.project_id) as db:
-                corrections=db.execute("SELECT request_json FROM production_evidence_jobs WHERE run_id=? AND kind='align' AND state='succeeded'",(self.run_id,)).fetchall()
-            changed={(value['transcript_job_id'],str(value['correction']['segment_ordinal'])) for row in corrections
-                     if 'correction' in (value:=json.loads(row['request_json']))}
-            stale_text=[i.item_id for t in self._timeline().tracks if t.track_id=='agent-subtitles' for i in t.items
-                        if (profiles.get(i.style_id,{}).get('source_revision_id'),str(profiles.get(i.style_id,{}).get('segment_id'))) in changed]
-            if stale_text:delivery_issues.append({'code':'subtitle_source_changed','item_ids':stale_text,'message':'來源口語已有更正，請使用最新證據重新建立相關字幕。'})
-            revision_id=self.repository.current_revision(self.project_id,self.run_id).revision_id
-            with self.repository.projects.connect(self.project_id) as db:
-                rows=db.execute("SELECT payload_json FROM edit_agent_events WHERE run_id=? AND event_type='mix_review' ORDER BY sequence DESC",(self.run_id,)).fetchall()
-            from .production_preview import render_recipe_id
-            recipe_id=render_recipe_id()
-            mix=next((value for r in rows if (value:=json.loads(r['payload_json']))['revision_id']==revision_id and value.get('recipe_id')==recipe_id),None)
-            if mix is None:delivery_issues.append({'code':'mix_review_required','message':'請在預覽完成後呼叫 inspect_mix，檢查實際配樂與混音量測。'})
-            else:delivery_issues+=mix['issues']
+        from .speech_coverage import speech_coverage
+        coverage=speech_coverage(self)
+        if not coverage['complete']:delivery_issues.append({'code':'source_speech_evidence_missing','ranges':coverage['unknown_ranges'],
+            'message':'保留的原音仍有未取證範圍，請按需轉寫或明確調整剪輯；空搜尋不能視為沒有對話。'})
+        from .program_subtitles import subtitle_status
+        subtitle_review=subtitle_status(self.repository.projects,self.project_id,self._timeline())
+        pending=subtitle_review['unaligned_item_ids']
+        if pending:delivery_issues.append({'code':'subtitle_alignment_required','item_ids':pending,
+            'message':'字幕時間尚未核對，或修改文字後原對齊已失效。請核對來源並修復相關字幕；可以先看草稿。'})
+        if not subtitle_review['count'] and self._production_list_transcripts({'include_drafts':True}).payload['cues']:
+            delivery_issues.append({'code':'program_subtitles_missing','message':'目前保留口語但沒有節目字幕，請依來源建立並對齊字幕。'})
+        from .programme_review import caption_coverage
+        captions=caption_coverage(self,self._production_list_transcripts({'include_drafts':True}).payload)
+        if captions['missing_cues']:
+            delivery_issues.append({'code':'subtitle_coverage_incomplete','ranges':captions['missing_cues'],
+                'message':'保留口語仍有缺漏字幕；少數已對齊字幕不能代表整片完成。請修復來源辨識／對齊並重建字幕，或明確調整原音剪輯。'})
+        if captions['unresolved_item_ids']:
+            delivery_issues.append({'code':'subtitle_source_range_unresolved','item_ids':captions['unresolved_item_ids'],
+                'message':'部分原音切在尚未對齊的句段內，尚無完整可用字幕；請按需重新轉寫該區間，不能以刪除字幕消除待辦。'})
+        from .production_media import load_text_styles
+        profiles=load_text_styles(self.repository.projects,self.project_id)
+        shots={i.item_id:i for i in self._video().items}
+        caption_items=[i for t in self._timeline().tracks if t.track_id=='agent-subtitles' for i in t.items]
+        for clip in shots.values():
+            anchored=[i.item_id for i in caption_items if profiles.get(i.style_id,{}).get('anchor_item_id')==clip.item_id]
+            muted=any(e.effect_id=='audio.source' and e.parameters['mode']=='mute' for e in clip.effects)
+            if muted and anchored:delivery_issues.append({'code':'subtitle_muted_source','item_ids':anchored,'message':'字幕所引用的原音已靜音，請確認聲音安排並重建對應字幕。'})
+            if any(e.effect_id=='video.speed_ramp' for e in clip.effects) and (not muted or anchored):
+                delivery_issues.append({'code':'retimed_speech_mapping_unavailable','item_id':clip.item_id,
+                    'message':'這段變速尚無可靠的語音時間映射。請移除語音鏡頭的變速，或將它改為不帶口語字幕的靜音畫面。'})
+        with self.repository.projects.connect(self.project_id) as db:
+            corrections=db.execute("SELECT request_json FROM production_evidence_jobs WHERE run_id=? AND kind='align' AND state='succeeded'",(self.run_id,)).fetchall()
+        changed={(value['transcript_job_id'],str(value['correction']['segment_ordinal'])) for row in corrections
+                 if 'correction' in (value:=json.loads(row['request_json']))}
+        stale_text=[i.item_id for t in self._timeline().tracks if t.track_id=='agent-subtitles' for i in t.items
+                    if (profiles.get(i.style_id,{}).get('source_revision_id'),str(profiles.get(i.style_id,{}).get('segment_id'))) in changed]
+        if stale_text:delivery_issues.append({'code':'subtitle_source_changed','item_ids':stale_text,'message':'來源口語已有更正，請使用最新證據重新建立相關字幕。'})
+        revision_id=self.repository.current_revision(self.project_id,self.run_id).revision_id
+        with self.repository.projects.connect(self.project_id) as db:
+            rows=db.execute("SELECT payload_json FROM edit_agent_events WHERE run_id=? AND event_type='mix_review' ORDER BY sequence DESC",(self.run_id,)).fetchall()
+        from .production_preview import render_recipe_id
+        recipe_id=render_recipe_id()
+        mix=next((value for r in rows if (value:=json.loads(r['payload_json']))['revision_id']==revision_id and value.get('recipe_id')==recipe_id),None)
+        if mix is None:delivery_issues.append({'code':'mix_review_required','message':'請在預覽完成後呼叫 inspect_mix，檢查實際配樂與混音量測。'})
+        else:delivery_issues+=mix['issues']
         issues+=delivery_issues
         styles=load_text_styles(self.repository.projects,self.project_id)
         fps=self._timeline().frame_rate.numerator/self._timeline().frame_rate.denominator
@@ -577,7 +575,7 @@ class ProductionTools:
         used_styles={i.style_id for t in revision.timeline.tracks if t.kind is TrackKind.TITLE for i in t.items}
         atomic_json(path,{'timeline':revision.timeline.to_payload(),'credits':credits,'text_styles':{k:v for k,v in styles.items() if k in used_styles},
             'production_contents':production_contents(self.repository.projects,self.project_id,revision.timeline),
-            **({'production_skill':self._skill_value(),'production_intent':self._session_value()['intent']} if self._session_value() else {}),
+            'production_skill':self._skill_value(),'production_intent':self._session_value()['intent'],
             'creative_direction':self.repository.creative_direction(self.project_id,self.run_id),
             'episode':read_episode(self.repository.projects,self.project_id,self.run_id,revision.timeline),
             'subtitle_review':subtitle_status(self.repository.projects,self.project_id,revision.timeline),'format':'clipen.native.v1'})

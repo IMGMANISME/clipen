@@ -45,50 +45,48 @@ class EditAgentRepository:
         provider: str = "codex",
         max_tool_calls: int = 80,
         max_preview_renders: int = 4,
-        creative_direction: dict | None = None,
-        production: dict | None = None,
+        production: dict,
     ) -> tuple[AgentRun, bool]:
+        """Start an AI production session; there are no runs without one."""
         validate_project_id(project_id)
         request = validate_request_id(request_id)
         from .program_direction import validate_direction, PROGRAM_DIRECTION, FULL_PRODUCTION_REQUIREMENTS
-        skill = None
-        if production is not None:
-            if not isinstance(production, dict) or (not {"skill_id", "intent"} <= set(production) or not set(production) <= {"skill_id", "intent", "visual_style_id", "font_style_id", "target_duration_seconds", "music_asset_id", "template_id"}):
-                raise ProjectError("production_input_invalid", "請選擇剪輯樣板並填寫影片需求。", status_code=422)
-            from clipen.skills import get_skill
-            skill = get_skill(production["skill_id"])
-            from clipen.skills.visual_styles import style_presets, font_presets
-            template=None
-            template_supplied='template_id' in production
-            font_supplied='font_style_id' in production or template_supplied
-            if 'template_id' not in production:
-                inferred=next((t for t in skill.get('templates',[]) if t['visual_style_id']==production.get('visual_style_id')),None)
-                if inferred is not None:production={**production,'template_id':inferred['template_id']}
-            if 'template_id' in production:
-                template=next((t for t in skill.get('templates',[]) if t['template_id']==production['template_id']),None)
-                if template is None:raise ProjectError('template_unavailable','找不到這套影片模板。',status_code=422)
-                if production.get('visual_style_id',template['visual_style_id'])!=template['visual_style_id']:
-                    raise ProjectError('template_conflict','畫面風格與選擇的模板不一致，請重新選擇。',status_code=422)
-                production={**production,'visual_style_id':template['visual_style_id'],'font_style_id':production.get('font_style_id',template['font_style_id'])}
-                # A template is its own skill over the production core.
-                skill=get_skill(template['skill']['skill_id'])
-                skill['selected_template_id']=template['template_id']
-            elif skill.get('template'):
-                # The template skill was chosen directly; keep its design brief in the intent.
-                template=skill['template']
-                skill['selected_template_id']=template['template_id']
-            target=production.get('target_duration_seconds',skill.get('default_duration_seconds',60))
-            if isinstance(target,bool) or not isinstance(target,int) or not 30<=target<=1200:
-                raise ProjectError('production_input_invalid','預計片長必須為 30 到 1200 秒。',status_code=422)
-            from .workbench import music_choice
-            selected_music=music_choice(self,project_id,production.get("music_asset_id"))
-            supplied_style="visual_style_id" in production
-            selected,_=style_presets(skill,production.get('visual_style_id'))
-            skill['selected_visual_style_id']=selected
-            selected_font,_=font_presets(skill,{},production.get('font_style_id'))
-            skill['selected_font_style_id']=selected_font
-            production = {**({'template_id':template['template_id']} if template_supplied else {}),"skill_id": skill["skill_id"], "intent": bounded_text(production["intent"], "影片需求", 8000), **({"visual_style_id":selected} if supplied_style else {}), **({"font_style_id":selected_font} if font_supplied else {}), **({"target_duration_seconds":target} if "target_duration_seconds" in production else {}), **({"music_asset_id":production["music_asset_id"]} if "music_asset_id" in production else {})}
-            creative_direction = {**PROGRAM_DIRECTION, "production_requirements": FULL_PRODUCTION_REQUIREMENTS}
+        if not isinstance(production, dict) or (not {"skill_id", "intent"} <= set(production) or not set(production) <= {"skill_id", "intent", "visual_style_id", "font_style_id", "target_duration_seconds", "music_asset_id", "template_id"}):
+            raise ProjectError("production_input_invalid", "請選擇剪輯樣板並填寫影片需求。", status_code=422)
+        from clipen.skills import get_skill
+        skill = get_skill(production["skill_id"])
+        from clipen.skills.visual_styles import style_presets, font_presets
+        template=None
+        template_supplied='template_id' in production
+        font_supplied='font_style_id' in production or template_supplied
+        if 'template_id' not in production:
+            inferred=next((t for t in skill.get('templates',[]) if t['visual_style_id']==production.get('visual_style_id')),None)
+            if inferred is not None:production={**production,'template_id':inferred['template_id']}
+        if 'template_id' in production:
+            template=next((t for t in skill.get('templates',[]) if t['template_id']==production['template_id']),None)
+            if template is None:raise ProjectError('template_unavailable','找不到這套影片模板。',status_code=422)
+            if production.get('visual_style_id',template['visual_style_id'])!=template['visual_style_id']:
+                raise ProjectError('template_conflict','畫面風格與選擇的模板不一致，請重新選擇。',status_code=422)
+            production={**production,'visual_style_id':template['visual_style_id'],'font_style_id':production.get('font_style_id',template['font_style_id'])}
+            # A template is its own skill over the production core.
+            skill=get_skill(template['skill']['skill_id'])
+            skill['selected_template_id']=template['template_id']
+        elif skill.get('template'):
+            # The template skill was chosen directly; keep its design brief in the intent.
+            template=skill['template']
+            skill['selected_template_id']=template['template_id']
+        target=production.get('target_duration_seconds',skill.get('default_duration_seconds',60))
+        if isinstance(target,bool) or not isinstance(target,int) or not 30<=target<=1200:
+            raise ProjectError('production_input_invalid','預計片長必須為 30 到 1200 秒。',status_code=422)
+        from .workbench import music_choice
+        selected_music=music_choice(self,project_id,production.get("music_asset_id"))
+        supplied_style="visual_style_id" in production
+        selected,_=style_presets(skill,production.get('visual_style_id'))
+        skill['selected_visual_style_id']=selected
+        selected_font,_=font_presets(skill,{},production.get('font_style_id'))
+        skill['selected_font_style_id']=selected_font
+        production = {**({'template_id':template['template_id']} if template_supplied else {}),"skill_id": skill["skill_id"], "intent": bounded_text(production["intent"], "影片需求", 8000), **({"visual_style_id":selected} if supplied_style else {}), **({"font_style_id":selected_font} if font_supplied else {}), **({"target_duration_seconds":target} if "target_duration_seconds" in production else {}), **({"music_asset_id":production["music_asset_id"]} if "music_asset_id" in production else {})}
+        creative_direction = {**PROGRAM_DIRECTION, "production_requirements": FULL_PRODUCTION_REQUIREMENTS}
         creative_direction = validate_direction(creative_direction)
         if isinstance(max_tool_calls, bool) or not 1 <= max_tool_calls <= 500:
             raise ValueError("max_tool_calls is invalid")
@@ -99,8 +97,8 @@ class EditAgentRepository:
                 "provider": provider,
                 "max_tool_calls": max_tool_calls,
                 "max_preview_renders": max_preview_renders,
-                **({"creative_direction":creative_direction} if creative_direction is not None else {}),
-                **({"production": production} if production is not None else {}),
+                "creative_direction": creative_direction,
+                "production": production,
             }
         )
         from clipen.provider_registry import implemented_providers
@@ -127,17 +125,6 @@ class EditAgentRepository:
                     result = self._read_run(database, replay_id)
                     database.rollback()
                     return result, False
-                base = database.execute(
-                    "SELECT timelines.* FROM current_timeline current "
-                    "JOIN edit_timelines timelines ON timelines.timeline_id=current.timeline_id "
-                    "WHERE current.slot=1"
-                ).fetchone()
-                if base is None and production is None:
-                    raise ProjectError(
-                        "timeline_required",
-                        "請先建立可執行的剪輯版本。",
-                        status_code=409,
-                    )
                 busy = database.execute(
                     "SELECT run_id FROM edit_agent_runs "
                     "WHERE state IN ('queued','running') LIMIT 1"
@@ -148,23 +135,18 @@ class EditAgentRepository:
                         "已有一個 AI 剪輯工作正在進行。",
                         status_code=409,
                     )
-                sources = None
-                if production is not None:
-                    from clipen.domain import Rational, Track, TrackKind
-                    from .production_media import source_rows
-                    sources = source_rows(self.projects, project_id)
-                    inventory = database.execute("SELECT run_id FROM current_inventory WHERE slot=1").fetchone()
-                    if inventory is None or not any(s["kind"] == "video" for s in sources):
-                        raise ProjectError("inventory_required", "請先檢查素材，至少需要一段可用影片。", status_code=409)
-                    timeline = EditTimeline(
-                        make_id("production_", run_id), project_id, None, None, None,
-                        Rational(30, 1), 1280, 720, 0, (Track("video-main", TrackKind.VIDEO, ()),),
-                        production_session_id=run_id,
-                    )
-                    payload = timeline.to_payload()
-                else:
-                    payload = json.loads(base["payload_json"])
-                    timeline = EditTimeline.from_payload(payload)
+                from clipen.domain import Rational, Track, TrackKind
+                from .production_media import source_rows
+                sources = source_rows(self.projects, project_id)
+                inventory = database.execute("SELECT run_id FROM current_inventory WHERE slot=1").fetchone()
+                if inventory is None or not any(s["kind"] == "video" for s in sources):
+                    raise ProjectError("inventory_required", "請先檢查素材，至少需要一段可用影片。", status_code=409)
+                timeline = EditTimeline(
+                    make_id("production_", run_id), project_id, None, None, None,
+                    Rational(30, 1), 1280, 720, 0, (Track("video-main", TrackKind.VIDEO, ()),),
+                    production_session_id=run_id,
+                )
+                payload = timeline.to_payload()
                 digest = hashlib.sha256(encoded(payload).encode("utf-8")).hexdigest()
                 revision_id = make_id("editrev_", [run_id, 0, digest])
                 database.execute(
@@ -176,7 +158,7 @@ class EditAgentRepository:
                         run_id,
                         project_id,
                         request,
-                        None if production is not None else timeline.timeline_id,
+                        None,
                         max_tool_calls,
                         max_preview_renders,
                         revision_id,
@@ -188,15 +170,13 @@ class EditAgentRepository:
                     "INSERT INTO edit_agent_revisions "
                     "(revision_id,run_id,ordinal,parent_revision_id,payload_digest,"
                     "payload_json,summary,created_at) VALUES(?,?,0,NULL,?,?,?,?)",
-                    (revision_id, run_id, digest, encoded(payload), "空白製作草稿" if production else "原始剪輯版本", now),
+                    (revision_id, run_id, digest, encoded(payload), "空白製作草稿", now),
                 )
-                if production is not None:
-                    database.execute("INSERT INTO production_sessions VALUES(?,?,?,?,?,?)", (
-                        run_id, encoded({**({'template':template} if template else {}),"authority": "user", "brief": production["intent"], "allow_local_model_downloads": True, "visual_style_id":selected, "font_style_id":selected_font, "target_duration_seconds":target, "music_choice":selected_music}),
-                        encoded(skill), encoded(sources), inventory["run_id"], now,
-                    ))
-                self._append_event(database, run_id, "run_created", {"revision_id": revision_id,
-                    **({"creative_direction":creative_direction} if creative_direction is not None else {})}, now)
+                database.execute("INSERT INTO production_sessions VALUES(?,?,?,?,?,?)", (
+                    run_id, encoded({**({'template':template} if template else {}),"authority": "user", "brief": production["intent"], "allow_local_model_downloads": True, "visual_style_id":selected, "font_style_id":selected_font, "target_duration_seconds":target, "music_choice":selected_music}),
+                    encoded(skill), encoded(sources), inventory["run_id"], now,
+                ))
+                self._append_event(database, run_id, "run_created", {"revision_id": revision_id, "creative_direction": creative_direction}, now)
                 database.execute(
                     "INSERT INTO edit_agent_command_receipts VALUES(?,?,?,?,?)",
                     (request, "start", request_hash, encoded({"run_id": run_id}), now),

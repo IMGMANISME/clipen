@@ -416,7 +416,6 @@ export type EditAgentResult = {
   summary: string
   created_at: string
   timeline: EditAgentTimeline
-  is_style_proof: boolean
   proof_stats: {
     duration_seconds: number
     clip_count: number

@@ -12,6 +12,8 @@ import unittest
 from unittest.mock import patch
 
 from clipen.domain import EffectRequest, MediaClip, TextClip, Track, TrackKind
+from clipen.editing import EditAgentTools
+from clipen.editing.agent_models import ToolResult
 from clipen.editing.production_catalog import EXTRA_TOOLS
 from clipen.editing.production_media import AgentAudioStore, transcript_cues
 from clipen.media import MediaPreview
@@ -19,23 +21,32 @@ from clipen.projects import ProjectError
 from clipen.rendering import FfmpegPreviewRenderer
 from clipen.mcp_editing.server import _TOOLS, EditingMcpServer
 from clipen.providers.codex_editing import _MCP_TOOLS
-import test_edit_agent as fixtures
+from production_fixture import ProductionFixture
 import test_finishing as evidence_fixtures
 
 
 class ProductionToolsTests(unittest.TestCase):
     def setUp(self):
-        self.fixture=fixtures.EditAgentTests();self.fixture.setUp()
+        self.fixture=ProductionFixture();self.fixture.setUp()
         self.projects=self.fixture.projects;self.project=self.fixture.project
         self.run,self.tools=self.fixture.create_tools(calls=120)
-        self.tools.call('replace_sequence',{'clips':[{'candidate_id':'candidate-street','start_offset_seconds':o,'duration_seconds':4} for o in (0,.5,1,1.5,2,2.5,3,4)],'summary':'先建立可看的粗剪'})
+        self.candidate=self.fixture.candidate
+        self.call('replace_sequence',clips=[{'candidate_id':self.candidate,'start_offset_seconds':o,'duration_seconds':4} for o in (0,.5,1,1.5,2,2.5,3,4)],summary='先建立可看的粗剪')
         timeline=self.tools._timeline()
         self.fixture.repository.save_revision(self.project.project_id,self.run.run_id,replace(timeline,width=320,height=180),'使用小尺寸測試畫布')
 
     def tearDown(self):
         self.tools.close_production();self.fixture.tearDown()
 
-    def call(self,name,**args):return self.tools.call(name,args)
+    def call(self,name,**args):return self.fixture.call(self.tools,name,args)
+    def without_delivery_issues(self):
+        # Production delivery checks (graphics, subtitles, mix) are covered elsewhere; these tests reach the finish gates behind them.
+        return patch.object(EditAgentTools,'_production_validate_sequence',return_value=ToolResult({'issues':[]}))
+    def seed_title(self,text='抵達',start=0,duration=30):
+        # Production never adds standalone title cards; seed one to exercise the generic text tools.
+        timeline=self.tools._timeline()
+        track=Track('titles-main',TrackKind.TITLE,(TextClip('agent-title-0001',start,duration,text,'title.chapter'),))
+        self.fixture.repository.save_revision(self.project.project_id,self.run.run_id,replace(timeline,tracks=timeline.tracks+(track,)),'加入測試字卡')
 
     def test_catalog_capabilities_and_every_tool_is_registered_with_provider(self):
         names={t['name'] for t in _TOOLS}
@@ -48,36 +59,25 @@ class ProductionToolsTests(unittest.TestCase):
         paged=self.call('search_media',query='',limit=1,offset=1)
         self.assertEqual(paged.payload['returned'],0)
 
-    def test_agent_can_revisit_full_source_outside_the_original_candidate_windows(self):
-        from clipen.media import InventoryRepository,InventoryState,AssetCandidate,AssetKind,ItemStatus,ProbeStatus,MediaStream
-        from clipen.projects import DirectoryReference,DirectoryRole
-        from clipen.editing import EditAgentTools
-        source=Path(self.fixture.temporary.name)/'source';source.mkdir();info=source.stat()
-        project=self.projects.set_directory(self.project.project_id,'grant-source','a'*64,self.project.revision,
-            DirectoryReference(DirectoryRole.SOURCE,str(source),str(source),'source',info.st_dev,info.st_ino,'2026-10-17T00:00:00+00:00'))
-        inventory=InventoryRepository(self.projects);run=inventory.create_run(project.project_id,'inventory-raw',project.revision)
-        inventory.transition(project.project_id,run.run_id,InventoryState.RUNNING,phase='probing')
-        item=AssetCandidate(DirectoryRole.SOURCE,'raw.mp4',AssetKind.VIDEO,ItemStatus.USABLE,None,1024,123456,'b'*64,ProbeStatus.READY,
-                            {'duration_seconds':'20'},(MediaStream(0,'video','h264',{'start_pts':'90000','duration_ts':'1800000','time_base':'1/90000','width':320,'height':180}),))
-        inventory.stage_items(project.project_id,run.run_id,(item,));inventory.publish(project.project_id,run.run_id)
+    def test_agent_can_revisit_the_full_source_beyond_its_registered_ranges(self):
         listed=self.call('list_source_media',limit=1).payload['sources']
-        self.assertEqual(len(listed),1);self.assertNotIn(str(source),json.dumps(listed))
+        self.assertEqual(len(listed),1);self.assertNotIn(self.fixture.temporary.name,json.dumps(listed))
         candidate=self.call('register_source_range',version_id=listed[0]['version_id'],stream_index=0,start_offset_seconds=.25,duration_seconds=8,description='LLM 重新檢視的原片範圍').payload
         identifier=candidate['candidate']['candidate_id']
-        self.assertEqual(candidate['source']['start_pts'],'112500')
+        self.assertEqual(candidate['source']['start_pts'],'22500')
         self.assertEqual(candidate['authority'],'model_authored_observation')
-        with self.assertRaises(ProjectError):self.call('register_source_range',version_id=listed[0]['version_id'],stream_index=0,start_offset_seconds=19,duration_seconds=8,description='超出來源')
+        with self.assertRaises(ProjectError):self.call('register_source_range',version_id=listed[0]['version_id'],stream_index=0,start_offset_seconds=9,duration_seconds=8,description='超出來源')
         self.call('record_story_plan',intent='讓事件順序更清楚',sections=[{'purpose':'從抵達到探索','candidate_ids':[identifier],'treatment':'使用原音帶出現場感'}],uncertainties=['尚未檢視完整動作'])
         self.assertEqual(self.call('read_story_plan').payload['story_plan']['authority'],'model_authored')
-        self.call('replace_sequence',clips=[{'candidate_id':identifier,'start_offset_seconds':n*.25,'duration_seconds':4} for n in range(8)],summary='使用原本候選以外的片段重剪')
+        self.call('replace_sequence',clips=[{'candidate_id':identifier,'start_offset_seconds':n*.25,'duration_seconds':4} for n in range(8)],summary='使用新登記的範圍重剪')
         self.assertTrue(all(i.source.span.version_id==listed[0]['version_id'] for i in self.tools._video().items))
-        source={'version_id':listed[0]['version_id'],'stream_index':0,'start_pts':'90000','end_pts':'1170000','time_base':{'num':1,'den':90000}}
-        self.call('replace_clip_source',item_id='agent-video-0001',source=source,summary='擴回十二秒完整口語來源')
-        self.assertEqual(self.tools._video().items[0].source.span.start_pts,'90000')
-        self.assertEqual(self.tools._video().items[0].duration_frames,360)
+        source={'version_id':listed[0]['version_id'],'stream_index':0,'start_pts':'0','end_pts':'900000','time_base':{'num':1,'den':90000}}
+        self.call('replace_clip_source',item_id='agent-video-0001',source=source,summary='擴回十秒完整來源')
+        self.assertEqual(self.tools._video().items[0].source.span.start_pts,'0')
+        self.assertEqual(self.tools._video().items[0].duration_frames,300)
         with self.assertRaises(ProjectError):self.call('replace_clip_source',item_id='agent-video-0001',source={**source,'end_pts':'999999999'},summary='不能越出原片')
-        reloaded=EditAgentTools(self.fixture.repository,project.project_id,self.run.run_id,planning=fixtures.StaticPlanningInput(self.fixture.plan,self.fixture.context),artifacts=fixtures.EmptyArtifacts())
-        self.assertEqual(reloaded._candidate(identifier).source.start_pts,'112500')
+        reloaded=EditAgentTools(self.fixture.repository,self.project.project_id,self.run.run_id)
+        self.assertEqual(reloaded._candidate(identifier).source.start_pts,'22500')
 
     def test_mutations_are_real_undoable_and_recut_explicitly_invalidates_timing(self):
         original=self.tools.repository.current_revision(self.project.project_id,self.run.run_id)
@@ -100,25 +100,23 @@ class ProductionToolsTests(unittest.TestCase):
         ids=[i.item_id for i in self.tools._video().items]
         self.call('reorder_clips',item_ids=ids[::-1],summary='重排敘事')
         self.assertEqual(self.tools._video().items[0].item_id,ids[-1])
-        self.call('insert_clip',candidate_id='candidate-street',start_offset_seconds=5,duration_seconds=2,before_item_id=None,summary='補入環境鏡頭')
+        self.call('insert_clip',candidate_id=self.candidate,start_offset_seconds=5,duration_seconds=2,before_item_id=None,summary='補入環境鏡頭')
         self.assertEqual(len(self.tools._video().items),10)
         self.call('remove_item',item_id=self.tools._video().items[-1].item_id,summary='移除補拍鏡頭')
         self.call('restore_revision',revision_id=original.revision_id,summary='還原粗剪')
         self.assertEqual(self.tools._timeline(),original.timeline)
         history=self.call('get_edit_history').payload
         self.assertTrue(any(e['event_type']=='tool_failed' for e in history['events']))
-        self.assertTrue(self.call('validate_sequence').payload['valid'])
+        self.assertEqual(self.call('validate_sequence').payload['render_issues'],[])
         exported=self.call('export_edit').payload
         self.assertEqual(exported['format'],'clipen.native.v1')
         path=self.projects.root/self.project.project_id/'agent-production'/self.run.run_id/'exports'/(original.revision_id+'.json')
         self.assertEqual(json.loads(path.read_text())['timeline'],original.timeline.to_payload())
 
-    def test_shot_bound_cards_and_final_fade_have_precise_semantics(self):
+    def test_title_cards_are_refused_and_final_fade_has_precise_semantics(self):
         first=self.tools._video().items[0];last=self.tools._video().items[-1]
-        with self.assertRaises(ProjectError):self.call('add_clip_title',item_id=first.item_id,start_offset_frames=100,duration_frames=30,text='地點',evidence='來源招牌',style_id='title.chapter',summary='不能跨到下個店面')
-        self.call('add_clip_title',item_id=last.item_id,start_offset_frames=0,duration_frames=30,text='現場',evidence='目前鏡頭實際顯示的環境',style_id='title.chapter',summary='文字與鏡頭對齊')
-        title=next(t for t in self.tools._timeline().tracks if t.kind is TrackKind.TITLE).items[0]
-        self.assertEqual(title.start_frame,last.start_frame)
+        with self.assertRaises(ProjectError) as refused:self.call('add_clip_title',item_id=last.item_id,start_offset_frames=0,duration_frames=30,text='現場',evidence='目前鏡頭實際顯示的環境',style_id='title.chapter',summary='製作方向不用字卡')
+        self.assertEqual(refused.exception.code,'title_cards_disabled')
         self.call('set_fade',item_id=last.item_id,fade_in_frames=0,fade_out_frames=24,summary='最後一鏡真正淡出')
         from clipen.rendering.production_effects import transition_filters
         chain=transition_filters(self.tools._video().items[-1],None,self.tools._timeline())
@@ -203,7 +201,7 @@ class ProductionToolsTests(unittest.TestCase):
         with patch('clipen.editing.production_media.transcript_cues',return_value=([cue],[])):
             with self.assertRaises(ProjectError):self.call('replace_subtitles',captions=[{'cue_id':'invented','text':'假的口語'}],summary='不應通過')
             self.call('replace_subtitles',captions=[{'cue_id':'real-cue','text':'我們抵達臺北了'}],summary='加入真實口語字幕')
-        self.call('add_title',start_frame=0,duration_frames=30,text='抵達',style_id='title.chapter',summary='加入地點字卡')
+        self.seed_title()
         self.assertEqual(len([t for t in self.tools._timeline().tracks if t.kind is TrackKind.TITLE]),2)
         self.call('edit_text',item_id='agent-title-0001',start_frame=0,duration_frames=30,text='臺北',style_id='title.chapter',summary='修正地點')
         subtitle=next(t for t in self.tools._timeline().tracks if t.track_id=='agent-subtitles')
@@ -218,14 +216,14 @@ class ProductionToolsTests(unittest.TestCase):
         self.assertTrue(response['result']['isError']);self.assertEqual(self.tools._timeline(),original)
         with self.assertRaises(ProjectError):self.call('inspect_preview',render_id='../../outside',offsets_seconds=[0])
         with self.assertRaises(ProjectError):self.call('restore_revision',revision_id='foreign',summary='錯誤')
-        with self.assertRaises(ProjectError) as error:self.call('finish_edit',summary='沒有觀看不能宣稱完成')
+        with self.without_delivery_issues(),self.assertRaises(ProjectError) as error:self.call('finish_edit',summary='沒有觀看不能宣稱完成')
         self.assertEqual(error.exception.code,'agent_preview_review_required')
 
     def test_custom_text_style_controls_actual_raster_and_is_exported(self):
         from clipen.rendering.titles import TitleCardRenderer
         from clipen.editing.production_media import load_text_styles
         from PIL import Image
-        self.call('add_title',start_frame=0,duration_frames=60,text='東京',style_id='title.chapter',summary='加入字卡')
+        self.seed_title('東京',0,60)
         profile={'item_id':'agent-title-0001','font_size_ratio':.08,'x':.1,'y':.4,'width_ratio':.7,'align':'center',
                  'text_color':[255,30,30,255],'background_color':[0,0,0,0],'summary':'依畫面安排字體與位置'}
         self.call('configure_text_style',**profile)
@@ -308,7 +306,7 @@ class ProductionToolsTests(unittest.TestCase):
         class Media:
             def __init__(self):self.projects=projects
             def open(self,*args):return MediaPreview(os.open(source,os.O_RDONLY),source.stat().st_size,'video/mp4',(1,),(0,))
-        self.call('replace_sequence',clips=[{'candidate_id':'candidate-street','start_offset_seconds':n*.13,'duration_seconds':4.017} for n in range(9)],summary='29.97fps來源精剪到30fps時間軸，不能逐鏡累積四捨五入誤差')
+        self.call('replace_sequence',clips=[{'candidate_id':self.candidate,'start_offset_seconds':n*.13,'duration_seconds':4.017} for n in range(9)],summary='29.97fps來源精剪到30fps時間軸，不能逐鏡累積四捨五入誤差')
         timeline=self.tools._timeline();output=root/'fractional-output.mp4'
         FfmpegPreviewRenderer(Media()).render(self.project.project_id,timeline,output,threading.Event(),lambda _:None)
         info=json.loads(subprocess.check_output(['ffprobe','-v','error','-show_streams','-of','json',str(output)]))
@@ -328,7 +326,7 @@ class ProductionToolsTests(unittest.TestCase):
         class Media:
             def __init__(self):self.projects=projects
             def open(self,*args):return MediaPreview(os.open(source,os.O_RDONLY),source.stat().st_size,'video/mp4',(),(0,))
-        self.call('replace_sequence',clips=[{'candidate_id':'candidate-street','start_offset_seconds':.015+4*(n%2),'duration_seconds':2.97125} for n in range(12)],
+        self.call('replace_sequence',clips=[{'candidate_id':self.candidate,'start_offset_seconds':.015+4*(n%2),'duration_seconds':2.97125} for n in range(12)],
             reprise_reason='交替色塊驗證分數影格剪點與分批邊界',summary='字幕切換時不應仍顯示上一鏡')
         timeline=self.tools._timeline();output=root/'cut-colors-output.mp4'
         FfmpegPreviewRenderer(Media()).render(self.project.project_id,timeline,output,threading.Event(),lambda _:None)
@@ -352,13 +350,13 @@ class ProductionToolsTests(unittest.TestCase):
             def __init__(self):self.projects=projects
             def open(self,*args):return MediaPreview(os.open(source,os.O_RDONLY),source.stat().st_size,'video/mp4',(1,),(0,))
         self.tools.media=Media();self.tools.preview_renderer=FfmpegPreviewRenderer(self.tools.media)
-        self.call('insert_clip',candidate_id='candidate-street',start_offset_seconds=4,duration_seconds=4,before_item_id=None,summary='檢查分批渲染的剪點')
+        self.call('insert_clip',candidate_id=self.candidate,start_offset_seconds=4,duration_seconds=4,before_item_id=None,summary='檢查分批渲染的剪點')
         ninth=self.tools._video().items[-1].item_id
         self.call('set_transition',item_id=ninth,kind='dip_black',duration_frames=12,summary='跨分批邊界的轉場')
-        sampled=self.call('sample_source',candidate_id='candidate-street',offsets_seconds=[.5,2,5])
+        sampled=self.call('sample_source',candidate_id=self.candidate,offsets_seconds=[.5,2,5])
         self.assertEqual(len(sampled.images),3)
-        with self.assertRaises(ProjectError):self.call('sample_source',candidate_id='candidate-street',offsets_seconds=[11])
-        prepared=self.call('extract_audio',candidate_id='candidate-street',start_offset_seconds=1,duration_seconds=2)
+        with self.assertRaises(ProjectError):self.call('sample_source',candidate_id=self.candidate,offsets_seconds=[11])
+        prepared=self.call('extract_audio',candidate_id=self.candidate,start_offset_seconds=1,duration_seconds=2)
         asset=prepared.payload['assets'][0]
         self.assertEqual(asset['provenance']['license'],'user_source_rights_unknown')
         inspected=self.call('inspect_audio',asset_id=asset['asset_id'])
@@ -391,18 +389,19 @@ class ProductionToolsTests(unittest.TestCase):
         self.call('remove_audio',layer_id='ambient-one',summary='移除聲音作為第二版')
         stale=self.call('inspect_preview',render_id=started['render']['render_id'],offsets_seconds=[]).payload
         self.assertTrue(stale['stale'])
-        with self.assertRaises(ProjectError) as error:self.call('finish_edit',summary='舊預覽不算目前版本')
+        with self.without_delivery_issues(),self.assertRaises(ProjectError) as error:self.call('finish_edit',summary='舊預覽不算目前版本')
         self.assertEqual(error.exception.code,'agent_preview_review_required')
         self.call('restore_revision',revision_id=reviewed_id,summary='選回已檢視版本')
         # Sparse output samples cannot certify an entire cut. Cover every shot,
         # then record concrete revision-bound findings before finishing.
-        with self.assertRaises(ProjectError):self.call('finish_edit',summary='只看幾張圖還不能完成')
+        with self.without_delivery_issues(),self.assertRaises(ProjectError):self.call('finish_edit',summary='只看幾張圖還不能完成')
         ids=[i.item_id for i in self.tools._video().items]
         for n in range(0,len(ids),3):
             self.call('inspect_cut',item_ids=ids[n:n+3],render_id=started['render']['render_id'])
         shots=[{'item_id':i,'observation':'測試圖案在三個時間點皆可見，轉場前後位置正確','decision':'keep'} for i in ids]
         self.call('review_cut',shots=shots,text_checks=[],story_assessment='技術測試素材連續排列，沒有敘事品質判定',audio_limitations='沒有聽音訊，只驗證本機混音')
-        finished=self.call('finish_edit',summary='已檢視的版本')
+        with self.without_delivery_issues():
+            finished=self.call('finish_edit',summary='已檢視的版本',changes=[{'what':'檢查分批渲染與效果','why':'技術測試'}])
         self.assertEqual(finished.payload['state'],'succeeded')
         self.assertEqual(finished.payload['budget']['preview_renders'],1)
         self.assertEqual(finished.payload['export']['revision_id'],finished.payload['final_revision_id'])

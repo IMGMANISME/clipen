@@ -19,8 +19,7 @@ from clipen.domain import (
     Track,
     TrackKind,
 )
-from clipen.domain import PlanRevision, PlanStatus
-from clipen.planning.models import PlanningCandidate, PlanningContext
+from clipen.planning.models import PlanningCandidate
 from clipen.projects import ProjectError
 from clipen.projects.models import validate_project_id
 from clipen.projects.storage import utc_now
@@ -33,7 +32,6 @@ from .agent_models import (
     bounded_text,
 )
 from .agent_repository import EditAgentRepository
-from .style_proof import is_style_proof
 from .production_tools import ProductionTools
 from .production_catalog import EXTRA_NAMES
 from .skill_tools import SkillTools, SourceContext
@@ -49,23 +47,17 @@ class EditAgentTools(SkillTools, EvidenceTools, ProductionTools):
         project_id: str,
         run_id: str,
         *,
-        planning: object | None = None,
         artifacts: ArtifactStore | None = None,
     ) -> None:
         validate_project_id(project_id)
         self.repository = repository
         self.project_id = project_id
         self.run_id = run_id
-        # Runs started before AI production read a confirmed plan through this; production runs never do.
-        self.planning = planning
         self.artifacts = artifacts or ArtifactStore(repository.projects)
-        self._plan: PlanRevision | None = None
-        self._context: PlanningContext | None = None
         self._inspection_count = 0
 
     def activate(self) -> AgentRun:
-        if self._session_value() is None:
-            self._confirmed_input()
+        self._session_value()
         return self.repository.activate(self.project_id, self.run_id)
 
     def call(self, name: str, arguments: object) -> ToolResult:
@@ -94,7 +86,7 @@ class EditAgentTools(SkillTools, EvidenceTools, ProductionTools):
         self._expected_revision_id = arguments.pop('expected_revision_id', None)
         mutation_id = arguments.pop('mutation_id', None) if name!='read_mutation_receipt' else None
         from .tool_receipts import TIMELINE_MUTATIONS, begin_receipt, finish_receipt
-        if self._session_value() and name in TIMELINE_MUTATIONS and (self._expected_revision_id is None or mutation_id is None):
+        if name in TIMELINE_MUTATIONS and (self._expected_revision_id is None or mutation_id is None):
             raise ProjectError('mutation_guard_required','修改前請提供目前 expected_revision_id 與本次 mutation_id。',status_code=422)
         if mutation_id is not None:
             if name not in TIMELINE_MUTATIONS:
@@ -119,91 +111,18 @@ class EditAgentTools(SkillTools, EvidenceTools, ProductionTools):
             result.images,
         )
 
-    def _context_value(self) -> PlanningContext:
-        session = self._session_value()
-        if session is not None:
-            return SourceContext(session["intent"]["brief"])
-        self._confirmed_input()
-        assert self._context is not None
-        return self._context
-
-    def _confirmed_input(self) -> tuple[PlanRevision, PlanningContext]:
-        if self._plan is None or self._context is None:
-            if self.planning is None:
-                raise ProjectError("production_required", "這個版本需要 AI 節目製作工作。", status_code=422)
-            plan, context = self.planning.execution_input(self.project_id)
-            revision = self.repository.current_revision(self.project_id, self.run_id)
-            timeline = revision.timeline
-            if (
-                plan.status is not PlanStatus.CONFIRMED
-                or plan.plan_id != timeline.plan_id
-                or plan.revision != timeline.plan_revision
-                or plan.content_hash != timeline.plan_content_hash
-            ):
-                raise ProjectError(
-                    "confirmed_plan_mismatch",
-                    "已確認的剪輯計畫與目前時間軸不一致，請重新建立剪輯版本。",
-                    status_code=409,
-                )
-            self._plan = plan
-            self._context = context
-        return self._plan, self._context
+    def _context_value(self) -> SourceContext:
+        return SourceContext(self._session_value()["intent"]["brief"])
 
     def _get_edit_status(self, arguments: Mapping[str, object]) -> ToolResult:
         self._require_keys(arguments, set())
         session = self._session_value()
-        if session is not None:
-            return ToolResult({**self.repository.get(self.project_id, self.run_id).to_public(),
-                "mode": "skill_production", "intent": session["intent"], "skill": self._skill_summary(),
-                "creative_direction": self.repository.creative_direction(self.project_id, self.run_id),
-                "source_count": len(session["sources"]),
-                "evidence_coverage": "Unknown until inspected; no prior analysis or plan required.",
-                "next_step": "Read read_production_skill(resource='SKILL.md'), then explore sources and decide your workflow."})
-        plan, context = self._confirmed_input()
-        sections = [
-            {
-                "section_id": section.section_id,
-                "title": section.title,
-                "purpose": section.purpose,
-                "edit_notes": section.edit_notes,
-                "candidate_ids": [item.candidate_id for item in section.source_ranges],
-                "unknowns": list(section.unknowns),
-            }
-            for section in plan.sections
-        ]
-        return ToolResult(
-            {
-                **self.repository.get(self.project_id, self.run_id).to_public(),
-                "creative_direction": self.repository.creative_direction(self.project_id,self.run_id),
-                "confirmed_direction": {
-                    "authority": "user_confirmed",
-                    "brief": context.brief,
-                    "reference_notes": list(context.reference_notes),
-                    "evidence_limitations": list(context.limitations),
-                    "plan_id": plan.plan_id,
-                    "plan_revision": plan.revision,
-                    "title": plan.title,
-                    "summary": plan.summary,
-                    "sections": sections,
-                    "blueprint": (
-                        None if plan.blueprint is None else plan.blueprint.to_payload()
-                    ),
-                    "correction_policy": (
-                        "Preserve the user's story intent and factual constraints. You own shot "
-                        "selection, order, rhythm, sound and presentation. Explain material "
-                        "departures from suggested treatments in revision summaries."
-                    ),
-                    "proof_constraints": {
-                        "purpose": "Create a short style proof, not the full film.",
-                        "target_duration_seconds": {"minimum": 45, "maximum": 60},
-                        "allowed_duration_seconds": {"minimum": 30, "maximum": 75},
-                        "selection_policy": "Choose a coherent scene with action and payoff. Do not use a montage or a clip count as a substitute for the user's story.",
-                        "maximum_clip_duration_seconds": 30,
-                        "maximum_candidate_inspections": self.repository.get(self.project_id,self.run_id).max_tool_calls,
-                    },
-                },
-            }
-        )
+        return ToolResult({**self.repository.get(self.project_id, self.run_id).to_public(),
+            "mode": "skill_production", "intent": session["intent"], "skill": self._skill_summary(),
+            "creative_direction": self.repository.creative_direction(self.project_id, self.run_id),
+            "source_count": len(session["sources"]),
+            "evidence_coverage": "Unknown until inspected; no prior analysis or plan required.",
+            "next_step": "Read read_production_skill(resource='SKILL.md'), then explore sources and decide your workflow."})
 
     def _search_media(self, arguments: Mapping[str, object]) -> ToolResult:
         self._require_keys(arguments, set(), optional={"query", "limit", "offset"})
@@ -301,7 +220,7 @@ class EditAgentTools(SkillTools, EvidenceTools, ProductionTools):
 
     def _replace_sequence(self, arguments: Mapping[str, object]) -> ToolResult:
         self._require_keys(arguments, {"clips", "summary"},optional={'reprise_reason'})
-        if (self._session_value() or {}).get('intent',{}).get('latest_revision_request') and self._timeline().duration_frames > 0:
+        if self._session_value()['intent'].get('latest_revision_request') and self._timeline().duration_frames > 0:
             raise ProjectError('incremental_revision_required','這是既有影片的修訂，請使用裁切、替換單一片段、重排或元件工具保留其他內容，不可清空重建整條時間軸。',status_code=409)
         selections = arguments["clips"]
         from .production_limits import limits_for
@@ -350,7 +269,7 @@ class EditAgentTools(SkillTools, EvidenceTools, ProductionTools):
             cursor * timeline.frame_rate.denominator,
             timeline.frame_rate.numerator,
         )
-        if not (Fraction(3, 4) if self._session_value() else Fraction(30, 1)) <= seconds <= Fraction(limits.duration_seconds, 1):
+        if not Fraction(3, 4) <= seconds <= Fraction(limits.duration_seconds, 1):
             raise ProjectError(
                 "agent_input_invalid",
                 f"本次製作片長超出範圍，上限為 {limits.duration_seconds} 秒。",
@@ -439,26 +358,16 @@ class EditAgentTools(SkillTools, EvidenceTools, ProductionTools):
 
     def _finish_edit(self, arguments: Mapping[str, object]) -> ToolResult:
         self._require_keys(arguments, {"summary"}, optional={"changes", "notes", "not_done"})
-        timeline = self.repository.current_revision(
-            self.project_id, self.run_id
-        ).timeline
         issues=self._production_validate_sequence({}).payload['issues']
         if issues:
             raise ProjectError('agent_sequence_invalid','時間軸或交付條件尚未通過，請先呼叫 validate_sequence 查看實際範圍與待修項目。',status_code=422)
-        # Production bounds, including minimum delivery duration, are reported
-        # by validate_sequence. Only legacy style proofs have a separate policy.
-        if self._session_value() is None and not is_style_proof(timeline):
-            raise ProjectError(
-                "style_proof_invalid",
-                "剪輯方向樣片尚未符合片長或鏡頭範圍限制。",
-                status_code=422,
-            )
+        # Production bounds, including minimum delivery duration, are reported by validate_sequence.
         from .production_preview import finish_review_status
         review=finish_review_status(self)
         if not review['reviewed_revision']:
             raise ProjectError('agent_preview_review_required','請先逐鏡檢視目前預覽及文字，使用 review_cut 記錄判斷並修正未解決問題；validate_sequence 會列出缺少的取樣。',status_code=409)
         from .change_report import check_report
-        report = check_report(arguments, (self._session_value() or {}).get('intent', {})) if self._session_value() is not None else None
+        report = check_report(arguments, self._session_value()['intent'])
         exported=self._production_export_edit({}).payload
         return ToolResult({**self.repository.finish(self.project_id, self.run_id, arguments["summary"],expected_revision_id=self._expected_revision_id,report=report).to_public(),'review':review,'export':exported})
 

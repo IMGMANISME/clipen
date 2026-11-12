@@ -34,7 +34,7 @@ def requirement_issues(tools):
     required=direction.get('production_requirements',{})
     if not any(required.values()):return []
     contents=production_contents(tools.repository.projects,tools.project_id,tools._timeline());issues=[]
-    choice=(tools._session_value() or {}).get('intent',{}).get('music_choice')
+    choice=tools._session_value()['intent'].get('music_choice')
     if choice and choice.get('mode')=='user' and any(m['role']=='music' and m.get('asset_id')!=choice['asset_id'] for m in contents['music']):
         issues.append({'code':'user_music_mismatch','message':'請使用使用者指定的配樂，不可替換成其他曲目。'})
     if required.get('music') and not any(m['role']=='music' and (m['licensed'] or (choice and m.get('asset_id')==choice['asset_id'])) and m['duration_seconds']>0 and m['gain_db']>-60 for m in contents['music']):

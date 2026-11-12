@@ -57,11 +57,10 @@ def make_subtitle_items(tools,cue,row):
             'timing_basis':'forced_alignment' if aligned else 'character_proportional_within_asr_segment' if excerpt or len(pages)>1 else 'asr_segment',
             'caption_text_edited':text!=original['text'],'motion':'none' if delivery=='quiet' else 'pop'}
         profile.update({key:original[key] for key in ('wording_authority','source_asr_text','correction_evidence') if key in original})
-        if tools._session_value():
-            skill=tools._skill_value();preset=skill['presets']['subtitle']
-            profile.update({'font_size_ratio':preset['font_size_ratio']*(1.25 if delivery=='punchline' else .9 if delivery=='quiet' else 1),
-                            'emphasis_color':preset['emphasis_color'],'outline_color':preset['outline_color'],
-                            'skill_hash':skill['content_hash']})
+        skill=tools._skill_value();preset=skill['presets']['subtitle']
+        profile.update({'font_size_ratio':preset['font_size_ratio']*(1.25 if delivery=='punchline' else .9 if delivery=='quiet' else 1),
+                        'emphasis_color':preset['emphasis_color'],'outline_color':preset['outline_color'],
+                        'skill_hash':skill['content_hash']})
         identifier='agent.text.'+digest(profile)[:24];styles[identifier]=profile
         items.append(TextClip('subtitle-'+cue['cue_id']+'-'+str(n),start,end-start,text[left:right],identifier))
     from .production_limits import limits_for

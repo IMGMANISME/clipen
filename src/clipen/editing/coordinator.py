@@ -11,7 +11,7 @@ from clipen.projects import ProjectError
 from clipen.providers.codex import ProviderCancelled
 
 from .agent import AgentRun, EditAgentRepository
-from .style_proof import is_style_proof, style_proof_stats
+from .production_limits import timeline_stats
 
 
 class EditAgentCoordinator:
@@ -88,7 +88,7 @@ class EditAgentCoordinator:
         result = None
         if published is not None:
             revision = self.repository.final_revision(project_id, published.run_id)
-            stats = style_proof_stats(revision.timeline)
+            stats = timeline_stats(revision.timeline)
             with self.repository.projects.connect(project_id) as db:
                 rows=db.execute("SELECT payload_json FROM edit_agent_events WHERE run_id=? AND event_type='editorial_review' ORDER BY sequence DESC",(published.run_id,)).fetchall()
                 completed_preview=db.execute("SELECT render_id FROM preview_renders WHERE timeline_id=? AND state='succeeded' ORDER BY created_at DESC LIMIT 1",(revision.revision_id,)).fetchone()
@@ -99,7 +99,6 @@ class EditAgentCoordinator:
             result = {
                 **revision.to_public(include_timeline=True),
                 "run_id": published.run_id,
-                "is_style_proof": is_style_proof(revision.timeline),
                 "editorial_review": assessment,
                 "creative_direction": self.repository.creative_direction(project_id,published.run_id),
                 "episode": read_episode(self.repository.projects,project_id,published.run_id,revision.timeline),
@@ -195,8 +194,7 @@ class EditAgentCoordinator:
         *,
         max_tool_calls: int = 96,
         max_preview_renders: int = 4,
-        creative_direction: dict | None = None,
-        production: dict | None = None,
+        production: dict,
     ) -> AgentRun:
         if consent is not True:
             raise ProjectError(
@@ -215,7 +213,6 @@ class EditAgentCoordinator:
                 provider=self.provider.provider_id,
                 max_tool_calls=max_tool_calls,
                 max_preview_renders=max_preview_renders,
-                creative_direction=creative_direction,
                 production=production,
             )
             if not created:

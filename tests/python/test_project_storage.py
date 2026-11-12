@@ -232,7 +232,7 @@ class ProjectStorageTests(unittest.TestCase):
         restarted = ProjectRepository(self.projects)
         self.assertEqual(restarted.get_project(created.project_id), created)
         with restarted.connect(created.project_id) as connection:
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 18)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 19)
             observation = connection.execute(
                 "SELECT state FROM evidence_observations "
                 "WHERE observation_id = 'obs_test'"
@@ -251,7 +251,7 @@ class ProjectStorageTests(unittest.TestCase):
         restarted = ProjectRepository(self.projects)
         self.assertEqual(restarted.get_project(created.project_id), created)
         with restarted.connect(created.project_id) as connection:
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 18)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 19)
             tables = {
                 row["name"]
                 for row in connection.execute(
@@ -273,13 +273,86 @@ class ProjectStorageTests(unittest.TestCase):
         restarted = ProjectRepository(self.projects)
         self.assertEqual(restarted.get_project(created.project_id), created)
         with restarted.connect(created.project_id) as connection:
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 18)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 19)
             columns = {
                 row["name"]: row
                 for row in connection.execute("PRAGMA table_info(transcript_annotations)")
             }
         self.assertIn("discarded", columns)
         self.assertEqual(columns["discarded"]["dflt_value"], "0")
+
+    # The version 9-18 schema of the retired confirmed-plan flow, as real projects still hold it.
+    _RETIRED_PLANNING_SCHEMA = """
+        CREATE TABLE planning_runs (run_id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES project(project_id),
+            request_id TEXT NOT NULL UNIQUE, context_json TEXT NOT NULL, state TEXT NOT NULL, created_at TEXT NOT NULL);
+        CREATE TABLE plan_revisions (plan_id TEXT NOT NULL, revision INTEGER NOT NULL,
+            project_id TEXT NOT NULL REFERENCES project(project_id), status TEXT NOT NULL, payload_json TEXT NOT NULL,
+            source_run_id TEXT REFERENCES planning_runs(run_id), created_at TEXT NOT NULL, PRIMARY KEY(plan_id, revision));
+        CREATE TABLE current_plan (slot INTEGER PRIMARY KEY CHECK (slot = 1), plan_id TEXT NOT NULL, revision INTEGER NOT NULL,
+            FOREIGN KEY(plan_id, revision) REFERENCES plan_revisions(plan_id, revision));
+        CREATE TABLE plan_command_receipts (request_id TEXT PRIMARY KEY, command_type TEXT NOT NULL,
+            request_hash TEXT NOT NULL, response_json TEXT NOT NULL, created_at TEXT NOT NULL);
+        CREATE INDEX planning_runs_project_created ON planning_runs(project_id, created_at DESC);
+        CREATE INDEX plan_revisions_project_created ON plan_revisions(project_id, created_at DESC);
+    """
+
+    def _retired_tables(self, connection) -> set[str]:
+        return {
+            row[0] for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE name IN "
+                "('planning_runs','plan_revisions','current_plan','plan_command_receipts',"
+                "'planning_runs_project_created','plan_revisions_project_created')"
+            )
+        }
+
+    def test_v18_project_archives_and_drops_retired_planning_tables(self) -> None:
+        import json
+        created = self.repository.create_project("request-create-v18", "外接硬碟上的作品")
+        directory = self.projects / created.project_id
+        with sqlite3.connect(directory / "project.sqlite3") as connection:
+            connection.execute("PRAGMA foreign_keys = ON")
+            connection.executescript(self._RETIRED_PLANNING_SCHEMA)
+            connection.execute(
+                "INSERT INTO planning_runs VALUES ('plan-run', ?, 'plan-request', '{\"brief\":\"東京\"}', 'succeeded', '2026-01-01')",
+                (created.project_id,),
+            )
+            connection.execute(
+                "INSERT INTO plan_revisions VALUES ('plan-one', 1, ?, 'confirmed', '{\"title\":\"東京第一天\"}', 'plan-run', '2026-01-01')",
+                (created.project_id,),
+            )
+            connection.execute("INSERT INTO current_plan VALUES (1, 'plan-one', 1)")
+            connection.execute("PRAGMA user_version = 18")
+
+        restarted = ProjectRepository(self.projects)
+        self.assertEqual(restarted.get_project(created.project_id), created)
+        with restarted.connect(created.project_id) as connection:
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 19)
+            self.assertEqual(self._retired_tables(connection), set())
+            self.assertEqual(connection.execute("PRAGMA foreign_key_check").fetchall(), [])
+        archive = directory / "retired-planning.json"
+        self.assertEqual(archive.stat().st_mode & 0o777, 0o600)
+        tables = json.loads(archive.read_text(encoding="utf-8"))["tables"]
+        self.assertEqual(tables["plan_revisions"][0]["payload_json"], '{"title":"東京第一天"}')
+        self.assertEqual(tables["planning_runs"][0]["context_json"], '{"brief":"東京"}')
+        self.assertEqual(tables["current_plan"], [{"slot": 1, "plan_id": "plan-one", "revision": 1}])
+        self.assertEqual(tables["plan_command_receipts"], [])
+        self.assertFalse((directory / "retired-planning.json.tmp").exists())
+
+    def test_v18_project_without_planning_rows_writes_no_archive(self) -> None:
+        created = self.repository.create_project("request-create-v18-empty", "沒用過舊規劃的作品")
+        directory = self.projects / created.project_id
+        with sqlite3.connect(directory / "project.sqlite3") as connection:
+            connection.executescript(self._RETIRED_PLANNING_SCHEMA)
+            connection.execute("PRAGMA user_version = 18")
+        with ProjectRepository(self.projects).connect(created.project_id) as connection:
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 19)
+            self.assertEqual(self._retired_tables(connection), set())
+        self.assertFalse((directory / "retired-planning.json").exists())
+
+    def test_new_project_has_no_planning_tables(self) -> None:
+        created = self.repository.create_project("request-create-v19", "新作品")
+        with self.repository.connect(created.project_id) as connection:
+            self.assertEqual(self._retired_tables(connection), set())
 
     def test_v13_project_adds_resumable_edit_agent_schema(self) -> None:
         created = self.repository.create_project("request-create-v13", "舊剪輯作品")
@@ -294,7 +367,7 @@ class ProjectStorageTests(unittest.TestCase):
         restarted = ProjectRepository(self.projects)
         self.assertEqual(restarted.get_project(created.project_id), created)
         with restarted.connect(created.project_id) as connection:
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 18)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 19)
             tables = {
                 row["name"]
                 for row in connection.execute(

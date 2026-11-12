@@ -36,7 +36,7 @@ def render_preview(tools):
     revision=tools.repository.current_revision(tools.project_id,tools.run_id)
     recipe_id=render_recipe_id()
     validation=tools._production_validate_sequence({}).payload
-    issues=validation['render_issues'] if tools._session_value() else validation['issues']
+    issues=validation['render_issues']
     if issues:raise ProjectError('agent_sequence_invalid','請先使用 validate_sequence 修正時間軸。',status_code=422)
     store=PreviewRenderRepository(tools.repository.projects)
     # The exact revision is the cache key. Polling/reviewing never rerenders it.

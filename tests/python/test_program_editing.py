@@ -10,8 +10,7 @@ import unittest
 from unittest.mock import patch
 
 from clipen.domain import Track, TrackKind
-from clipen.editing import EditAgentTools
-from clipen.editing.program_direction import PROGRAM_DIRECTION
+from clipen.editing.program_direction import FULL_PRODUCTION_REQUIREMENTS, PROGRAM_DIRECTION
 from clipen.editing.program_story import read_episode
 from clipen.editing.production_media import load_text_styles,transcript_cues
 from clipen.editing.program_subtitles import subtitle_status
@@ -19,20 +18,18 @@ from clipen.media import MediaPreview
 from clipen.projects import ProjectError
 from clipen.rendering import FfmpegPreviewRenderer
 from clipen.rendering.titles import TitleCardRenderer
-import test_edit_agent as fixtures
+from production_fixture import PRODUCTION, ProductionFixture
 import test_finishing as evidence_fixtures
 
 
 class ProgramEditingTests(unittest.TestCase):
     def setUp(self):
-        self.f=fixtures.EditAgentTests();self.f.setUp()
-        self.run,_=self.f.repository.create_run(self.f.project.project_id,'programme-direction',max_tool_calls=120,creative_direction=PROGRAM_DIRECTION)
-        self.tools=EditAgentTools(self.f.repository,self.f.project.project_id,self.run.run_id,
-            planning=fixtures.StaticPlanningInput(self.f.plan,self.f.context),artifacts=fixtures.EmptyArtifacts())
-        self.tools.activate()
-        self.call('replace_sequence',clips=[{'candidate_id':'candidate-street','start_offset_seconds':o,'duration_seconds':4} for o in (0,.5,1,1.5,2,2.5,3,4)],summary='來源對應的節目粗剪')
+        self.f=ProductionFixture();self.f.setUp()
+        self.run,self.tools=self.f.create_tools(calls=120,request_id='programme-direction')
+        self.candidate=self.f.candidate
+        self.call('replace_sequence',clips=[{'candidate_id':self.candidate,'start_offset_seconds':o,'duration_seconds':4} for o in (0,.5,1,1.5,2,2.5,3,4)],summary='來源對應的節目粗剪')
     def tearDown(self):self.tools.close_production();self.f.tearDown()
-    def call(self,name,**args):return self.tools.call(name,args)
+    def call(self,name,**args):return self.f.call(self.tools,name,args)
     def episode(self):
         ids=[i.item_id for i in self.tools._video().items]
         return {'premise':'一段真實體驗','audience_question':'實際體驗後得到什麼？','payoff':'由原片的結果作回應','beats':[
@@ -40,14 +37,13 @@ class ProgramEditingTests(unittest.TestCase):
             {'beat_id':'try','role':'experience','item_ids':ids[1:-1],'dialogue_ids':[],'source_evidence':'原片具體動作','audience_takeaway':'跟上體驗'},
             {'beat_id':'answer','role':'payoff','item_ids':ids[-1:],'dialogue_ids':[],'source_evidence':'原片最後的回應','audience_takeaway':'看到結果'}]}
     def test_user_direction_is_immutable_idempotent_and_forbids_cards(self):
-        self.assertEqual(self.call('get_edit_status').payload['creative_direction'],PROGRAM_DIRECTION)
+        self.assertEqual(self.call('get_edit_status').payload['creative_direction'],{**PROGRAM_DIRECTION,'production_requirements':FULL_PRODUCTION_REQUIREMENTS})
         with self.assertRaises(ProjectError) as caught:self.call('add_title',start_frame=0,duration_frames=30,text='任意行程字卡',style_id='title.chapter',summary='不應加入')
         self.assertEqual(caught.exception.code,'title_cards_disabled')
-        with self.assertRaises(ProjectError):self.f.repository.create_run(self.f.project.project_id,'programme-direction',max_tool_calls=120,creative_direction={**PROGRAM_DIRECTION,'direction':'同一請求偷偷改方向'})
-        issues=self.call('validate_sequence').payload['issues']
-        self.assertIn('episode_treatment_required',{i['code'] for i in issues})
+        with self.assertRaises(ProjectError) as reused:self.f.repository.create_run(self.f.project.project_id,'programme-direction',max_tool_calls=120,production={**PRODUCTION,'intent':'同一請求偷偷改方向'})
+        self.assertEqual(reused.exception.code,'request_reused')
         # The source evidence links remain model-authored, not user confirmation.
-        self.assertNotEqual(self.tools._production_record_story_plan({'intent':'自訂','sections':[{'purpose':'體驗','candidate_ids':['candidate-street'],'treatment':'觀察來源'}],'uncertainties':[]}).payload['story_plan']['authority'],'user_confirmed')
+        self.assertNotEqual(self.tools._production_record_story_plan({'intent':'自訂','sections':[{'purpose':'體驗','candidate_ids':[self.candidate],'treatment':'觀察來源'}],'uncertainties':[]}).payload['story_plan']['authority'],'user_confirmed')
     def test_episode_rejects_foreign_dialogue_and_stales_on_recut_or_muting(self):
         episode=self.episode();bad=json.loads(json.dumps(episode));bad['beats'][1]['dialogue_ids']=['invented-cue']
         with self.assertRaises(ProjectError):self.call('plan_episode',**bad)
@@ -88,7 +84,7 @@ class ProgramEditingTests(unittest.TestCase):
         path=self.f.projects.root/self.f.project.project_id/'agent-production'/self.run.run_id/'exports'/(exported['export_id']+'.json')
         self.assertEqual(json.loads(path.read_text())['subtitle_review']['draft_count'],1)
     def test_programme_cold_open_reprise_is_intentional_and_documented(self):
-        clips=[{'candidate_id':'candidate-street','start_offset_seconds':0,'duration_seconds':8}]*4
+        clips=[{'candidate_id':self.candidate,'start_offset_seconds':0,'duration_seconds':8}]*4
         with self.assertRaises(ProjectError):self.call('replace_sequence',clips=clips,summary='未說明的重複')
         self.call('replace_sequence',clips=clips,summary='明確的回扣測試',reprise_reason='節目開場預告與結尾回扣；此測試只檢查顯式授權，不代表四次重複有剪輯品質')
     def test_compound_speech_pages_preserve_words_and_cover_original_segment(self):
@@ -171,20 +167,22 @@ class AutonomousProgrammeTests(unittest.TestCase):
         f=ProgramEditingTests();f.setUp()
         try:
             pid=f.f.project.project_id;repo=f.f.repository
-            repo.cancel(pid,f.run.run_id)
+            repo.cancel(pid,f.run.run_id);f.tools.close_production()
             direction={**PROGRAM_DIRECTION,'production_requirements':FULL_PRODUCTION_REQUIREMENTS}
             with self.assertRaises(ProjectError):validate_direction({**direction,'production_requirements':None})
-            run,_=repo.create_run(pid,'full-production',creative_direction=direction)
-            f.tools=EditAgentTools(repo,pid,run.run_id,planning=fixtures.StaticPlanningInput(f.f.plan,f.f.context),artifacts=fixtures.EmptyArtifacts());f.tools.activate()
+            _,f.tools=f.f.create_tools(request_id='full-production')
+            self.assertEqual(repo.creative_direction(pid,f.tools.run_id),direction)
+            f.candidate=f.f.candidate
             codes=lambda:{i['code'] for i in requirement_issues(f.tools)}
             self.assertEqual(codes(),{'production_music_required','production_transition_required','production_editing_required'})
-            f.call('replace_sequence',clips=[{'candidate_id':'candidate-street','start_offset_seconds':o,'duration_seconds':4} for o in (0,.5,1,1.5,2,2.5,3,4)],summary='實際精剪')
+            f.call('replace_sequence',clips=[{'candidate_id':f.candidate,'start_offset_seconds':o,'duration_seconds':4} for o in (0,.5,1,1.5,2,2.5,3,4)],summary='實際精剪')
             f.call('set_fade',item_id='agent-video-0008',fade_in_frames=0,fade_out_frames=15,summary='只有片尾淡出仍未滿足轉場')
             self.assertIn('production_transition_required',codes())
             f.call('set_transition',item_id='agent-video-0002',kind='dip_black',duration_frames=12,summary='在時間跳接處安排短轉場')
             self.assertEqual(codes(),{'production_music_required'})
             f.tools._asset_store()
             layer={'layer_id':'music','asset_id':'public-song','start_frame':0,'duration_frames':300,'source_offset_seconds':0,'gain_db':-24,'duck':True,'fade_seconds':.3}
+            f.tools._expected_revision_id=None  # a direct write, not a guarded tool call
             f.tools._effect('agent-video-0002','audio.layers',{'layers':[layer]},'加入來源配樂')
             asset={'asset_id':'public-song','role':'music','name':'Test song','provenance':{'title':'Test song','creator':'Fixture','source_url':'https://example.org/song','license':'cc0','license_url':'https://creativecommons.org/publicdomain/zero/1.0/'}}
             with patch('clipen.editing.production_requirements.AgentAudioStore.public_assets',return_value=[asset]):
