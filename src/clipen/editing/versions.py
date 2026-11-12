@@ -117,7 +117,13 @@ def _report(payload, sent):
     report = payload.get('report') or {}
     notes = [{**note, 'outcome_label': OUTCOMES.get(note.get('outcome'), ''), 'kind': (sent.get(note.get('reference_id')) or {}).get('kind'),
               'note': (sent.get(note.get('reference_id')) or {}).get('note', '')} for note in report.get('notes', [])]
-    return {'summary': payload.get('summary') or '', 'changes': report.get('changes', []), 'notes': notes, 'not_done': report.get('not_done', [])}
+    from .change_report import REASONS
+    # Reports written before reasons were required hold plain lines.
+    left = [{'what': item, 'reason': None, 'reason_label': '', 'detail': ''} if isinstance(item, str)
+            else {**item, 'reason_label': REASONS.get(item.get('reason'), '')} for item in report.get('not_done', [])]
+    for note in notes:
+        note['reason_label'] = REASONS.get(note.get('reason'), '')
+    return {'summary': payload.get('summary') or '', 'changes': report.get('changes', []), 'notes': notes, 'not_done': left}
 
 
 def add_usage(total, usage):

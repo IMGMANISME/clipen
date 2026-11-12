@@ -274,6 +274,11 @@ class EditAgentRepository:
                 raise ProjectError('reference_conflict','參考註記已更新，請重新讀取並確認後再送出。',status_code=409)
             reference_snapshot=public_state(intent,self._read_revision(db,run.current_revision_id).timeline)
             intent['latest_revision_request']={'authority':'user','instruction':instruction,'base_revision_id':expected_revision_id,'created_at':utc_now(),'references':reference_snapshot}
+            # What the last change left for the person goes with the next request, so it is not lost.
+            from .change_report import carried
+            last=db.execute("SELECT payload_json FROM edit_agent_events WHERE run_id=? AND event_type='run_finished' ORDER BY sequence DESC LIMIT 1",(normalized,)).fetchone()
+            left=carried(json.loads(last['payload_json']).get('report') or {}) if last else []
+            if left:intent['latest_revision_request']['left_last_time']=left
             # The AI gets this round's notes; only lasting facts stay listed.
             hand_over(intent)
             if choice is not None:intent['music_choice']=choice

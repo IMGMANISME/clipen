@@ -366,10 +366,20 @@ class EditAgentTools(SkillTools, EvidenceTools, ProductionTools):
         review=finish_review_status(self)
         if not review['reviewed_revision']:
             raise ProjectError('agent_preview_review_required','請先逐鏡檢視目前預覽及文字，使用 review_cut 記錄判斷並修正未解決問題；validate_sequence 會列出缺少的取樣。',status_code=409)
-        from .change_report import check_report
+        from .change_report import challenge, check_report, unfinished
         report = check_report(arguments, self._session_value()['intent'])
+        if unfinished(report) and not self._challenged():
+            raise challenge(report)
         exported=self._production_export_edit({}).payload
         return ToolResult({**self.repository.finish(self.project_id, self.run_id, arguments["summary"],expected_revision_id=self._expected_revision_id,report=report).to_public(),'review':review,'export':exported})
+
+    def _challenged(self) -> bool:
+        """Whether finish_edit already asked, during this request, to finish what the report left undone."""
+        from .change_report import UNFINISHED
+        with self.repository.projects.connect(self.project_id) as db:
+            start = db.execute("SELECT COALESCE(MAX(sequence),-1) FROM edit_agent_events WHERE run_id=? AND event_type='refinement_requested'", (self.run_id,)).fetchone()[0]
+            rows = db.execute("SELECT payload_json FROM edit_agent_events WHERE run_id=? AND event_type='tool_failed' AND sequence>?", (self.run_id, start)).fetchall()
+        return any(json.loads(r['payload_json']).get('error_code') == UNFINISHED for r in rows)
 
     def _candidate(self, value: object) -> PlanningCandidate:
         if not isinstance(value, str):
