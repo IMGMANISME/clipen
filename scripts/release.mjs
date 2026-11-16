@@ -17,7 +17,6 @@ export const PLACES = [
   ['apps/web/package.json', /^(\s*"version": ")([^"]+)(")/m],
   ['pyproject.toml', /^(version = ")([^"]+)(")/m],
   ['src/clipen/__init__.py', /^(__version__ = ")([^"]+)(")/m],
-  ['README.md', /^(Clipen v)(\d+\.\d+\.\d+)( )/m],
 ]
 
 /** The version after `bump` (patch, minor, major or an explicit x.y.z) is applied to `current`. */

@@ -21,7 +21,7 @@ test('the version is written everywhere Clipen states it, and only when they agr
   assert.equal(write(root, '9.9.9'), current)
   for (const [file, pattern] of PLACES) assert.equal(readFileSync(path.join(root, file), 'utf8').match(pattern)[2], '9.9.9', file)
   // A place left behind on another version stops the release before anything is written.
-  cpSync('README.md', path.join(root, 'README.md'))
+  cpSync('pyproject.toml', path.join(root, 'pyproject.toml'))
   assert.throws(() => write(root, '10.0.0'), /版本號不一致/)
-  assert.match(readFileSync(path.join(root, 'pyproject.toml'), 'utf8'), /^version = "9\.9\.9"/m)
+  assert.match(readFileSync(path.join(root, 'package.json'), 'utf8'), /"version": "9\.9\.9"/)
 })
