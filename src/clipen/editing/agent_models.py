@@ -15,9 +15,6 @@ from clipen.projects import ProjectError
 
 RUN_ID_PATTERN = re.compile(r"editrun_[0-9a-f]{32}\Z")
 REVISION_ID_PATTERN = re.compile(r"editrev_[0-9a-f]{32}\Z")
-ALLOWED_TITLE_STYLES = frozenset(
-    {"title.default", "title.chapter", "title.caption"}
-)
 ALLOWED_EFFECTS = frozenset(
     {
         "video.punch_in",

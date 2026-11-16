@@ -44,7 +44,6 @@ class EditingMcpServerTests(unittest.TestCase):
                 "inspect_clip",
                 "inspect_sequence",
                 "replace_sequence",
-                "add_title",
                 "set_clip_effect",
                 "undo_revision",
                 "finish_edit",

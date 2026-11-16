@@ -102,21 +102,6 @@ _TOOLS = (
         ("clips", "summary"),
     ),
     _tool(
-        "add_title",
-        "Add one editable title or caption using an allowlisted style.",
-        {
-            "start_frame": {"type": "integer", "minimum": 0},
-            "duration_frames": {"type": "integer", "minimum": 1},
-            "text": {"type": "string", "maxLength": 500},
-            "style_id": {
-                "type": "string",
-                "enum": ["title.default", "title.chapter", "title.caption"],
-            },
-            "summary": {"type": "string", "maxLength": 500},
-        },
-        ("start_frame", "duration_frames", "text", "style_id", "summary"),
-    ),
-    _tool(
         "set_clip_effect",
         "Set one semantic effect on an existing media clip; exporters map it safely.",
         {
