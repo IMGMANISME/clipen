@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// `npx clipen`: sets Clipen up on an Apple-silicon Mac with nothing installed beforehand.
+// `npx @imgmanisme/clipen`: sets Clipen up on an Apple-silicon Mac with nothing installed beforehand.
 //
 // npx unpacks this package into a cache that may be cleared at any time, so the program is
 // copied into Clipen's own folder first; the `clipen` command then runs from there. A Mac's own

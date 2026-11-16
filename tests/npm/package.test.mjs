@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
-// What `npx clipen` unpacks: the program and its pinned font list, not the fonts themselves.
+// What `npx @imgmanisme/clipen` unpacks: the program and its pinned font list, not the fonts themselves.
 test('the npm package carries the program, not the fonts or build leftovers', () => {
   const packed = spawnSync('npm', ['pack', '--dry-run', '--json'], { encoding: 'utf8' })
   assert.equal(packed.status, 0, packed.stderr)

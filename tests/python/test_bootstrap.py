@@ -745,7 +745,7 @@ class NpmInstallTests(unittest.TestCase):
             self.assertIn(str(Path(sys.executable).resolve()), script)
             self.assertEqual(bootstrap._install_hint(root), "./install")
             (root / ".clipen-npm").write_text("1.0.0\n")
-            self.assertEqual(bootstrap._install_hint(root), "npx clipen install")
+            self.assertEqual(bootstrap._install_hint(root), "npx @imgmanisme/clipen install")
 
 if __name__ == "__main__":
     unittest.main()
