@@ -2,7 +2,23 @@
   "name": "clipen",
   "version": "1.0.0",
   "description": "Clipen：本機 AI 剪輯工作台",
-  "license": "UNLICENSED",
+  "keywords": [
+    "video-editing",
+    "ai",
+    "claude",
+    "codex",
+    "vlog",
+    "cli"
+  ],
+  "homepage": "https://github.com/IMGMANISME/clipen#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/IMGMANISME/clipen.git"
+  },
+  "bugs": {
+    "url": "https://github.com/IMGMANISME/clipen/issues"
+  },
+  "license": "MIT",
   "bin": {
     "clipen": "bin/clipen.js"
   },
@@ -17,7 +33,8 @@
     "clipen",
     "install",
     "uninstall",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "engines": {
     "node": ">=18"

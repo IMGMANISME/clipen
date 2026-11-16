@@ -6,7 +6,7 @@
 
 從剪輯樣板與自己的素材出發，讓 AI 製作影片，再透過審片注記調整作品。
 
-[產品架構](ARCHITECTURE.md) · [回報問題](https://github.com/IMGMANISME/clipen/issues)
+[產品架構](ARCHITECTURE.md) · [MIT 授權](LICENSE) · [回報問題](https://github.com/IMGMANISME/clipen/issues)
 
 </div>
 
@@ -72,3 +72,9 @@ Codex 使用的 Agent Skills 相同。
 
 有想改善的剪輯情境，歡迎留下[問題或建議](https://github.com/IMGMANISME/clipen/issues)。
 請勿附上私人素材、帳號憑證、逐字稿或本機完整路徑。
+
+## 授權
+
+Clipen 以 [MIT 授權](LICENSE)開源。內附字型各自採用 SIL Open Font License，授權全文放在
+[`src/clipen/rendering/fonts/`](src/clipen/rendering/fonts)，來源記錄在同一目錄的 `manifest.json`。
+
