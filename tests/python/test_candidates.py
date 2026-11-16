@@ -1,11 +1,11 @@
 import unittest
 
-from clipen.domain import Rational, SourceSpan
-from clipen.planning import (
-    PlanningCandidate,
-    PlanningContext,
+from clipen.candidates import (
+    SourceCandidate,
+    SourceContext,
     TranscriptReliability,
 )
+from clipen.domain import Rational, SourceSpan
 
 
 class PlanningModelsTests(unittest.TestCase):
@@ -15,8 +15,8 @@ class PlanningModelsTests(unittest.TestCase):
         *,
         reliability: TranscriptReliability = TranscriptReliability.TRUSTED,
         excerpt: str | None = "我們抵達東京。",
-    ) -> PlanningCandidate:
-        return PlanningCandidate(
+    ) -> SourceCandidate:
+        return SourceCandidate(
             f"candidate-{index}",
             SourceSpan(
                 "av_" + f"{index:032x}",
@@ -32,8 +32,8 @@ class PlanningModelsTests(unittest.TestCase):
             excerpt,
         )
 
-    def context(self) -> PlanningContext:
-        return PlanningContext(
+    def context(self) -> SourceContext:
+        return SourceContext(
             "prj_" + "1" * 32,
             "依旅程順序剪成自然的敘事 Vlog。",
             "inventory-1",

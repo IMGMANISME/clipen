@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Callable, Mapping
 
 from clipen.analysis import ArtifactStore
+from clipen.candidates import SourceCandidate
 from clipen.domain import (
     ClipSource,
     EffectRequest,
@@ -18,7 +19,6 @@ from clipen.domain import (
     Track,
     TrackKind,
 )
-from clipen.planning.models import PlanningCandidate
 from clipen.projects import ProjectError
 from clipen.projects.models import validate_project_id
 from clipen.projects.storage import utc_now
@@ -450,7 +450,7 @@ class EditAgentTools(SkillTools, EvidenceTools, ProductionTools):
             ).fetchall()
         return any(json.loads(r["payload_json"]).get("error_code") == UNFINISHED for r in rows)
 
-    def _candidate(self, value: object) -> PlanningCandidate:
+    def _candidate(self, value: object) -> SourceCandidate:
         if not isinstance(value, str):
             raise ProjectError("agent_input_invalid", "候選片段識別資訊無效。", status_code=422)
         candidate = self._context_value().candidate_map().get(value) or next(
@@ -508,7 +508,7 @@ class EditAgentTools(SkillTools, EvidenceTools, ProductionTools):
         }
         return defaults[effect_id]
 
-    def _trimmed_candidate(self, value: object) -> tuple[PlanningCandidate, SourceSpan, tuple[str, int, int]]:
+    def _trimmed_candidate(self, value: object) -> tuple[SourceCandidate, SourceSpan, tuple[str, int, int]]:
         if not isinstance(value, Mapping) or set(value) != {
             "candidate_id",
             "start_offset_seconds",
@@ -551,7 +551,7 @@ class EditAgentTools(SkillTools, EvidenceTools, ProductionTools):
             raise ProjectError("agent_input_invalid", f"{label}必須是有限數字。", status_code=422)
         return Fraction(str(value))
 
-    def _candidate_images(self, candidate: PlanningCandidate) -> tuple[tuple[Path, ...], list[dict[str, object]]]:
+    def _candidate_images(self, candidate: SourceCandidate) -> tuple[tuple[Path, ...], list[dict[str, object]]]:
         with self.repository.projects.connect(self.project_id) as database:
             rows = database.execute(
                 "SELECT results.result_json FROM evidence_results results "

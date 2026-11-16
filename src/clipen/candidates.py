@@ -1,4 +1,4 @@
-"""Path-free, bounded inputs that may be shared with a planning provider."""
+"""Source candidates the editing tools read: path-free, bounded and with transcript reliability."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ def _bounded_text(value: object, field: str, maximum: int, *, empty: bool = Fals
 
 
 @dataclass(frozen=True)
-class PlanningCandidate:
+class SourceCandidate:
     candidate_id: str
     source: SourceSpan
     display_name: str
@@ -38,7 +38,7 @@ class PlanningCandidate:
     def __post_init__(self) -> None:
         require_identifier(self.candidate_id, "candidate_id")
         if not isinstance(self.source, SourceSpan):
-            raise ValueError("planning candidate source is invalid")
+            raise ValueError("source candidate source is invalid")
         _bounded_text(self.display_name, "candidate display name", 255)
         if self.media_kind not in {"video", "audio"}:
             raise ValueError("candidate media kind is invalid")
@@ -77,7 +77,7 @@ class PlanningCandidate:
         }
 
     @classmethod
-    def from_storage(cls, value: object) -> "PlanningCandidate":
+    def from_storage(cls, value: object) -> "SourceCandidate":
         if not isinstance(value, dict) or set(value) != {
             "candidate_id",
             "source",
@@ -87,10 +87,10 @@ class PlanningCandidate:
             "transcript_reliability",
             "transcript_excerpt",
         }:
-            raise ValueError("stored planning candidate is invalid")
+            raise ValueError("stored source candidate is invalid")
         excerpt = value["transcript_excerpt"]
         if excerpt is not None and not isinstance(excerpt, str):
-            raise ValueError("stored planning transcript excerpt is invalid")
+            raise ValueError("stored source transcript excerpt is invalid")
         for field in (
             "candidate_id",
             "display_name",
@@ -99,7 +99,7 @@ class PlanningCandidate:
             "transcript_reliability",
         ):
             if not isinstance(value[field], str):
-                raise ValueError(f"stored planning candidate {field} is invalid")
+                raise ValueError(f"stored source candidate {field} is invalid")
         return cls(
             value["candidate_id"],
             SourceSpan.from_storage(value["source"]),
@@ -112,33 +112,33 @@ class PlanningCandidate:
 
 
 @dataclass(frozen=True)
-class PlanningContext:
+class SourceContext:
     project_id: str
     brief: str
     material_snapshot_id: str
     analysis_snapshot_id: str
-    candidates: tuple[PlanningCandidate, ...]
+    candidates: tuple[SourceCandidate, ...]
     reference_notes: tuple[str, ...] = ()
     limitations: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         for field in ("project_id", "material_snapshot_id", "analysis_snapshot_id"):
             require_identifier(getattr(self, field), field)
-        _bounded_text(self.brief, "planning brief", 8_000)
+        _bounded_text(self.brief, "source brief", 8_000)
         candidates = tuple(self.candidates)
         reference_notes = tuple(self.reference_notes)
         limitations = tuple(self.limitations)
         if not candidates or len(candidates) > _MAX_CANDIDATES:
-            raise ValueError("planning candidates are empty or exceed the bound")
-        if any(not isinstance(candidate, PlanningCandidate) for candidate in candidates):
-            raise ValueError("planning context contains an invalid candidate")
+            raise ValueError("source candidates are empty or exceed the bound")
+        if any(not isinstance(candidate, SourceCandidate) for candidate in candidates):
+            raise ValueError("source context contains an invalid candidate")
         identifiers = [candidate.candidate_id for candidate in candidates]
         if len(identifiers) != len(set(identifiers)):
-            raise ValueError("planning candidate IDs must be unique")
+            raise ValueError("source candidate IDs must be unique")
         if len(limitations) > 128:
-            raise ValueError("planning context has too many limitations")
+            raise ValueError("source context has too many limitations")
         if len(reference_notes) > 32:
-            raise ValueError("planning context has too many reference notes")
+            raise ValueError("source context has too many reference notes")
         for note in reference_notes:
             _bounded_text(note, "planning reference note", 1_000)
         for limitation in limitations:
@@ -147,7 +147,7 @@ class PlanningContext:
         object.__setattr__(self, "reference_notes", reference_notes)
         object.__setattr__(self, "limitations", limitations)
         if len(self.encoded()) > _MAX_CONTEXT_BYTES:
-            raise ValueError("planning context exceeds the provider input bound")
+            raise ValueError("source context exceeds the provider input bound")
 
     def to_provider(self) -> dict[str, object]:
         return {
@@ -178,7 +178,7 @@ class PlanningContext:
         }
 
     @classmethod
-    def from_storage(cls, value: object) -> "PlanningContext":
+    def from_storage(cls, value: object) -> "SourceContext":
         if not isinstance(value, dict) or set(value) != {
             "project_id",
             "brief",
@@ -188,12 +188,12 @@ class PlanningContext:
             "reference_notes",
             "limitations",
         }:
-            raise ValueError("stored planning context is invalid")
+            raise ValueError("stored source context is invalid")
         candidates = value["candidates"]
         notes = value["reference_notes"]
         limitations = value["limitations"]
         if not isinstance(candidates, list) or not isinstance(notes, list) or not isinstance(limitations, list):
-            raise ValueError("stored planning context collections are invalid")
+            raise ValueError("stored source context collections are invalid")
         for field in (
             "project_id",
             "brief",
@@ -201,15 +201,15 @@ class PlanningContext:
             "analysis_snapshot_id",
         ):
             if not isinstance(value[field], str):
-                raise ValueError(f"stored planning context {field} is invalid")
+                raise ValueError(f"stored source context {field} is invalid")
         if any(not isinstance(item, str) for item in (*notes, *limitations)):
-            raise ValueError("stored planning context text is invalid")
+            raise ValueError("stored source context text is invalid")
         return cls(
             value["project_id"],
             value["brief"],
             value["material_snapshot_id"],
             value["analysis_snapshot_id"],
-            tuple(PlanningCandidate.from_storage(item) for item in candidates),
+            tuple(SourceCandidate.from_storage(item) for item in candidates),
             tuple(notes),
             tuple(limitations),
         )
@@ -218,5 +218,5 @@ class PlanningContext:
     def content_hash(self) -> str:
         return hashlib.sha256(self.encoded()).hexdigest()
 
-    def candidate_map(self) -> dict[str, PlanningCandidate]:
+    def candidate_map(self) -> dict[str, SourceCandidate]:
         return {candidate.candidate_id: candidate for candidate in self.candidates}

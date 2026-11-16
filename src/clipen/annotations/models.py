@@ -1,4 +1,4 @@
-"""Validated annotation values shared by storage and planning."""
+"""Validated annotation values shared by storage and the editing tools."""
 
 from __future__ import annotations
 

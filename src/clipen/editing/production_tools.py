@@ -133,7 +133,7 @@ class ProductionTools:
         return ToolResult({**updated, "limits": asdict(limits_for(self))})
 
     def _custom_candidates(self):
-        from clipen.planning.models import PlanningCandidate
+        from clipen.candidates import SourceCandidate
 
         path = self._workdir("analysis") / "candidates.json"
         if path.is_symlink():
@@ -142,7 +142,7 @@ class ProductionTools:
             return ()
         if path.stat().st_size > 2 * 1024 * 1024:
             raise problem("候選索引超過上限。")
-        return tuple(PlanningCandidate.from_storage(v) for v in json.loads(path.read_text()))
+        return tuple(SourceCandidate.from_storage(v) for v in json.loads(path.read_text()))
 
     def _production_list_source_media(self, args):
         rows = self._source_rows()
@@ -163,9 +163,9 @@ class ProductionTools:
         return search_dialogue(self, args)
 
     def _production_register_source_range(self, args):
+        from clipen.candidates import SourceCandidate, TranscriptReliability
         from clipen.domain import Rational
         from clipen.finishing.models import digest
-        from clipen.planning.models import PlanningCandidate, TranscriptReliability
 
         from .production_media import atomic_json
 
@@ -192,7 +192,7 @@ class ProductionTools:
             row["version_id"], row["stream_index"], str(start), str(end), Rational(base.numerator, base.denominator)
         )
         identifier = "candidate-" + digest(span.to_storage())[:32]
-        candidate = PlanningCandidate(
+        candidate = SourceCandidate(
             identifier,
             span,
             row["display_name"],
