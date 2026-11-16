@@ -122,11 +122,9 @@ class PlanningModelsTests(unittest.TestCase):
     def test_context_is_path_free_bounded_and_has_conservative_estimate(self) -> None:
         context = self.context()
         payload = context.to_provider()
-        encoded = context.encoded()
         self.assertNotIn("version_id", repr(payload))
         self.assertNotIn("start_pts", repr(payload))
         self.assertNotIn("/Volumes/", repr(payload))
-        self.assertEqual(context.estimated_input_tokens, (len(encoded) + 2) // 3)
         self.assertEqual(len(context.content_hash), 64)
 
     def test_untrusted_transcript_text_cannot_enter_context(self) -> None:

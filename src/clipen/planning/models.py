@@ -218,10 +218,5 @@ class PlanningContext:
     def content_hash(self) -> str:
         return hashlib.sha256(self.encoded()).hexdigest()
 
-    @property
-    def estimated_input_tokens(self) -> int:
-        # UTF-8 bytes / 3 intentionally overestimates mixed Chinese/JSON input.
-        return (len(self.encoded()) + 2) // 3
-
     def candidate_map(self) -> dict[str, PlanningCandidate]:
         return {candidate.candidate_id: candidate for candidate in self.candidates}

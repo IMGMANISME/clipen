@@ -739,20 +739,20 @@ class SkillProductionTests(unittest.TestCase):
         self.repository.record_provider_outcome(
             self.project.project_id, self.run.run_id, "timeout-attempt", usage=None, error_code="provider_timed_out"
         )
-        resumed = self.repository.resume_timed_out(self.project.project_id, self.run.run_id)
+        resumed = self.repository.resume_stopped(self.project.project_id, self.run.run_id)
         self.assertEqual(resumed.state, "queued")
         self.assertIsNone(resumed.error_code)
         self.assertEqual(resumed.current_revision_id, before.current_revision_id)
         self.assertEqual(resumed.tool_calls, before.tool_calls)
         self.assertEqual(self.repository.production_session(self.project.project_id, self.run.run_id), frozen)
         with self.assertRaises(ProjectError):
-            self.repository.resume_timed_out(self.project.project_id, self.run.run_id)
+            self.repository.resume_stopped(self.project.project_id, self.run.run_id)
         self.repository.activate(self.project.project_id, self.run.run_id)
         self.repository.record_provider_outcome(
             self.project.project_id, self.run.run_id, "other-failure", usage=None, error_code="provider_network_error"
         )
         with self.assertRaises(ProjectError):
-            self.repository.resume_timed_out(self.project.project_id, self.run.run_id)
+            self.repository.resume_stopped(self.project.project_id, self.run.run_id)
 
     def test_stages_count_review_only_after_a_render_and_fill_up_when_finished(self):
         from clipen.editing.production_progress import STAGES, _stages

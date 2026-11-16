@@ -512,8 +512,6 @@ class EditAgentRepository:
             db.commit()
             return result
 
-    resume_timed_out = resume_stopped
-
     def record_machine_sleep(self, project_id: str, run_id: object, periods) -> None:
         """Note each time the Mac slept during an attempt, so a stall is not blamed on the AI."""
         from datetime import datetime, timezone

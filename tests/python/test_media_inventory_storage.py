@@ -199,7 +199,7 @@ class MediaInventoryStorageTests(unittest.TestCase):
 
     def test_latest_run_is_separate_from_last_successful_run(self) -> None:
         first = self.start("request-inventory-latest-first")
-        self.inventories.stage_item(self.project.project_id, first.run_id, self.usable_video())
+        self.inventories.stage_items(self.project.project_id, first.run_id, (self.usable_video(),))
         published = self.inventories.publish(self.project.project_id, first.run_id)
         latest = self.inventories.create_run(
             self.project.project_id,
@@ -212,20 +212,22 @@ class MediaInventoryStorageTests(unittest.TestCase):
 
     def test_successful_publish_is_atomic_and_persists_assets_and_streams(self) -> None:
         running = self.start()
-        staged = self.inventories.stage_item(self.project.project_id, running.run_id, self.usable_video())
-        staged = self.inventories.stage_item(
+        staged = self.inventories.stage_items(self.project.project_id, running.run_id, (self.usable_video(),))
+        staged = self.inventories.stage_items(
             self.project.project_id,
             running.run_id,
-            AssetCandidate(
-                DirectoryRole.SOURCE,
-                "camera/notes.txt",
-                AssetKind.UNKNOWN,
-                ItemStatus.IGNORED,
-                "non_media",
-                None,
-                None,
-                None,
-                None,
+            (
+                AssetCandidate(
+                    DirectoryRole.SOURCE,
+                    "camera/notes.txt",
+                    AssetKind.UNKNOWN,
+                    ItemStatus.IGNORED,
+                    "non_media",
+                    None,
+                    None,
+                    None,
+                    None,
+                ),
             ),
         )
         self.assertEqual(
@@ -279,7 +281,7 @@ class MediaInventoryStorageTests(unittest.TestCase):
 
     def test_failed_run_does_not_replace_the_last_successful_inventory(self) -> None:
         first = self.start("request-inventory-first")
-        self.inventories.stage_item(self.project.project_id, first.run_id, self.usable_video())
+        self.inventories.stage_items(self.project.project_id, first.run_id, (self.usable_video(),))
         published = self.inventories.publish(self.project.project_id, first.run_id)
 
         second = self.start("request-inventory-second")
@@ -296,7 +298,7 @@ class MediaInventoryStorageTests(unittest.TestCase):
 
     def test_detail_edits_keep_current_inventory_but_directory_edits_invalidate_it(self) -> None:
         running = self.start("request-inventory-current-validity")
-        self.inventories.stage_item(self.project.project_id, running.run_id, self.usable_video())
+        self.inventories.stage_items(self.project.project_id, running.run_id, (self.usable_video(),))
         published = self.inventories.publish(self.project.project_id, running.run_id)
         updated = self.projects.update_details(
             self.project.project_id,

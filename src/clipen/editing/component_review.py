@@ -5,15 +5,12 @@ import unicodedata
 from collections import Counter
 
 # Short reactions land on one beat; a long hold reads as a static label.
-REACTION_COMPONENTS = frozenset({"reaction", "impact", "burst"})
-REACTION_MAX_SECONDS = 2
 RESTATE_RATIO = 0.5
 SAME_POSITION_DISTANCE = 0.03
 SAME_POSITION_RUN = 3
 UNIFORM_DURATION_SHARE = 0.5
 UNIFORM_DURATION_MINIMUM = 4
 _PARALLEL = re.compile(r"^[^，,・]{2,8}[，,][^，,・]{2,8}$")
-_CONCRETE = re.compile(r"[\d¥￥円元$€%]")
 
 
 def significant(text):
@@ -41,11 +38,6 @@ def concurrent_subtitles(timeline, start, duration):
         for i in t.items
         if i.start_frame < end and start < i.start_frame + i.duration_frames
     ]
-
-
-def fact_has_information(text, detail):
-    """A fact carries a grounded detail line or a concrete number/price."""
-    return bool(detail.strip()) or bool(_CONCRETE.search(text))
 
 
 def design_notes(timeline, elements, styles):

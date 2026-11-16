@@ -462,14 +462,6 @@ class InventoryRepository:
                 connection.rollback()
                 raise ProjectError("storage_failed", "Clipen 無法發布素材檢查結果。", status_code=500) from error
 
-    def stage_item(
-        self,
-        project_id: str,
-        run_id: object,
-        candidate: AssetCandidate,
-    ) -> InventoryRun:
-        return self.stage_items(project_id, run_id, (candidate,))
-
     def stage_items(
         self,
         project_id: str,
