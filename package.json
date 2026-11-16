@@ -1,5 +1,5 @@
 {
-  "name": "clipen",
+  "name": "@imgmanisme/clipen",
   "version": "1.0.0",
   "description": "Clipen：本機 AI 剪輯工作台",
   "keywords": [
@@ -47,5 +47,8 @@
   ],
   "scripts": {
     "test": "node --test tests/npm/"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

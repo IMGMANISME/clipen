@@ -269,7 +269,7 @@ def _confirm_setup(
 
 def _install_hint(repo_root: Path) -> str:
     """How this copy of Clipen is set up again: from npm (npx) or from a source checkout."""
-    return "npx clipen install" if (repo_root / ".clipen-npm").is_file() else "./install"
+    return "npx @imgmanisme/clipen install" if (repo_root / ".clipen-npm").is_file() else "./install"
 
 
 def _chrome_ready(home: Path) -> bool:
@@ -906,7 +906,7 @@ def uninstall_installation(
 
 def _print_usage(stream: TextIO, repo_root: Path | None = None) -> None:
     npm = repo_root is not None and (repo_root / ".clipen-npm").is_file()
-    print(f"第一次安裝：{'npx clipen' if npm else './install'}", file=stream)
+    print(f"第一次安裝：{'npx @imgmanisme/clipen' if npm else './install'}", file=stream)
     print("啟動 Clipen：clipen codex 或 clipen claude", file=stream)
     print(f"移除 Clipen：{'clipen uninstall' if npm else './uninstall'}", file=stream)
 
