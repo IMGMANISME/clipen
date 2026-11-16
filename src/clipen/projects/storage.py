@@ -1228,8 +1228,8 @@ class ProjectRepository:
         """Allow previews to reference an immutable AI edit revision.
 
         Existing rows and the current-render pointer are copied exactly. The
-        referenced payload remains integrity-checked by either TimelineRepository
-        or EditAgentRepository before a render can start.
+        referenced payload remains integrity-checked by EditAgentRepository
+        before a render can start.
         """
 
         columns = tuple(

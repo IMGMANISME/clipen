@@ -38,8 +38,9 @@ class ProgramEditingTests(unittest.TestCase):
             {'beat_id':'answer','role':'payoff','item_ids':ids[-1:],'dialogue_ids':[],'source_evidence':'原片最後的回應','audience_takeaway':'看到結果'}]}
     def test_user_direction_is_immutable_idempotent_and_forbids_cards(self):
         self.assertEqual(self.call('get_edit_status').payload['creative_direction'],{**PROGRAM_DIRECTION,'production_requirements':FULL_PRODUCTION_REQUIREMENTS})
+        # Standalone title cards are not a tool at all.
         with self.assertRaises(ProjectError) as caught:self.call('add_title',start_frame=0,duration_frames=30,text='任意行程字卡',style_id='title.chapter',summary='不應加入')
-        self.assertEqual(caught.exception.code,'title_cards_disabled')
+        self.assertEqual(caught.exception.code,'tool_not_allowed')
         with self.assertRaises(ProjectError) as reused:self.f.repository.create_run(self.f.project.project_id,'programme-direction',max_tool_calls=120,production={**PRODUCTION,'intent':'同一請求偷偷改方向'})
         self.assertEqual(reused.exception.code,'request_reused')
         # The source evidence links remain model-authored, not user confirmation.

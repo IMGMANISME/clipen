@@ -145,7 +145,6 @@ _MCP_TOOLS = (
     "inspect_clip",
     "inspect_sequence",
     "replace_sequence",
-    "add_title",
     "set_clip_effect",
     "undo_revision",
     "finish_edit",
@@ -232,8 +231,6 @@ list_transcripts returns complete_source_span for cut-off speech: repair with
 replace_clip_source before rebuilding captions. Do not discard all dialogue
 just to avoid repairing an arbitrary trim. Preserve meaningful complete speech
 and natural sound when they carry the scene. Do source edits before overlays.
-Only when creative_direction permits cards, use add_clip_title for location/day
-assertions with actual supporting evidence. Programme mode forbids these cards.
 set_transition affects an incoming cut; set_fade on the LAST shot creates an ending.
 Search music only when it helps; metadata and measured audio are not listening.
 Never claim to have heard a track. Preserve author, source, license and changes.

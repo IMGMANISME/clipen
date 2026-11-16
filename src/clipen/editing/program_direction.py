@@ -29,11 +29,6 @@ def direction_for(tools):
     return tools.repository.creative_direction(tools.project_id, tools.run_id)
 
 
-def require_title_cards(tools):
-    if direction_for(tools).get('title_cards') is False:
-        raise ProjectError('title_cards_disabled', '使用者要求不使用字卡。請以原片口語、節目字幕及畫面安排推進內容。', status_code=422)
-
-
 def direction_issues(tools):
     if direction_for(tools).get('title_cards') is not False:
         return []
