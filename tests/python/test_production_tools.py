@@ -42,12 +42,6 @@ class ProductionToolsTests(unittest.TestCase):
     def without_delivery_issues(self):
         # Production delivery checks (graphics, subtitles, mix) are covered elsewhere; these tests reach the finish gates behind them.
         return patch.object(EditAgentTools,'_production_validate_sequence',return_value=ToolResult({'issues':[]}))
-    def seed_title(self,text='抵達',start=0,duration=30):
-        # Production never adds standalone title cards; seed one to exercise the generic text tools.
-        timeline=self.tools._timeline()
-        track=Track('titles-main',TrackKind.TITLE,(TextClip('agent-title-0001',start,duration,text,'title.chapter'),))
-        self.fixture.repository.save_revision(self.project.project_id,self.run.run_id,replace(timeline,tracks=timeline.tracks+(track,)),'加入測試字卡')
-
     def test_catalog_capabilities_and_every_tool_is_registered_with_provider(self):
         names={t['name'] for t in _TOOLS}
         self.assertEqual(names,set(_MCP_TOOLS))
@@ -113,10 +107,8 @@ class ProductionToolsTests(unittest.TestCase):
         path=self.projects.root/self.project.project_id/'agent-production'/self.run.run_id/'exports'/(original.revision_id+'.json')
         self.assertEqual(json.loads(path.read_text())['timeline'],original.timeline.to_payload())
 
-    def test_title_cards_are_refused_and_final_fade_has_precise_semantics(self):
+    def test_final_fade_has_precise_semantics(self):
         first=self.tools._video().items[0];last=self.tools._video().items[-1]
-        with self.assertRaises(ProjectError) as refused:self.call('add_clip_title',item_id=last.item_id,start_offset_frames=0,duration_frames=30,text='現場',evidence='目前鏡頭實際顯示的環境',style_id='title.chapter',summary='製作方向不用字卡')
-        self.assertEqual(refused.exception.code,'title_cards_disabled')
         self.call('set_fade',item_id=last.item_id,fade_in_frames=0,fade_out_frames=24,summary='最後一鏡真正淡出')
         from clipen.rendering.production_effects import transition_filters
         chain=transition_filters(self.tools._video().items[-1],None,self.tools._timeline())
@@ -196,18 +188,13 @@ class ProductionToolsTests(unittest.TestCase):
         self.assertEqual(len(rows),60)
         self.assertEqual([r['sequence'] for r in rows],list(range(rows[0]['sequence'],rows[0]['sequence']+60)))
 
-    def test_subtitles_are_grounded_and_independent_of_titles(self):
+    def test_subtitles_are_grounded_in_source_speech(self):
         cue={'cue_id':'real-cue','start_frame':30,'duration_frames':45,'text':'我們抵達臺北了'}
         with patch('clipen.editing.production_media.transcript_cues',return_value=([cue],[])):
             with self.assertRaises(ProjectError):self.call('replace_subtitles',captions=[{'cue_id':'invented','text':'假的口語'}],summary='不應通過')
             self.call('replace_subtitles',captions=[{'cue_id':'real-cue','text':'我們抵達臺北了'}],summary='加入真實口語字幕')
-        self.seed_title()
-        self.assertEqual(len([t for t in self.tools._timeline().tracks if t.kind is TrackKind.TITLE]),2)
-        self.call('edit_text',item_id='agent-title-0001',start_frame=0,duration_frames=30,text='臺北',style_id='title.chapter',summary='修正地點')
         subtitle=next(t for t in self.tools._timeline().tracks if t.track_id=='agent-subtitles')
-        self.assertEqual(subtitle.items[0].text,'我們抵達臺北了')
-        self.call('remove_item',item_id='agent-title-0001',summary='移除字卡')
-        self.assertTrue(any(t.track_id=='agent-subtitles' for t in self.tools._timeline().tracks))
+        self.assertEqual(''.join(item.text for item in subtitle.items),'我們抵達臺北了')
 
     def test_malformed_arguments_and_foreign_previews_do_not_mutate_timeline(self):
         original=self.tools._timeline()
@@ -218,26 +205,6 @@ class ProductionToolsTests(unittest.TestCase):
         with self.assertRaises(ProjectError):self.call('restore_revision',revision_id='foreign',summary='錯誤')
         with self.without_delivery_issues(),self.assertRaises(ProjectError) as error:self.call('finish_edit',summary='沒有觀看不能宣稱完成')
         self.assertEqual(error.exception.code,'agent_preview_review_required')
-
-    def test_custom_text_style_controls_actual_raster_and_is_exported(self):
-        from clipen.rendering.titles import TitleCardRenderer
-        from clipen.editing.production_media import load_text_styles
-        from PIL import Image
-        self.seed_title('東京',0,60)
-        profile={'item_id':'agent-title-0001','font_size_ratio':.08,'x':.1,'y':.4,'width_ratio':.7,'align':'center',
-                 'text_color':[255,30,30,255],'background_color':[0,0,0,0],'summary':'依畫面安排字體與位置'}
-        self.call('configure_text_style',**profile)
-        styles=load_text_styles(self.projects,self.project.project_id)
-        directory=Path(self.fixture.temporary.name)/'custom-style';directory.mkdir()
-        titles=TitleCardRenderer(styles).render(self.tools._timeline(),directory)
-        image=Image.open(titles[0].path).convert('RGBA')
-        colored=[(n%320,n//320) for n,p in enumerate(image.get_flattened_data()) if p[0]>200 and p[1]<70 and p[3]>180]
-        self.assertGreater(len(colored),10)
-        self.assertGreater(min(y for x,y in colored),60);self.assertLess(max(y for x,y in colored),110)
-        result=self.call('export_edit').payload
-        path=self.projects.root/self.project.project_id/'agent-production'/self.run.run_id/'exports'/(result['export_id']+'.json')
-        self.assertEqual(json.loads(path.read_text())['text_styles'],styles)
-        with self.assertRaises(ProjectError):self.call('configure_text_style',**{**profile,'x':.9})
 
     def test_failed_renders_spend_only_local_preview_budget_and_can_be_retried(self):
         class Failure:

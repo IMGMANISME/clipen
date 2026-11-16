@@ -15,7 +15,6 @@ from clipen.domain import (
     EffectRequest,
     MediaClip,
     SourceSpan,
-    TextClip,
     Track,
     TrackKind,
 )
@@ -26,7 +25,6 @@ from clipen.projects.storage import utc_now
 
 from .agent_models import (
     ALLOWED_EFFECTS,
-    ALLOWED_TITLE_STYLES,
     AgentRun,
     ToolResult,
     bounded_text,
@@ -67,7 +65,6 @@ class EditAgentTools(SkillTools, EvidenceTools, ProductionTools):
             "inspect_clip": self._inspect_clip,
             "inspect_sequence": self._inspect_sequence,
             "replace_sequence": self._replace_sequence,
-            "add_title": self._add_title,
             "set_clip_effect": self._set_clip_effect,
             "undo_revision": self._undo_revision,
             "finish_edit": self._finish_edit,
@@ -281,32 +278,6 @@ class EditAgentTools(SkillTools, EvidenceTools, ProductionTools):
             tracks=(Track("video-main", TrackKind.VIDEO, tuple(clips)),),
             markers=(),
         )
-        saved, created = self.repository.save_revision(
-            self.project_id, self.run_id, updated, arguments["summary"], expected_revision_id=self._expected_revision_id
-        )
-        return ToolResult({"revision": saved.to_public(), "created": created})
-
-    def _add_title(self, arguments: Mapping[str, object]) -> ToolResult:
-        from .program_direction import require_title_cards
-        require_title_cards(self)
-        self._require_keys(arguments, {"start_frame", "duration_frames", "text", "style_id", "summary"})
-        start = arguments["start_frame"]
-        duration = arguments["duration_frames"]
-        style = arguments["style_id"]
-        if any(isinstance(value, bool) or not isinstance(value, int) for value in (start, duration)):
-            raise ProjectError("agent_input_invalid", "字卡時間必須使用整數影格。", status_code=422)
-        if not isinstance(style, str) or style not in ALLOWED_TITLE_STYLES:
-            raise ProjectError("agent_input_invalid", "字卡樣式不在允許清單中。", status_code=422)
-        text = bounded_text(arguments["text"], "字卡", 500)
-        revision = self.repository.current_revision(self.project_id, self.run_id)
-        timeline = revision.timeline
-        title_tracks = [track for track in timeline.tracks if track.track_id == 'titles-main']
-        title_items = list(title_tracks[0].items) if title_tracks else []
-        title_items.append(TextClip(f"agent-title-{len(title_items)+1:04d}", start, duration, text, style))
-        tracks = tuple(track for track in timeline.tracks if track.track_id != 'titles-main') + (
-            Track("titles-main", TrackKind.TITLE, tuple(title_items)),
-        )
-        updated = replace(timeline, tracks=tracks)
         saved, created = self.repository.save_revision(
             self.project_id, self.run_id, updated, arguments["summary"], expected_revision_id=self._expected_revision_id
         )

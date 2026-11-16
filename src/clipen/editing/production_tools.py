@@ -194,15 +194,6 @@ class ProductionTools:
         updated=replace(item,source=ClipSource(span),duration_frames=max(1,round(duration*fps)))
         return self._recut([updated if i.item_id==item.item_id else i for i in self._video().items],args['summary'])
 
-    def _production_add_clip_title(self,args):
-        from .production_preview import _event
-        item=self._item(args['item_id'])
-        if item not in self._video().items or args['start_offset_frames']+args['duration_frames']>item.duration_frames:raise problem('字卡必須完整落在指定鏡頭內。')
-        result=self._add_title({'start_frame':item.start_frame+args['start_offset_frames'],'duration_frames':args['duration_frames'],
-            'text':args['text'],'style_id':args['style_id'],'summary':args['summary']})
-        _event(self,'text_evidence',{'revision_id':result.payload['revision']['revision_id'],'shot_id':item.item_id,'text':args['text'],'evidence':args['evidence'],'authority':'model_authored'})
-        return result
-
     def _production_list_transcripts(self,args):
         from .production_media import transcript_cues
         timeline=self._timeline()
@@ -241,38 +232,11 @@ class ProductionTools:
         if captions:retained+=(Track('agent-subtitles',TrackKind.TITLE,tuple(captions)),)
         return self._save(replace(timeline,tracks=retained),args['summary'])
 
-    def _production_edit_text(self,args):
-        item=self._item(args['item_id'])
-        if not isinstance(item,TextClip):raise problem('指定項目不是文字。')
-        self._require_generic_text(item)
-        if args['start_frame']+args['duration_frames']>self._timeline().duration_frames:raise problem('文字超過時間軸結尾。')
-        return self._change_item(replace(item,**{k:args[k] for k in ('start_frame','duration_frames','text','style_id')}),args['summary'])
-
     def _production_remove_item(self,args):
         item=self._item(args['item_id'])
         if item in self._video().items:return self._recut([i for i in self._video().items if i.item_id!=item.item_id],args['summary'])
         timeline=self._timeline()
         return self._save(replace(timeline,tracks=tuple(replace(t,items=tuple(i for i in t.items if i.item_id!=item.item_id)) for t in timeline.tracks)),args['summary'])
-
-    def _production_configure_text_style(self,args):
-        from .production_media import atomic_json,text_style_path,load_text_styles
-        from clipen.finishing.models import digest
-        item=self._item(args['item_id'])
-        if not isinstance(item,TextClip):raise problem('自訂文字樣式需要字幕或字卡。')
-        self._require_generic_text(item)
-        profile={k:v for k,v in args.items() if k not in {'item_id','summary'}}
-        if profile['x']+profile['width_ratio']>1:raise problem('文字區塊超出畫布右邊界。')
-        style_id='agent.text.'+digest(profile)[:24]
-        styles=load_text_styles(self.repository.projects,self.project_id)
-        if len(styles)>=4096 and style_id not in styles:raise problem('自訂文字樣式已達上限。')
-        styles[style_id]=profile
-        atomic_json(text_style_path(self.repository.projects,self.project_id),styles)
-        return self._change_item(replace(item,style_id=style_id),args['summary'])
-
-    def _require_generic_text(self,item):
-        from .production_media import load_text_styles
-        if load_text_styles(self.repository.projects,self.project_id).get(item.style_id,{}).get('kind') in {'program_subtitle','program_component'}:
-            raise problem('節目字幕需保留來源與斷句資訊。請用 replace_subtitles 調整 text、source_excerpt、delivery、emphasis；通用字卡工具不能覆寫來源字幕。')
 
     def _trim(self,item,offset,duration):
         if not isinstance(item,MediaClip) or offset+duration>item.duration_frames:raise problem('裁切超出片段範圍。')

@@ -702,15 +702,17 @@ class SkillProductionTests(unittest.TestCase):
         # Runs made before AI production started from a compiled base timeline; old databases still hold them.
         import hashlib
         from clipen.domain import ClipSource, MediaClip, Rational, SourceSpan, Track
-        from clipen.editing import OutputSettings, TimelineRepository
         from clipen.editing.agent_models import encoded, make_id
         from clipen.projects.agent_schema import EDIT_AGENT_SCHEMA
         pid=self.project.project_id
         span=SourceSpan('av_'+'a'*32,0,'0','900000',Rational(1,90000))
         timeline=EditTimeline('timeline-'+'b'*32,pid,'plan-'+'c'*32,1,'d'*64,Rational(30,1),1920,1080,300,
                               (Track('video-main',TrackKind.VIDEO,(MediaClip('clip-0001',0,300,ClipSource(span)),)),))
-        TimelineRepository(self.projects).save(pid,'request-timeline',timeline.plan_id,1,OutputSettings('landscape_1080p',30),timeline)
         payload=timeline.to_payload();digest=hashlib.sha256(encoded(payload).encode('utf-8')).hexdigest()
+        with self.projects.connect(pid) as db:
+            db.execute("INSERT INTO edit_timelines (timeline_id,project_id,plan_id,plan_revision,plan_content_hash,output_preset,frame_rate,"
+                       "payload_digest,payload_json,created_at) VALUES(?,?,?,1,?,'landscape_1080p',30,?,?,'2026-01-01')",
+                       (timeline.timeline_id,pid,timeline.plan_id,timeline.plan_content_hash,digest,encoded(payload)))
         run_id=make_id('editrun_',[pid,'legacy-run']);revision_id=make_id('editrev_',[run_id,0,digest])
         self.tools.close_production()
         with self.projects.connect(pid) as db:

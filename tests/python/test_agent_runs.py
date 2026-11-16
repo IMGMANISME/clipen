@@ -90,11 +90,6 @@ class AgentRunTests(unittest.TestCase):
         sequence = self.repository.current_revision(self.project.project_id, run.run_id).timeline
         self.assertEqual(sequence.duration_frames, 960)
         self.assertTrue(all(item.duration_frames == 120 for item in sequence.tracks[0].items))
-        # The production direction never allows standalone title cards.
-        with self.assertRaises(ProjectError) as titled:
-            self.call(tools, "add_title", start_frame=0, duration_frames=60, text="東京第一天",
-                      style_id="title.chapter", summary="加入章節字卡")
-        self.assertEqual(titled.exception.code, "title_cards_disabled")
         effected = self.call(tools, "set_clip_effect", item_id="agent-video-0001", effect_id="video.slow_push",
                              parameters={"scale_from": 1.0, "scale_to": 1.08}, summary="加入緩慢推進")
         self.assertEqual(effected.payload["revision"]["ordinal"], 2)
