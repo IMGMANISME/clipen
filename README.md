@@ -19,19 +19,38 @@ Clipen v1.0.0 是本機 AI 剪輯工作台。選擇剪輯樣板、提供素材�
 | --- | --- | --- |
 | 分析畫面、聲音、逐字稿與參考風格。 | 選擇樣板與視覺風格，透過注記調整片段、字幕與聲音。 | 查看歷史版本、下載成片與剪輯資料。 |
 
-目前透過 source checkout 安裝，尚未提供獨立桌面安裝包。DaVinci Resolve 工程匯出
-尚未提供；目前可下載 Clipen 的剪輯資料。
+尚未提供獨立桌面安裝包。DaVinci Resolve 工程匯出尚未提供；目前可下載 Clipen 的剪輯資料。
 
-從 source checkout 第一次設定時執行 `./install`。完成後，先進入要存放作品資料
-的目錄，再以 `clipen codex` 或 `clipen claude` 啟動本機工作台（分別使用 Codex CLI
-或 Claude Code 的登入與額度）。Clipen 只會在該目錄的 `.clipen`
+## 安裝
+
+需要 Apple 晶片（M 系列）的 Mac、[Node.js](https://nodejs.org) 18 以上，以及已登入的
+[Claude Code](https://claude.com/claude-code) 或 [Codex CLI](https://github.com/openai/codex)。
+
+```bash
+npx clipen
+```
+
+沒有 Python 3.10 以上時，Clipen 會下載一份固定版本的 Python，不會動到系統 Python，也不需要
+sudo。程式放在 `~/Library/Application Support/Clipen`，字型從原始來源下載並核對檢查碼，接著
+安裝本機語音辨識模型（約 3 GB）與全域指令 `clipen`。沒有 Google Chrome 時會改裝 Chromium；
+沒有 ffmpeg 時會提示安裝方式（`brew install ffmpeg`）。
+
+安裝完成後開一個新的終端機視窗，進入要存放作品資料的目錄，再以 `clipen claude` 或
+`clipen codex` 啟動本機工作台（分別使用 Claude Code 或 Codex CLI 的登入與額度）。
+之後要更新，再執行一次 `npx clipen@latest`。
+
+從 source checkout 安裝時，改為執行 `./install`，其餘相同。
+
+## 使用
+
+Clipen 只會在該目錄的 `.clipen`
 子目錄保存作品；毛片與參考作品仍留在使用者選取的位置。只有在使用者從 UI 確認
 特定步驟後才呼叫 AI；不需要開啟 AI 對話或手動架設本機服務。
 每次啟動都會先驗證該工作區內的作品；空工作區可直接進入 UI 建立第一個作品，
 若作品資料損壞或無法識別則會停止啟動，且不會自行刪除或覆蓋資料。
 
 只有版本號、介面或一般程式碼更新時，可直接沿用已安裝的執行環境。依賴套件或安裝設定
-變更、執行環境缺損時，啟動器才會提示執行 `./install`；既有作品資料會保留。
+變更、執行環境缺損時，啟動器才會提示重新安裝（`npx clipen` 或 `./install`）；既有作品資料會保留。
 
 ## 選一個剪輯樣板
 
@@ -45,7 +64,7 @@ Clipen v1.0.0 是本機 AI 剪輯工作台。選擇剪輯樣板、提供素材�
 想自己做樣板，可以參考 [`examples/skills/`](examples/skills) 的範例；格式和 Claude、
 Codex 使用的 Agent Skills 相同。
 
-`./uninstall` 會移除 Clipen runtime、本機語音模型、全域指令與 PATH 設定，但會
+`clipen uninstall`（source checkout 為 `./uninstall`）會移除 Clipen runtime、本機語音模型、全域指令與 PATH 設定，但會
 保留作品資料、毛片、參考作品與匯出檔案。
 
 系統設計、資料權限、中斷恢復、`clean`／`reset` 與 Resolve 交付規則請見
