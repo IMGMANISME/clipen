@@ -27,7 +27,7 @@ Clipen v1.0.0 是本機 AI 剪輯工作台。選擇剪輯樣板、提供素材�
 [Claude Code](https://claude.com/claude-code) 或 [Codex CLI](https://github.com/openai/codex)。
 
 ```bash
-npx @imgmanisme/clipen
+npx @clipen/clipen-cli
 ```
 
 沒有 Python 3.10 以上時，Clipen 會下載一份固定版本的 Python，不會動到系統 Python，也不需要
@@ -37,7 +37,7 @@ sudo。程式放在 `~/Library/Application Support/Clipen`，字型從原始來�
 
 安裝完成後開一個新的終端機視窗，進入要存放作品資料的目錄，再以 `clipen claude` 或
 `clipen codex` 啟動本機工作台（分別使用 Claude Code 或 Codex CLI 的登入與額度）。
-之後要更新，再執行一次 `npx @imgmanisme/clipen@latest`。
+之後要更新，再執行一次 `npx @clipen/clipen-cli@latest`。
 
 從 source checkout 安裝時，改為執行 `./install`，其餘相同。
 
@@ -50,7 +50,7 @@ Clipen 只會在該目錄的 `.clipen`
 若作品資料損壞或無法識別則會停止啟動，且不會自行刪除或覆蓋資料。
 
 只有版本號、介面或一般程式碼更新時，可直接沿用已安裝的執行環境。依賴套件或安裝設定
-變更、執行環境缺損時，啟動器才會提示重新安裝（`npx @imgmanisme/clipen` 或 `./install`）；既有作品資料會保留。
+變更、執行環境缺損時，啟動器才會提示重新安裝（`npx @clipen/clipen-cli` 或 `./install`）；既有作品資料會保留。
 
 ## 選一個剪輯樣板
 
