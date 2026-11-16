@@ -264,6 +264,41 @@ def _confirm_setup(
     return answer in {"", "y", "yes"}
 
 
+# What the web UI is built from, inside apps/web.
+_WEB_SOURCES = ("src", "public", "index.html", "package.json", "package-lock.json", "vite.config.ts", "tsconfig.json")
+
+
+def _newest_web_source(web: Path) -> float:
+    newest = 0.0
+    for name in _WEB_SOURCES:
+        path = web / name
+        files = path.rglob("*") if path.is_dir() else [path]
+        newest = max([newest, *(item.stat().st_mtime for item in files if item.is_file())])
+    return newest
+
+
+def ensure_web_build(repo_root: Path, stream: TextIO = sys.stdout) -> None:
+    """A source checkout builds its web UI when it is missing or older than its sources.
+
+    The npm package ships the UI already built and carries no web sources, so it skips this.
+    """
+    web = repo_root / "apps" / "web"
+    if not (web / "package.json").is_file():
+        return
+    built = web / "dist" / "index.html"
+    if built.is_file() and built.stat().st_mtime >= _newest_web_source(web):
+        return
+    npm = shutil.which("npm")
+    if npm is None:
+        raise BootstrapError("從原始碼執行 Clipen 需要 Node.js 18 以上來建立操作介面：https://nodejs.org")
+    print("正在建立 Clipen 操作介面…", file=stream)
+    quiet = {"cwd": web, "check": True, "stdout": subprocess.DEVNULL}
+    if not (web / "node_modules").is_dir():
+        subprocess.run([npm, "ci", "--no-audit", "--no-fund"], **quiet)
+    subprocess.run([npm, "run", "build"], **quiet)
+    print("✓ 操作介面建立完成", file=stream)
+
+
 def _install_hint(repo_root: Path) -> str:
     """How this copy of Clipen is set up again: from npm (npx) or from a source checkout."""
     return "npx @clipen/clipen-cli install" if (repo_root / ".clipen-npm").is_file() else "./install"
@@ -900,6 +935,7 @@ def main(repo_root: Path, arguments: Sequence[str]) -> int:
     try:
         _require_posix_file_locking()
         if list(arguments) == ["install"]:
+            ensure_web_build(repo_root)
             runtime = ensure_installation(repo_root)
             if runtime is not None:
                 print("✓ Clipen 已安裝完成")
@@ -912,6 +948,7 @@ def main(repo_root: Path, arguments: Sequence[str]) -> int:
         if list(arguments) == ["uninstall"]:
             uninstall_installation()
             return 0
+        ensure_web_build(repo_root)
         runtime = completed_runtime(repo_root)
     except KeyboardInterrupt:
         action = "移除" if list(arguments) == ["uninstall"] else "設定"

@@ -42,7 +42,7 @@ jobs:
         run: python -m unittest discover -s tests/python
 
   web:
-    name: Web build and dist check
+    name: Web lint, tests and build
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -61,11 +61,3 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run build
-
-      - name: Verify committed dist matches source
-        run: |
-          if [ -n "$(git status --porcelain -- dist)" ]; then
-            echo "::error::apps/web/dist 與原始碼不一致，請執行 npm run build 後提交 dist。"
-            git status --porcelain -- dist
-            exit 1
-          fi

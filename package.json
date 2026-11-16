@@ -46,6 +46,7 @@
     "arm64"
   ],
   "scripts": {
+    "prepack": "npm --prefix apps/web run build 1>&2",
     "test": "node --test tests/npm/",
     "release": "node scripts/release.mjs"
   },

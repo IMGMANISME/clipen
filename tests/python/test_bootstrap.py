@@ -736,3 +736,44 @@ class NpmInstallTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WebBuildTests(unittest.TestCase):
+    """A source checkout builds its UI; a stale or missing build is rebuilt, a fresh one is left alone."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.repo = Path(temporary.name)
+        self.web = self.repo / "apps" / "web"
+        (self.web / "src").mkdir(parents=True)
+        (self.web / "package.json").write_text("{}", encoding="utf-8")
+        (self.web / "src" / "main.tsx").write_text("", encoding="utf-8")
+
+    def build(self):
+        (self.web / "dist").mkdir(exist_ok=True)
+        (self.web / "dist" / "index.html").write_text("", encoding="utf-8")
+
+    def test_missing_or_stale_build_is_rebuilt_with_npm(self):
+        with (
+            mock.patch.object(bootstrap.shutil, "which", return_value="/bin/npm"),
+            mock.patch.object(bootstrap.subprocess, "run") as run,
+        ):
+            bootstrap.ensure_web_build(self.repo, io.StringIO())
+        self.assertEqual(
+            [call.args[0][1:] for call in run.call_args_list], [["ci", "--no-audit", "--no-fund"], ["run", "build"]]
+        )
+
+    def test_a_fresh_build_and_the_npm_package_need_nothing(self):
+        self.build()
+        with mock.patch.object(bootstrap.subprocess, "run") as run:
+            bootstrap.ensure_web_build(self.repo, io.StringIO())
+            # The npm package carries the built UI but no web sources.
+            (self.web / "package.json").unlink()
+            bootstrap.ensure_web_build(self.repo, io.StringIO())
+        run.assert_not_called()
+
+    def test_without_node_the_reason_is_explained(self):
+        with mock.patch.object(bootstrap.shutil, "which", return_value=None):
+            with self.assertRaisesRegex(bootstrap.BootstrapError, "Node.js"):
+                bootstrap.ensure_web_build(self.repo, io.StringIO())

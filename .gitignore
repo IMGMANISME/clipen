@@ -29,8 +29,6 @@ __pycache__/
 *.egg-info/
 build/
 dist/
-!/apps/web/dist/
-!/apps/web/dist/**
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
