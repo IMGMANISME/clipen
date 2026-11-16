@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from enum import Enum
 import asyncio
 import hashlib
-from http.cookies import SimpleCookie
 import json
-from pathlib import Path
 import secrets
 import threading
+from dataclasses import dataclass
+from enum import Enum
+from http.cookies import SimpleCookie
+from pathlib import Path
 
 from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
@@ -38,7 +38,6 @@ from clipen.projects import (
 )
 from clipen.projects.models import validate_request_id
 
-
 _SESSION_COOKIE = "clipen_session"
 _CSRF_HEADER = "x-clipen-csrf"
 _INSTANCE_HEADER = "x-clipen-instance"
@@ -64,6 +63,7 @@ class ProviderStatus:
 
     def __post_init__(self) -> None:
         from clipen.provider_registry import get_provider
+
         get_provider(self.provider_id)
         if not self.name.strip() or len(self.name) > 80:
             raise ValueError("provider name must be non-empty and bounded")
@@ -208,9 +208,7 @@ class LocalRequestGuard:
             "/api/session/connect",
             "/api/instance/reopen",
         }:
-            credentials = self.authority.authenticate(
-                _cookie_value(headers, _SESSION_COOKIE)
-            )
+            credentials = self.authority.authenticate(_cookie_value(headers, _SESSION_COOKIE))
             if credentials is None:
                 await self._reject(scope, receive, send, 401, "session_required")
                 return
@@ -220,9 +218,7 @@ class LocalRequestGuard:
                 return
             if path != "/api/session/connect":
                 csrf = headers.get(_CSRF_HEADER)
-                if credentials is None or csrf is None or not secrets.compare_digest(
-                    csrf, credentials.csrf_token
-                ):
+                if credentials is None or csrf is None or not secrets.compare_digest(csrf, credentials.csrf_token):
                     await self._reject(scope, receive, send, 403, "csrf_failed")
                     return
 
@@ -243,9 +239,7 @@ class LocalRequestGuard:
                 headers["referrer-policy"] = "no-referrer"
                 headers["cross-origin-opener-policy"] = "same-origin"
                 headers["cross-origin-resource-policy"] = "same-origin"
-                headers["permissions-policy"] = (
-                    "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
-                )
+                headers["permissions-policy"] = "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
                 path = str(scope.get("path", ""))
                 if path.startswith("/api/") or path in {"", "/", "/index.html"}:
                     headers["cache-control"] = "no-store"
@@ -335,27 +329,32 @@ def create_app(
     async def account(request: Request) -> Response:
         # Which model runs and how much quota is left; read-only, never calls a model.
         if authority.authenticate(_cookie_value(request.headers, _SESSION_COOKIE)) is None:
-            return JSONResponse({"error": {"code": "session_required", "message": "請從 Clipen Terminal 重新開啟工作台。"}},
-                                status_code=401)
-        details = await run_in_threadpool(provider_account) if provider_account is not None else {"model": None, "quota": None}
+            return JSONResponse(
+                {"error": {"code": "session_required", "message": "請從 Clipen Terminal 重新開啟工作台。"}},
+                status_code=401,
+            )
+        details = (
+            await run_in_threadpool(provider_account)
+            if provider_account is not None
+            else {"model": None, "quota": None}
+        )
         return JSONResponse({"provider": {"id": provider.provider_id, "name": provider.name}, **details})
 
     async def power(request: Request) -> Response:
         # Lets the UI warn before production: on battery a closed lid still sleeps the Mac.
         if authority.authenticate(_cookie_value(request.headers, _SESSION_COOKIE)) is None:
-            return JSONResponse({"error": {"code": "session_required", "message": "請從 Clipen Terminal 重新開啟工作台。"}},
-                                status_code=401)
+            return JSONResponse(
+                {"error": {"code": "session_required", "message": "請從 Clipen Terminal 重新開啟工作台。"}},
+                status_code=401,
+            )
         from clipen.power import power_status
+
         return JSONResponse(await run_in_threadpool(power_status))
 
     async def reopen_instance(request: Request) -> Response:
         supplied = request.headers.get(_INSTANCE_HEADER)
         expected = config.instance_secret
-        if (
-            expected is None
-            or supplied is None
-            or not secrets.compare_digest(supplied, expected)
-        ):
+        if expected is None or supplied is None or not secrets.compare_digest(supplied, expected):
             return JSONResponse(
                 {"error": {"code": "instance_invalid", "message": "找不到 Clipen instance。"}},
                 status_code=404,
@@ -374,19 +373,13 @@ def create_app(
         async for chunk in request.stream():
             body.extend(chunk)
             if len(body) > _MAX_JSON_BODY_BYTES:
-                raise ProjectError(
-                    "body_too_large", "這次操作的資料過大。", status_code=413
-                )
+                raise ProjectError("body_too_large", "這次操作的資料過大。", status_code=413)
         try:
             payload = json.loads(body.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as error:
-            raise ProjectError(
-                "json_invalid", "無法讀取這次操作的資料。", status_code=400
-            ) from error
+            raise ProjectError("json_invalid", "無法讀取這次操作的資料。", status_code=400) from error
         if not isinstance(payload, dict):
-            raise ProjectError(
-                "json_invalid", "操作資料必須是 JSON object。", status_code=400
-            )
+            raise ProjectError("json_invalid", "操作資料必須是 JSON object。", status_code=400)
         return payload
 
     def require_workspace() -> ProjectWorkspace:
@@ -424,11 +417,7 @@ def create_app(
         return repository
 
     def require_preparations() -> PreparationCoordinator:
-        coordinator = (
-            analysis_runtime.coordinator()
-            if analysis_runtime is not None
-            else preparations
-        )
+        coordinator = analysis_runtime.coordinator() if analysis_runtime is not None else preparations
         if coordinator is None:
             raise ProjectError(
                 "asr_setup_required",
@@ -473,22 +462,16 @@ def create_app(
             )
         return edit_agents
 
-    def require_fields(
-        payload: dict[str, object], required: set[str], optional: set[str] | None = None
-    ) -> None:
+    def require_fields(payload: dict[str, object], required: set[str], optional: set[str] | None = None) -> None:
         allowed = required | (optional or set())
         if not required.issubset(payload) or not set(payload).issubset(allowed):
-            raise ProjectError(
-                "command_invalid", "這次操作缺少必要資料。", status_code=422
-            )
+            raise ProjectError("command_invalid", "這次操作缺少必要資料。", status_code=422)
 
     def parse_role(value: object) -> DirectoryRole:
         try:
             return DirectoryRole(value)
         except (TypeError, ValueError) as error:
-            raise ProjectError(
-                "role_invalid", "資料夾用途無效。", status_code=422
-            ) from error
+            raise ProjectError("role_invalid", "資料夾用途無效。", status_code=422) from error
 
     async def project_error_response(error: ProjectError) -> JSONResponse:
         return JSONResponse(
@@ -516,17 +499,13 @@ def create_app(
     async def list_projects(_: Request) -> Response:
         try:
             projects = await run_in_threadpool(require_workspace().list_projects)
-            return JSONResponse(
-                {"projects": [project.to_public() for project in projects]}
-            )
+            return JSONResponse({"projects": [project.to_public() for project in projects]})
         except ProjectError as error:
             return await project_error_response(error)
 
     async def get_project(request: Request) -> Response:
         try:
-            project = await run_in_threadpool(
-                require_workspace().get_project, request.path_params["project_id"]
-            )
+            project = await run_in_threadpool(require_workspace().get_project, request.path_params["project_id"])
             return JSONResponse({"project": project.to_public()})
         except ProjectError as error:
             return await project_error_response(error)
@@ -547,9 +526,7 @@ def create_app(
     async def update_details(request: Request) -> Response:
         try:
             payload = await read_json(request)
-            require_fields(
-                payload, {"request_id", "expected_revision", "name", "brief"}
-            )
+            require_fields(payload, {"request_id", "expected_revision", "name", "brief"})
             project = await run_in_threadpool(
                 require_workspace().update_details,
                 request.path_params["project_id"],
@@ -643,9 +620,7 @@ def create_app(
             try:
                 stream_index = int(request.path_params["stream_index"])
             except (TypeError, ValueError) as error:
-                raise ProjectError(
-                    "annotation_not_found", "找不到這個素材。", status_code=404
-                ) from error
+                raise ProjectError("annotation_not_found", "找不到這個素材。", status_code=404) from error
             result = await run_in_threadpool(
                 require_annotations().get,
                 request.path_params["project_id"],
@@ -662,9 +637,13 @@ def create_app(
             require_fields(
                 payload,
                 {
-                    "request_id", "version_id", "stream_index",
-                    "expected_material_revision", "expected_transcript_revision",
-                    "material", "transcript",
+                    "request_id",
+                    "version_id",
+                    "stream_index",
+                    "expected_material_revision",
+                    "expected_transcript_revision",
+                    "material",
+                    "transcript",
                 },
             )
             result = await run_in_threadpool(
@@ -726,6 +705,7 @@ def create_app(
         # Finished films are rendered by AI production and played or downloaded from here.
         try:
             from clipen.rendering import PreviewRenderRepository
+
             path = await run_in_threadpool(
                 PreviewRenderRepository(require_workspace().repository).media_path,
                 request.path_params["project_id"],
@@ -739,6 +719,7 @@ def create_app(
         # A still cut from the project's own footage for its card on the home page.
         try:
             from clipen.rendering import ProjectCoverRepository
+
             path = await run_in_threadpool(
                 ProjectCoverRepository(require_workspace().repository).cover,
                 request.path_params["project_id"],
@@ -759,210 +740,382 @@ def create_app(
 
     async def edit_agent_export(request: Request) -> Response:
         try:
-            path=await run_in_threadpool(require_edit_agents().export_path,request.path_params['project_id'],request.path_params['run_id'],request.path_params['revision_id'])
-            return FileResponse(path,media_type='application/json',filename=path.name)
+            path = await run_in_threadpool(
+                require_edit_agents().export_path,
+                request.path_params["project_id"],
+                request.path_params["run_id"],
+                request.path_params["revision_id"],
+            )
+            return FileResponse(path, media_type="application/json", filename=path.name)
         except ProjectError as error:
             return await project_error_response(error)
 
     async def production_skills(request: Request) -> Response:
         from clipen.skills import list_skills
-        return JSONResponse({'skills': list_skills()})
+
+        return JSONResponse({"skills": list_skills()})
 
     async def production_style_preview(request: Request) -> Response:
         import base64
+
         from clipen.skills import get_skill
         from clipen.skills.visual_styles import public_styles
+
         try:
-            skill=get_skill(request.path_params['skill_id'])
-            identifier=request.path_params['style_id']
-            style=next((s for s in public_styles(skill) if s['visual_style_id']==identifier and 'preview_resource' in s),None)
+            skill = get_skill(request.path_params["skill_id"])
+            identifier = request.path_params["style_id"]
+            style = next(
+                (s for s in public_styles(skill) if s["visual_style_id"] == identifier and "preview_resource" in s),
+                None,
+            )
             if style is None:
-                raise ProjectError('visual_style_unavailable','找不到這套畫面風格。',status_code=404)
-            asset=skill['assets'][style['preview_resource']]
-            return Response(base64.b64decode(asset['data'],validate=True),media_type='image/png',headers={'Cache-Control':'no-cache'})
+                raise ProjectError("visual_style_unavailable", "找不到這套畫面風格。", status_code=404)
+            asset = skill["assets"][style["preview_resource"]]
+            return Response(
+                base64.b64decode(asset["data"], validate=True),
+                media_type="image/png",
+                headers={"Cache-Control": "no-cache"},
+            )
         except ProjectError as error:
             return await project_error_response(error)
 
     async def production_template_sample(request: Request) -> Response:
-        from clipen.skills import get_skill
-        from importlib.resources import files
         import hashlib
+        from importlib.resources import files
+
+        from clipen.skills import get_skill
+
         try:
-            skill=get_skill(request.path_params['skill_id'])
-            template=next((t for t in skill['templates'] if t['template_id']==request.path_params['template_id']),None)
-            if template is None:raise ProjectError('template_unavailable','找不到模板示例。',status_code=404)
-            path=files('clipen.skills').joinpath('builtin',template['sample_resource'])
-            if hashlib.sha256(path.read_bytes()).hexdigest()!=skill['samples'][template['sample_resource']]['sha256']:
-                raise ProjectError('skill_asset_invalid','模板示例未通過校驗。',status_code=409)
-            return FileResponse(str(path),media_type='video/mp4',headers={'Cache-Control':'no-cache'})
-        except ProjectError as error:return await project_error_response(error)
+            skill = get_skill(request.path_params["skill_id"])
+            template = next(
+                (t for t in skill["templates"] if t["template_id"] == request.path_params["template_id"]), None
+            )
+            if template is None:
+                raise ProjectError("template_unavailable", "找不到模板示例。", status_code=404)
+            path = files("clipen.skills").joinpath("builtin", template["sample_resource"])
+            if hashlib.sha256(path.read_bytes()).hexdigest() != skill["samples"][template["sample_resource"]]["sha256"]:
+                raise ProjectError("skill_asset_invalid", "模板示例未通過校驗。", status_code=409)
+            return FileResponse(str(path), media_type="video/mp4", headers={"Cache-Control": "no-cache"})
+        except ProjectError as error:
+            return await project_error_response(error)
 
     async def start_production(request: Request) -> Response:
         try:
             payload = await read_json(request)
-            require_fields(payload, {'request_id', 'consent', 'skill_id', 'intent'}, {'max_tool_calls', 'max_preview_renders', 'visual_style_id', 'font_style_id', 'target_duration_seconds', 'music_asset_id', 'template_id'})
-            run = await run_in_threadpool(require_edit_agents().start,
-                request.path_params['project_id'], payload['request_id'], payload['consent'],
-                production={'skill_id':payload['skill_id'], 'intent':payload['intent'], **({key:payload[key] for key in ('visual_style_id','font_style_id','target_duration_seconds','music_asset_id','template_id') if key in payload})},
-                max_tool_calls=payload.get('max_tool_calls', 500 if payload.get('target_duration_seconds',60)>75 else 120), max_preview_renders=payload.get('max_preview_renders', 6 if payload.get('target_duration_seconds',60)>75 else 4))
-            return JSONResponse({'run':run.to_public()},status_code=202)
+            require_fields(
+                payload,
+                {"request_id", "consent", "skill_id", "intent"},
+                {
+                    "max_tool_calls",
+                    "max_preview_renders",
+                    "visual_style_id",
+                    "font_style_id",
+                    "target_duration_seconds",
+                    "music_asset_id",
+                    "template_id",
+                },
+            )
+            run = await run_in_threadpool(
+                require_edit_agents().start,
+                request.path_params["project_id"],
+                payload["request_id"],
+                payload["consent"],
+                production={
+                    "skill_id": payload["skill_id"],
+                    "intent": payload["intent"],
+                    **(
+                        {
+                            key: payload[key]
+                            for key in (
+                                "visual_style_id",
+                                "font_style_id",
+                                "target_duration_seconds",
+                                "music_asset_id",
+                                "template_id",
+                            )
+                            if key in payload
+                        }
+                    ),
+                },
+                max_tool_calls=payload.get(
+                    "max_tool_calls", 500 if payload.get("target_duration_seconds", 60) > 75 else 120
+                ),
+                max_preview_renders=payload.get(
+                    "max_preview_renders", 6 if payload.get("target_duration_seconds", 60) > 75 else 4
+                ),
+            )
+            return JSONResponse({"run": run.to_public()}, status_code=202)
         except (TypeError, ValueError) as error:
-            return await project_error_response(ProjectError('command_invalid', str(error), status_code=422))
+            return await project_error_response(ProjectError("command_invalid", str(error), status_code=422))
         except ProjectError as error:
             return await project_error_response(error)
 
     async def skill_document(request: Request) -> Response:
         """Read-only text of a skill and the skills it extends, for review in the UI."""
         from clipen.skills import get_skill
+
         try:
-            skill = await run_in_threadpool(get_skill, request.path_params['skill_id'])
-            chain = [{**{k: entry[k] for k in ('skill_id', 'version', 'source')},
-                      'content': skill['resources'][entry['resource']],
-                      'references': sorted(k for k in skill['resources']
-                                           if k.startswith(entry['resource'].rsplit('/', 1)[0] + '/') and k != entry['resource'])}
-                     for entry in skill['skill_chain']]
-            return JSONResponse({'skill_id': skill['skill_id'], 'name': skill['name'], 'chain': chain})
+            skill = await run_in_threadpool(get_skill, request.path_params["skill_id"])
+            chain = [
+                {
+                    **{k: entry[k] for k in ("skill_id", "version", "source")},
+                    "content": skill["resources"][entry["resource"]],
+                    "references": sorted(
+                        k
+                        for k in skill["resources"]
+                        if k.startswith(entry["resource"].rsplit("/", 1)[0] + "/") and k != entry["resource"]
+                    ),
+                }
+                for entry in skill["skill_chain"]
+            ]
+            return JSONResponse({"skill_id": skill["skill_id"], "name": skill["name"], "chain": chain})
         except ProjectError as error:
             return await project_error_response(error)
 
     async def skill_library_status(_: Request) -> Response:
         from clipen.skills import skill_library
+
         try:
-            return JSONResponse({'skills': await run_in_threadpool(skill_library().list)})
+            return JSONResponse({"skills": await run_in_threadpool(skill_library().list)})
         except ProjectError as error:
             return await project_error_response(error)
 
     async def import_skill(request: Request) -> Response:
         """Import a folder the user picks in the native dialog; the browser never sends a path."""
         from clipen.skills import skill_library
+
         try:
             payload = await read_json(request)
-            require_fields(payload, {'request_id'})
-            validate_request_id(payload['request_id'])
-            folder = await run_in_threadpool(require_workspace().picker.choose_folder, '選擇要匯入的 Skill 資料夾')
+            require_fields(payload, {"request_id"})
+            validate_request_id(payload["request_id"])
+            folder = await run_in_threadpool(require_workspace().picker.choose_folder, "選擇要匯入的 Skill 資料夾")
             if folder is None:
                 return Response(status_code=204)
             package = await run_in_threadpool(skill_library().import_folder, folder)
-            return JSONResponse({'skill': package.summary()}, status_code=201)
+            return JSONResponse({"skill": package.summary()}, status_code=201)
         except ProjectError as error:
             return await project_error_response(error)
 
     async def remove_skill(request: Request) -> Response:
         from clipen.skills import skill_library
+
         try:
             require_fields(await read_json(request), set())
-            await run_in_threadpool(skill_library().remove, request.path_params['skill_id'])
-            return JSONResponse({'removed': request.path_params['skill_id']})
+            await run_in_threadpool(skill_library().remove, request.path_params["skill_id"])
+            return JSONResponse({"removed": request.path_params["skill_id"]})
         except ProjectError as error:
             return await project_error_response(error)
 
     async def production_prompt_history(request: Request) -> Response:
         try:
             from clipen.editing.prompt_history import history, save
-            repository=require_edit_agents().repository
-            if request.method=='GET':
-                offset=int(request.query_params.get('offset','0'));limit=int(request.query_params.get('limit','30'))
-                if not 0<=offset<=100000 or not 1<=limit<=100:raise ValueError('分頁參數無效。')
-                return JSONResponse(await run_in_threadpool(history,repository,request.query_params.get('project_id'),offset,limit))
-            payload=await read_json(request);require_fields(payload,{'request_id','kind','text'})
-            return JSONResponse(await run_in_threadpool(save,repository,request.path_params['project_id'],payload['request_id'],payload['kind'],payload['text']),status_code=201)
-        except ProjectError as error:return await project_error_response(error)
-        except (TypeError,ValueError) as error:return await project_error_response(ProjectError('prompt_invalid',str(error),status_code=422))
+
+            repository = require_edit_agents().repository
+            if request.method == "GET":
+                offset = int(request.query_params.get("offset", "0"))
+                limit = int(request.query_params.get("limit", "30"))
+                if not 0 <= offset <= 100000 or not 1 <= limit <= 100:
+                    raise ValueError("分頁參數無效。")
+                return JSONResponse(
+                    await run_in_threadpool(history, repository, request.query_params.get("project_id"), offset, limit)
+                )
+            payload = await read_json(request)
+            require_fields(payload, {"request_id", "kind", "text"})
+            return JSONResponse(
+                await run_in_threadpool(
+                    save,
+                    repository,
+                    request.path_params["project_id"],
+                    payload["request_id"],
+                    payload["kind"],
+                    payload["text"],
+                ),
+                status_code=201,
+            )
+        except ProjectError as error:
+            return await project_error_response(error)
+        except (TypeError, ValueError) as error:
+            return await project_error_response(ProjectError("prompt_invalid", str(error), status_code=422))
 
     async def production_workbench(request: Request) -> Response:
         try:
             from clipen.editing.workbench import state, tools_for
-            coordinator=require_edit_agents();project=request.path_params['project_id'];run=request.path_params['run_id']
-            if request.method=='GET':return JSONResponse(await run_in_threadpool(state,coordinator.repository,project,run))
-            payload=await read_json(request);operation=request.path_params['operation']
-            if operation=='edit':
-                require_fields(payload,{'tool','arguments','expected_revision_id','mutation_id'})
-                if not isinstance(payload['arguments'],dict):raise ProjectError('command_invalid','編輯參數必須是物件。',status_code=422)
-                result=await run_in_threadpool(coordinator.workbench_edit,project,run,payload['tool'],payload['arguments'],payload['expected_revision_id'],payload['mutation_id'])
-            elif operation=='refine':
-                require_fields(payload,{'request_id','expected_revision_id','instruction','consent'},{'music_asset_id','expected_references_version'})
-                result={'run':(await run_in_threadpool(coordinator.refine,project,run,payload['request_id'],payload['expected_revision_id'],payload['instruction'],payload['consent'],payload.get('music_asset_id'),payload.get('expected_references_version'))).to_public()}
-            elif operation=='reference':
-                require_fields(payload,{'expected_revision_id','expected_version','mutation_id'},{'reference','delete_id'})
+
+            coordinator = require_edit_agents()
+            project = request.path_params["project_id"]
+            run = request.path_params["run_id"]
+            if request.method == "GET":
+                return JSONResponse(await run_in_threadpool(state, coordinator.repository, project, run))
+            payload = await read_json(request)
+            operation = request.path_params["operation"]
+            if operation == "edit":
+                require_fields(payload, {"tool", "arguments", "expected_revision_id", "mutation_id"})
+                if not isinstance(payload["arguments"], dict):
+                    raise ProjectError("command_invalid", "編輯參數必須是物件。", status_code=422)
+                result = await run_in_threadpool(
+                    coordinator.workbench_edit,
+                    project,
+                    run,
+                    payload["tool"],
+                    payload["arguments"],
+                    payload["expected_revision_id"],
+                    payload["mutation_id"],
+                )
+            elif operation == "refine":
+                require_fields(
+                    payload,
+                    {"request_id", "expected_revision_id", "instruction", "consent"},
+                    {"music_asset_id", "expected_references_version"},
+                )
+                result = {
+                    "run": (
+                        await run_in_threadpool(
+                            coordinator.refine,
+                            project,
+                            run,
+                            payload["request_id"],
+                            payload["expected_revision_id"],
+                            payload["instruction"],
+                            payload["consent"],
+                            payload.get("music_asset_id"),
+                            payload.get("expected_references_version"),
+                        )
+                    ).to_public()
+                }
+            elif operation == "reference":
+                require_fields(
+                    payload, {"expected_revision_id", "expected_version", "mutation_id"}, {"reference", "delete_id"}
+                )
                 from clipen.editing.refinement_references import update
-                result=await run_in_threadpool(update,coordinator.repository,project,run,payload['expected_revision_id'],payload['expected_version'],payload['mutation_id'],payload.get('reference'),payload.get('delete_id'))
-            elif operation=='frame':
-                require_fields(payload,{'expected_revision_id','frame'},{'component'})
+
+                result = await run_in_threadpool(
+                    update,
+                    coordinator.repository,
+                    project,
+                    run,
+                    payload["expected_revision_id"],
+                    payload["expected_version"],
+                    payload["mutation_id"],
+                    payload.get("reference"),
+                    payload.get("delete_id"),
+                )
+            elif operation == "frame":
+                require_fields(payload, {"expected_revision_id", "frame"}, {"component"})
                 from clipen.editing.visual_preview import frame
-                result=await run_in_threadpool(frame,coordinator.repository,project,run,payload['expected_revision_id'],payload['frame'],payload.get('component'))
-            elif operation=='render':
-                require_fields(payload,{'expected_revision_id'})
-                result=await run_in_threadpool(coordinator.workbench_render,project,run,payload['expected_revision_id'])
-            elif operation=='export':
-                require_fields(payload,set())
-                result=await run_in_threadpool(lambda:tools_for(coordinator.repository,project,run).production_call('export_edit',{}).payload)
-            elif operation=='resolve':
-                require_fields(payload,set())
+
+                result = await run_in_threadpool(
+                    frame,
+                    coordinator.repository,
+                    project,
+                    run,
+                    payload["expected_revision_id"],
+                    payload["frame"],
+                    payload.get("component"),
+                )
+            elif operation == "render":
+                require_fields(payload, {"expected_revision_id"})
+                result = await run_in_threadpool(
+                    coordinator.workbench_render, project, run, payload["expected_revision_id"]
+                )
+            elif operation == "export":
+                require_fields(payload, set())
+                result = await run_in_threadpool(
+                    lambda: tools_for(coordinator.repository, project, run).production_call("export_edit", {}).payload
+                )
+            elif operation == "resolve":
+                require_fields(payload, set())
                 from clipen.editing.resolve_export import export_resolve, reveal, start_watching
                 from clipen.editing.workbench import idle
-                await run_in_threadpool(idle,coordinator.repository,project,run)
-                result=await run_in_threadpool(export_resolve,coordinator.repository,project,run)
-                await run_in_threadpool(reveal,Path(result['fcpxml']))
+
+                await run_in_threadpool(idle, coordinator.repository, project, run)
+                result = await run_in_threadpool(export_resolve, coordinator.repository, project, run)
+                await run_in_threadpool(reveal, Path(result["fcpxml"]))
                 # Saving the timeline as .drt in Resolve is enough; Clipen makes the editable copy on its own.
-                if result.get('editable_overlays'):start_watching(Path(result['folder']))
-            elif operation in {'resolve_titles','resolve_status'}:
-                require_fields(payload,{'folder'})
+                if result.get("editable_overlays"):
+                    start_watching(Path(result["folder"]))
+            elif operation in {"resolve_titles", "resolve_status"}:
+                require_fields(payload, {"folder"})
                 from clipen.editing.resolve_export import convert_timeline, export_folder, reveal, timeline_status
-                exports=(await run_in_threadpool(export_folder,coordinator.repository,project)).resolve()
-                package=Path(str(payload['folder'])).resolve()
-                if package.parent!=exports:raise ProjectError('resolve_package_invalid','只能轉換這個專案匯出到「Clipen 匯出」的資料夾。',status_code=422)
-                if operation=='resolve_status':return JSONResponse(await run_in_threadpool(timeline_status,package))
-                target,titles=await run_in_threadpool(convert_timeline,package)
-                await run_in_threadpool(reveal,target)
-                result={'drt':str(target),'titles':titles}
-            else:raise ProjectError('command_invalid','不支援這個編輯操作。',status_code=404)
+
+                exports = (await run_in_threadpool(export_folder, coordinator.repository, project)).resolve()
+                package = Path(str(payload["folder"])).resolve()
+                if package.parent != exports:
+                    raise ProjectError(
+                        "resolve_package_invalid", "只能轉換這個專案匯出到「Clipen 匯出」的資料夾。", status_code=422
+                    )
+                if operation == "resolve_status":
+                    return JSONResponse(await run_in_threadpool(timeline_status, package))
+                target, titles = await run_in_threadpool(convert_timeline, package)
+                await run_in_threadpool(reveal, target)
+                result = {"drt": str(target), "titles": titles}
+            else:
+                raise ProjectError("command_invalid", "不支援這個編輯操作。", status_code=404)
             return JSONResponse(result)
-        except ProjectError as error:return await project_error_response(error)
-        except (TypeError,ValueError) as error:return await project_error_response(ProjectError('command_invalid',str(error),status_code=422))
+        except ProjectError as error:
+            return await project_error_response(error)
+        except (TypeError, ValueError) as error:
+            return await project_error_response(ProjectError("command_invalid", str(error), status_code=422))
 
     async def production_music(request: Request) -> Response:
-        from clipen.editing.production_media import AgentAudioStore
         from clipen.editing.music_choices import music_choices
+        from clipen.editing.production_media import AgentAudioStore
         from clipen.editing.workbench import import_music
-        coordinator=require_edit_agents();project=request.path_params['project_id']
-        directory=None
+
+        coordinator = require_edit_agents()
+        project = request.path_params["project_id"]
+        directory = None
         try:
             # Resolve and authorize the project before creating any upload data.
             coordinator.repository.projects.get_project(project)
-            store=AgentAudioStore(coordinator.repository.projects,project)
-            if request.method=='GET':return JSONResponse({'assets':music_choices(store)})
-            latest=coordinator.repository.latest(project)
-            if latest and latest.state in {'queued','running'}:raise ProjectError('edit_agent_busy','請先停止 AI 製作，再上傳配樂。',status_code=409)
-            name=request.query_params.get('filename','')
-            if not name or len(name)>160 or '/' in name or '\\' in name or '\x00' in name:
-                raise ProjectError('music_invalid','音樂檔名無效。',status_code=422)
-            suffix=Path(name).suffix.lower()
-            if suffix not in {'.mp3','.wav','.m4a','.aac','.flac','.ogg','.aiff','.aif'}:raise ProjectError('music_invalid','請選擇 MP3、WAV、M4A、AAC、FLAC、OGG 或 AIFF 音樂檔。',status_code=422)
-            directory=store.directory/('upload-'+secrets.token_hex(16));directory.mkdir(mode=0o700)
-            path=directory/('music'+suffix);size=0
-            with path.open('xb') as output:
+            store = AgentAudioStore(coordinator.repository.projects, project)
+            if request.method == "GET":
+                return JSONResponse({"assets": music_choices(store)})
+            latest = coordinator.repository.latest(project)
+            if latest and latest.state in {"queued", "running"}:
+                raise ProjectError("edit_agent_busy", "請先停止 AI 製作，再上傳配樂。", status_code=409)
+            name = request.query_params.get("filename", "")
+            if not name or len(name) > 160 or "/" in name or "\\" in name or "\x00" in name:
+                raise ProjectError("music_invalid", "音樂檔名無效。", status_code=422)
+            suffix = Path(name).suffix.lower()
+            if suffix not in {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".aiff", ".aif"}:
+                raise ProjectError(
+                    "music_invalid", "請選擇 MP3、WAV、M4A、AAC、FLAC、OGG 或 AIFF 音樂檔。", status_code=422
+                )
+            directory = store.directory / ("upload-" + secrets.token_hex(16))
+            directory.mkdir(mode=0o700)
+            path = directory / ("music" + suffix)
+            size = 0
+            with path.open("xb") as output:
                 path.chmod(0o600)
                 async for chunk in request.stream():
-                    size+=len(chunk)
-                    if size>128*1024*1024:raise ProjectError('body_too_large','音樂檔上限為 128 MB。',status_code=413)
+                    size += len(chunk)
+                    if size > 128 * 1024 * 1024:
+                        raise ProjectError("body_too_large", "音樂檔上限為 128 MB。", status_code=413)
                     output.write(chunk)
-            if not size:raise ProjectError('music_invalid','音樂檔是空的。',status_code=422)
-            asset=await run_in_threadpool(import_music,coordinator.repository,project,path,name)
-            directory=None
-            return JSONResponse({'asset':asset},status_code=201)
-        except ProjectError as error:return await project_error_response(error)
+            if not size:
+                raise ProjectError("music_invalid", "音樂檔是空的。", status_code=422)
+            asset = await run_in_threadpool(import_music, coordinator.repository, project, path, name)
+            directory = None
+            return JSONResponse({"asset": asset}, status_code=201)
+        except ProjectError as error:
+            return await project_error_response(error)
         finally:
             if directory is not None:
                 import shutil
+
                 shutil.rmtree(directory)
 
     async def resume_production(request: Request) -> Response:
         try:
             payload = await read_json(request)
-            require_fields(payload, {'consent'})
-            run = await run_in_threadpool(require_edit_agents().resume,
-                request.path_params['project_id'], request.path_params['run_id'], payload['consent'])
-            return JSONResponse({'run':run.to_public()}, status_code=202)
+            require_fields(payload, {"consent"})
+            run = await run_in_threadpool(
+                require_edit_agents().resume,
+                request.path_params["project_id"],
+                request.path_params["run_id"],
+                payload["consent"],
+            )
+            return JSONResponse({"run": run.to_public()}, status_code=202)
         except ProjectError as error:
             return await project_error_response(error)
 
@@ -1008,9 +1161,7 @@ def create_app(
             run, page = await run_in_threadpool(
                 lambda: (
                     coordinator.repository.get_run(project_id, run_id),
-                    coordinator.repository.list_items(
-                        project_id, run_id, offset=offset, limit=limit
-                    ),
+                    coordinator.repository.list_items(project_id, run_id, offset=offset, limit=limit),
                 )
             )
             return JSONResponse({"inventory": run.to_public(), **page.to_public()})
@@ -1054,7 +1205,9 @@ def create_app(
             raw_offset = request.query_params.get("offset", "0")
             if not raw_offset.isascii() or not raw_offset.isdigit() or len(raw_offset) > 4:
                 raise ProjectError("invalid_page", "頁碼不正確。", status_code=400)
-            return JSONResponse(await run_in_threadpool(require_evidence().status, request.path_params["project_id"], int(raw_offset)))
+            return JSONResponse(
+                await run_in_threadpool(require_evidence().status, request.path_params["project_id"], int(raw_offset))
+            )
         except ProjectError as error:
             return await project_error_response(error)
 
@@ -1066,13 +1219,22 @@ def create_app(
             payload = await read_json(request)
             if action == "start":
                 require_fields(payload, {"request_id", "expected_revision", "scope_id"})
-                result = await run_in_threadpool(service.start, project_id, payload["request_id"], payload["expected_revision"], payload["scope_id"])
+                result = await run_in_threadpool(
+                    service.start, project_id, payload["request_id"], payload["expected_revision"], payload["scope_id"]
+                )
             elif action in {"cancel", "resume"}:
                 require_fields(payload, {"run_id"})
                 result = await run_in_threadpool(getattr(service, action), project_id, payload["run_id"])
             elif action == "observe":
                 require_fields(payload, {"run_id", "request_id", "item_key", "consent"})
-                result = await run_in_threadpool(service.observe, project_id, payload["run_id"], payload["request_id"], payload["item_key"], payload["consent"])
+                result = await run_in_threadpool(
+                    service.observe,
+                    project_id,
+                    payload["run_id"],
+                    payload["request_id"],
+                    payload["item_key"],
+                    payload["consent"],
+                )
             else:
                 raise ProjectError("command_unknown", "找不到這個操作。", status_code=404)
             return JSONResponse(result, status_code=202)
@@ -1081,9 +1243,23 @@ def create_app(
 
     async def evidence_image(request: Request) -> Response:
         try:
+
             def read_image():
-                return require_evidence().image(request.path_params["project_id"], request.path_params["run_id"], request.path_params["artifact_id"]).read_bytes()
-            return Response(await run_in_threadpool(read_image), media_type="image/png", headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"})
+                return (
+                    require_evidence()
+                    .image(
+                        request.path_params["project_id"],
+                        request.path_params["run_id"],
+                        request.path_params["artifact_id"],
+                    )
+                    .read_bytes()
+                )
+
+            return Response(
+                await run_in_threadpool(read_image),
+                media_type="image/png",
+                headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"},
+            )
         except ProjectError as error:
             return await project_error_response(error)
 
@@ -1150,9 +1326,7 @@ def create_app(
                 require_preparation_repository().result_items,
                 request.path_params["project_id"],
                 request.path_params["run_id"],
-                offset=_query_integer(
-                    request, "offset", 0, minimum=0, maximum=1_000_000
-                ),
+                offset=_query_integer(request, "offset", 0, minimum=0, maximum=1_000_000),
                 limit=_query_integer(request, "limit", 25, minimum=1, maximum=100),
                 trip_day=trip_day,
                 review_state=request.query_params.get("review_state", "all"),
@@ -1169,9 +1343,7 @@ def create_app(
                 request.path_params["run_id"],
                 request.path_params["version_id"],
                 request.path_params["stream_index"],
-                offset=_query_integer(
-                    request, "offset", 0, minimum=0, maximum=1_000_000
-                ),
+                offset=_query_integer(request, "offset", 0, minimum=0, maximum=1_000_000),
                 limit=_query_integer(request, "limit", 100, minimum=1, maximum=100),
             )
             return JSONResponse({"transcript": transcript})
@@ -1245,9 +1417,7 @@ def create_app(
             run_id = request.path_params["run_id"]
             raw_last = request.headers.get("last-event-id", "0")
             if not raw_last.isascii() or not raw_last.isdigit() or len(raw_last) > 20:
-                raise ProjectError(
-                    "event_cursor_invalid", "分析進度位置無效。", status_code=422
-                )
+                raise ProjectError("event_cursor_invalid", "分析進度位置無效。", status_code=422)
             cursor = int(raw_last)
             await run_in_threadpool(repository.get_run, project_id, run_id)
 
@@ -1256,9 +1426,7 @@ def create_app(
                 idle = 0
                 while idle < 50 and not await request.is_disconnected():
                     events = await run_in_threadpool(
-                        lambda: repository.list_events(
-                            project_id, run_id, after_sequence=cursor
-                        )
+                        lambda: repository.list_events(project_id, run_id, after_sequence=cursor)
                     )
                     if events:
                         idle = 0
@@ -1276,12 +1444,16 @@ def create_app(
                         if idle % 20 == 0:
                             yield b": keepalive\n\n"
                     run = await run_in_threadpool(repository.get_run, project_id, run_id)
-                    if run.state.value in {
-                        "succeeded",
-                        "failed",
-                        "cancelled",
-                        "interrupted",
-                    } and not events:
+                    if (
+                        run.state.value
+                        in {
+                            "succeeded",
+                            "failed",
+                            "cancelled",
+                            "interrupted",
+                        }
+                        and not events
+                    ):
                         return
                     await asyncio.sleep(0.5)
 
@@ -1297,20 +1469,36 @@ def create_app(
         debug=False,
         routes=[
             Route("/api/health", health, methods=["GET"]),
-            Route("/api/projects/{project_id}/edit-agent/{run_id}/exports/{revision_id}", edit_agent_export, methods=["GET"]),
-            Route('/api/projects/{project_id}/production/commands/resume/{run_id}', resume_production, methods=['POST']),
-            Route('/api/projects/{project_id}/production/music', production_music, methods=['GET','POST']),
-            Route('/api/projects/{project_id}/production/{run_id}/workbench', production_workbench, methods=['GET']),
-            Route('/api/projects/{project_id}/production/{run_id}/workbench/{operation}', production_workbench, methods=['POST']),
-            Route('/api/production/prompts', production_prompt_history, methods=['GET']),
-            Route('/api/projects/{project_id}/production/prompts', production_prompt_history, methods=['POST']),
+            Route(
+                "/api/projects/{project_id}/edit-agent/{run_id}/exports/{revision_id}",
+                edit_agent_export,
+                methods=["GET"],
+            ),
+            Route(
+                "/api/projects/{project_id}/production/commands/resume/{run_id}", resume_production, methods=["POST"]
+            ),
+            Route("/api/projects/{project_id}/production/music", production_music, methods=["GET", "POST"]),
+            Route("/api/projects/{project_id}/production/{run_id}/workbench", production_workbench, methods=["GET"]),
+            Route(
+                "/api/projects/{project_id}/production/{run_id}/workbench/{operation}",
+                production_workbench,
+                methods=["POST"],
+            ),
+            Route("/api/production/prompts", production_prompt_history, methods=["GET"]),
+            Route("/api/projects/{project_id}/production/prompts", production_prompt_history, methods=["POST"]),
             Route("/api/production/skills", production_skills, methods=["GET"]),
             Route("/api/production/skill-library", skill_library_status, methods=["GET"]),
             Route("/api/production/skills/{skill_id}/document", skill_document, methods=["GET"]),
             Route("/api/production/skill-library/commands/import", import_skill, methods=["POST"]),
             Route("/api/production/skill-library/{skill_id}/commands/remove", remove_skill, methods=["POST"]),
-            Route("/api/production/skills/{skill_id}/styles/{style_id}/preview", production_style_preview, methods=["GET"]),
-            Route('/api/production/skills/{skill_id}/templates/{template_id}/sample', production_template_sample, methods=['GET']),
+            Route(
+                "/api/production/skills/{skill_id}/styles/{style_id}/preview", production_style_preview, methods=["GET"]
+            ),
+            Route(
+                "/api/production/skills/{skill_id}/templates/{template_id}/sample",
+                production_template_sample,
+                methods=["GET"],
+            ),
             Route("/api/projects/{project_id}/production/commands/start", start_production, methods=["POST"]),
             Route("/api/session/connect", connect_local_browser, methods=["POST"]),
             Route("/api/instance/reopen", reopen_instance, methods=["POST"]),
@@ -1415,8 +1603,7 @@ def create_app(
                 methods=["GET"],
             ),
             Route(
-                "/api/projects/{project_id}/analyses/{run_id}/items/"
-                "{version_id}/{stream_index:int}/transcript",
+                "/api/projects/{project_id}/analyses/{run_id}/items/{version_id}/{stream_index:int}/transcript",
                 transcript_segments,
                 methods=["GET"],
             ),

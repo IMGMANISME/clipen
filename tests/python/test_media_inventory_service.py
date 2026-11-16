@@ -1,8 +1,8 @@
-from pathlib import Path
 import tempfile
 import threading
 import time
 import unittest
+from pathlib import Path
 
 from clipen.media import (
     AssetKind,
@@ -188,9 +188,7 @@ class MediaInventoryServiceTests(unittest.TestCase):
         )
         probe = FakeProbe()
 
-        candidate = InventoryCoordinator._inspect(
-            probe, root, unreadable, threading.Event()
-        )
+        candidate = InventoryCoordinator._inspect(probe, root, unreadable, threading.Event())
 
         self.assertEqual(candidate.status, ItemStatus.NEEDS_ATTENTION)
         self.assertEqual(candidate.issue_code, "entry_unreadable")

@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import hashlib
-from functools import wraps
 import json
 import os
-from pathlib import Path
 import re
 import secrets
 import stat
 import threading
+from functools import wraps
+from pathlib import Path
 from typing import Callable, Iterable, Mapping, TypeVar
 
 from clipen.filesystem import restrict_permissions
@@ -25,7 +25,6 @@ from .models import (
     validate_operation_id,
     validate_recipe_id,
 )
-
 
 _READ_SIZE = 1024 * 1024
 _BLOB_PATH = re.compile(r"artifacts/sha256/([0-9a-f]{2})/([0-9a-f]{64})\Z")
@@ -228,9 +227,7 @@ class ArtifactStore:
         with self.projects.connect(project_id) as connection:
             live = {
                 row["relative_path"]
-                for row in connection.execute(
-                    "SELECT DISTINCT relative_path FROM artifacts"
-                ).fetchall()
+                for row in connection.execute("SELECT DISTINCT relative_path FROM artifacts").fetchall()
             }
         project_root = self._project_root(project_id)
         removed = 0
@@ -239,10 +236,7 @@ class ArtifactStore:
             try:
                 parent = candidate.parent.resolve(strict=True)
                 expected_parent = project_root / "artifacts" / "sha256" / candidate.parent.name
-                if (
-                    parent != expected_parent
-                    or candidate.is_symlink()
-                ):
+                if parent != expected_parent or candidate.is_symlink():
                     continue
                 info = os.lstat(candidate)
                 if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:

@@ -1,7 +1,7 @@
-from pathlib import Path
 import sqlite3
 import tempfile
 import unittest
+from pathlib import Path
 
 from clipen.media import (
     AssetCandidate,
@@ -82,19 +82,35 @@ class MediaInventoryStorageTests(unittest.TestCase):
         )
 
     def test_reinspection_adds_cover_flags_without_replacing_time_mapping(self) -> None:
-        from dataclasses import replace
         import json
+        from dataclasses import replace
+
         original = self.usable_video()
         first = self.start()
         self.inventories.stage_items(self.project.project_id, first.run_id, (original,))
         self.inventories.publish(self.project.project_id, first.run_id)
         second = self.start("request-inventory-reinspect")
-        enriched = replace(original, streams=(MediaStream(0, "video", "h264", {
-            "time_base": "1/1000", "attached_pic": True, "timed_thumbnails": False,
-        }), original.streams[1]))
+        enriched = replace(
+            original,
+            streams=(
+                MediaStream(
+                    0,
+                    "video",
+                    "h264",
+                    {
+                        "time_base": "1/1000",
+                        "attached_pic": True,
+                        "timed_thumbnails": False,
+                    },
+                ),
+                original.streams[1],
+            ),
+        )
         self.inventories.stage_items(self.project.project_id, second.run_id, (enriched,))
         with self.projects.connect(self.project.project_id) as connection:
-            details = json.loads(connection.execute("SELECT details_json FROM media_streams WHERE stream_index=0").fetchone()[0])
+            details = json.loads(
+                connection.execute("SELECT details_json FROM media_streams WHERE stream_index=0").fetchone()[0]
+            )
         self.assertTrue(details["attached_pic"])
         self.assertEqual(details["time_base"], "1/90000")
 
@@ -183,9 +199,7 @@ class MediaInventoryStorageTests(unittest.TestCase):
 
     def test_latest_run_is_separate_from_last_successful_run(self) -> None:
         first = self.start("request-inventory-latest-first")
-        self.inventories.stage_item(
-            self.project.project_id, first.run_id, self.usable_video()
-        )
+        self.inventories.stage_item(self.project.project_id, first.run_id, self.usable_video())
         published = self.inventories.publish(self.project.project_id, first.run_id)
         latest = self.inventories.create_run(
             self.project.project_id,
@@ -198,9 +212,7 @@ class MediaInventoryStorageTests(unittest.TestCase):
 
     def test_successful_publish_is_atomic_and_persists_assets_and_streams(self) -> None:
         running = self.start()
-        staged = self.inventories.stage_item(
-            self.project.project_id, running.run_id, self.usable_video()
-        )
+        staged = self.inventories.stage_item(self.project.project_id, running.run_id, self.usable_video())
         staged = self.inventories.stage_item(
             self.project.project_id,
             running.run_id,
@@ -216,13 +228,16 @@ class MediaInventoryStorageTests(unittest.TestCase):
                 None,
             ),
         )
-        self.assertEqual(staged.counts.to_public(), {
-            "discovered": 2,
-            "probed": 1,
-            "usable": 1,
-            "issues": 0,
-            "ignored": 1,
-        })
+        self.assertEqual(
+            staged.counts.to_public(),
+            {
+                "discovered": 2,
+                "probed": 1,
+                "usable": 1,
+                "issues": 0,
+                "ignored": 1,
+            },
+        )
 
         published = self.inventories.publish(self.project.project_id, running.run_id)
         self.assertEqual(published.state, InventoryState.SUCCEEDED)
@@ -230,16 +245,10 @@ class MediaInventoryStorageTests(unittest.TestCase):
 
         with self.projects.connect(self.project.project_id) as connection:
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM assets").fetchone()[0], 2)
-            self.assertEqual(
-                connection.execute("SELECT COUNT(*) FROM asset_versions").fetchone()[0], 1
-            )
-            self.assertEqual(
-                connection.execute("SELECT COUNT(*) FROM media_streams").fetchone()[0], 2
-            )
+            self.assertEqual(connection.execute("SELECT COUNT(*) FROM asset_versions").fetchone()[0], 1)
+            self.assertEqual(connection.execute("SELECT COUNT(*) FROM media_streams").fetchone()[0], 2)
 
-        page = self.inventories.list_items(
-            self.project.project_id, published.run_id, limit=1
-        )
+        page = self.inventories.list_items(self.project.project_id, published.run_id, limit=1)
         self.assertEqual(page.total, 2)
         self.assertEqual(page.offset, 0)
         self.assertEqual(page.to_public()["next_offset"], 1)
@@ -250,14 +259,10 @@ class MediaInventoryStorageTests(unittest.TestCase):
         self.assertNotIn("mtime_ns", first)
         self.assertNotIn(str(self.source), repr(first))
 
-        second_page = self.inventories.list_items(
-            self.project.project_id, published.run_id, offset=1, limit=1
-        )
+        second_page = self.inventories.list_items(self.project.project_id, published.run_id, offset=1, limit=1)
         self.assertEqual(second_page.items[0].status, ItemStatus.IGNORED)
         self.assertIsNone(second_page.to_public()["next_offset"])
-        empty_page = self.inventories.list_items(
-            self.project.project_id, published.run_id, offset=500, limit=10
-        )
+        empty_page = self.inventories.list_items(self.project.project_id, published.run_id, offset=500, limit=10)
         self.assertEqual(empty_page.items, ())
         self.assertIsNone(empty_page.to_public()["next_offset"])
 
@@ -274,9 +279,7 @@ class MediaInventoryStorageTests(unittest.TestCase):
 
     def test_failed_run_does_not_replace_the_last_successful_inventory(self) -> None:
         first = self.start("request-inventory-first")
-        self.inventories.stage_item(
-            self.project.project_id, first.run_id, self.usable_video()
-        )
+        self.inventories.stage_item(self.project.project_id, first.run_id, self.usable_video())
         published = self.inventories.publish(self.project.project_id, first.run_id)
 
         second = self.start("request-inventory-second")
@@ -293,9 +296,7 @@ class MediaInventoryStorageTests(unittest.TestCase):
 
     def test_detail_edits_keep_current_inventory_but_directory_edits_invalidate_it(self) -> None:
         running = self.start("request-inventory-current-validity")
-        self.inventories.stage_item(
-            self.project.project_id, running.run_id, self.usable_video()
-        )
+        self.inventories.stage_item(self.project.project_id, running.run_id, self.usable_video())
         published = self.inventories.publish(self.project.project_id, running.run_id)
         updated = self.projects.update_details(
             self.project.project_id,
@@ -406,9 +407,7 @@ class MediaInventoryStorageTests(unittest.TestCase):
         self.assertEqual(after.counts.discovered, 2)
         with self.projects.connect(self.project.project_id) as connection:
             self.assertEqual(
-                connection.execute(
-                    "SELECT COUNT(*) FROM assets WHERE relative_path = 'camera/new.txt'"
-                ).fetchone()[0],
+                connection.execute("SELECT COUNT(*) FROM assets WHERE relative_path = 'camera/new.txt'").fetchone()[0],
                 0,
             )
 
@@ -450,10 +449,7 @@ class MediaInventoryStorageTests(unittest.TestCase):
         with migrated.connect(self.project.project_id) as checked:
             self.assertEqual(checked.execute("PRAGMA user_version").fetchone()[0], 19)
             tables = {
-                row[0]
-                for row in checked.execute(
-                    "SELECT name FROM sqlite_master WHERE type = 'table'"
-                ).fetchall()
+                row[0] for row in checked.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
             }
         self.assertIn("inventory_runs", tables)
         self.assertIn("current_inventory", tables)

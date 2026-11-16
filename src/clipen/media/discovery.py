@@ -2,18 +2,17 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import os
-from pathlib import PurePosixPath
 import stat
 import threading
 import time
+from dataclasses import dataclass
+from pathlib import PurePosixPath
 from typing import Iterator
 
 from clipen.projects.models import DirectoryRole
 
 from .models import AssetKind, InventoryRoot, validate_relative_path
-
 
 _VIDEO_EXTENSIONS = frozenset(
     {
@@ -30,12 +29,8 @@ _VIDEO_EXTENSIONS = frozenset(
         ".webm",
     }
 )
-_AUDIO_EXTENSIONS = frozenset(
-    {".aac", ".aif", ".aiff", ".flac", ".m4a", ".mp3", ".ogg", ".opus", ".wav"}
-)
-_IMAGE_EXTENSIONS = frozenset(
-    {".bmp", ".heic", ".heif", ".jpeg", ".jpg", ".png", ".tif", ".tiff", ".webp"}
-)
+_AUDIO_EXTENSIONS = frozenset({".aac", ".aif", ".aiff", ".flac", ".m4a", ".mp3", ".ogg", ".opus", ".wav"})
+_IMAGE_EXTENSIONS = frozenset({".bmp", ".heic", ".heif", ".jpeg", ".jpg", ".png", ".tif", ".tiff", ".webp"})
 _SYSTEM_NAMES = frozenset({".DS_Store", "Thumbs.db", "desktop.ini"})
 # Clipen writes Resolve packages here, beside the footage; they are not footage.
 EXPORT_FOLDER = "Clipen 匯出"
@@ -80,15 +75,9 @@ class MediaDiscovery:
         self.maximum_depth = maximum_depth
         self.maximum_seconds = maximum_seconds
 
-    def scan(
-        self, root: InventoryRoot, cancel: threading.Event | None = None
-    ) -> Iterator[DiscoveredAsset]:
+    def scan(self, root: InventoryRoot, cancel: threading.Event | None = None) -> Iterator[DiscoveredAsset]:
         deadline = time.monotonic() + self.maximum_seconds
-        flags = (
-            os.O_RDONLY
-            | getattr(os, "O_DIRECTORY", 0)
-            | getattr(os, "O_NOFOLLOW", 0)
-        )
+        flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
         try:
             root_fd = os.open(root.canonical_path, flags)
         except OSError as error:
@@ -238,9 +227,7 @@ def _entries(directory_fd: int) -> Iterator[os.DirEntry[str]]:
 def open_file_beneath(root: InventoryRoot, relative_path: str) -> int:
     """Open one regular file without following any component symlink."""
     path = PurePosixPath(validate_relative_path(relative_path))
-    directory_flags = (
-        os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
-    )
+    directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
     file_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
     try:
         current = os.open(root.canonical_path, directory_flags)

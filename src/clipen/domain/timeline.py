@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from enum import Enum
-from fractions import Fraction
 import json
 import math
 import re
+from dataclasses import dataclass
+from enum import Enum
+from fractions import Fraction
 from typing import Mapping, TypeAlias
 
 from .media_time import Rational, SourceSpan
 from .validation import require_identifier
-
 
 _EFFECT_ID = re.compile(r"[a-z][a-z0-9_.-]{0,127}\Z")
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
@@ -25,20 +24,12 @@ _MAX_EFFECTS_PER_CLIP = 128
 
 
 def _positive_integer(value: int, field: str, maximum: int = _MAX_FRAME) -> None:
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, int)
-        or not 1 <= value <= maximum
-    ):
+    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= maximum:
         raise ValueError(f"{field} must be a positive integer")
 
 
 def _non_negative_integer(value: int, field: str, maximum: int = _MAX_FRAME) -> None:
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, int)
-        or not 0 <= value <= maximum
-    ):
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= maximum:
         raise ValueError(f"{field} must be a non-negative integer")
 
 
@@ -193,12 +184,7 @@ class TextClip:
 
     def __post_init__(self) -> None:
         _validate_item(self.item_id, self.start_frame, self.duration_frames)
-        if (
-            not isinstance(self.text, str)
-            or not self.text.strip()
-            or "\x00" in self.text
-            or len(self.text) > 4_000
-        ):
+        if not isinstance(self.text, str) or not self.text.strip() or "\x00" in self.text or len(self.text) > 4_000:
             raise ValueError("text clip content is invalid")
         require_identifier(self.style_id, "style_id")
 
@@ -367,15 +353,11 @@ class EditTimeline:
                 if isinstance(item, MediaClip):
                     source = item.source.span
                     source_frames = Fraction(
-                        source.duration_pts
-                        * source.time_base.numerator
-                        * self.frame_rate.numerator,
+                        source.duration_pts * source.time_base.numerator * self.frame_rate.numerator,
                         source.time_base.denominator * self.frame_rate.denominator,
                     )
                     if abs(source_frames - item.duration_frames) > 1:
-                        raise ValueError(
-                            "media source duration does not match timeline duration"
-                        )
+                        raise ValueError("media source duration does not match timeline duration")
         if any(marker.frame > self.duration_frames for marker in self.markers):
             raise ValueError("timeline marker exceeds timeline duration")
         object.__setattr__(
@@ -398,11 +380,15 @@ class EditTimeline:
             "schema_version": 2 if self.production_session_id is not None else 1,
             "timeline_id": self.timeline_id,
             "project_id": self.project_id,
-            **({"production_session_id": self.production_session_id} if self.production_session_id is not None else {
-                "plan_id": self.plan_id,
-                "plan_revision": self.plan_revision,
-                "plan_content_hash": self.plan_content_hash,
-            }),
+            **(
+                {"production_session_id": self.production_session_id}
+                if self.production_session_id is not None
+                else {
+                    "plan_id": self.plan_id,
+                    "plan_revision": self.plan_revision,
+                    "plan_content_hash": self.plan_content_hash,
+                }
+            ),
             "frame_rate": self.frame_rate.to_storage(),
             "canvas": {"width": self.width, "height": self.height},
             "duration_frames": self.duration_frames,
@@ -425,9 +411,15 @@ class EditTimeline:
             "markers",
         }
         if not isinstance(value, dict) or not (
-            (value.get("schema_version") == 1 and set(value) == common | {"plan_id", "plan_revision", "plan_content_hash"})
-            or (value.get("schema_version") == 2 and set(value) == common | {"production_session_id"}
-                and isinstance(value.get("production_session_id"), str))
+            (
+                value.get("schema_version") == 1
+                and set(value) == common | {"plan_id", "plan_revision", "plan_content_hash"}
+            )
+            or (
+                value.get("schema_version") == 2
+                and set(value) == common | {"production_session_id"}
+                and isinstance(value.get("production_session_id"), str)
+            )
         ):
             raise ValueError("stored timeline is invalid")
         canvas = value["canvas"]
@@ -442,11 +434,16 @@ class EditTimeline:
             raise ValueError("stored timeline collections are invalid")
         parsed_tracks: list[Track] = []
         for raw_track in tracks:
-            if not isinstance(raw_track, dict) or set(raw_track) != {
-                "track_id",
-                "kind",
-                "items",
-            } or not isinstance(raw_track["items"], list):
+            if (
+                not isinstance(raw_track, dict)
+                or set(raw_track)
+                != {
+                    "track_id",
+                    "kind",
+                    "items",
+                }
+                or not isinstance(raw_track["items"], list)
+            ):
                 raise ValueError("stored timeline track is invalid")
             kind = TrackKind(raw_track["kind"])
             parsed_items: list[TimelineItem] = []
@@ -484,7 +481,9 @@ class EditTimeline:
                     parsed_effects = []
                     for effect in effects:
                         if not isinstance(effect, dict) or set(effect) != {
-                            "effect_id", "version", "parameters",
+                            "effect_id",
+                            "version",
+                            "parameters",
                         }:
                             raise ValueError("stored effect is invalid")
                         parsed_effects.append(
@@ -501,12 +500,8 @@ class EditTimeline:
                             raw_item["duration_frames"],
                             ClipSource(
                                 SourceSpan.from_storage(span_payload),
-                                _stored_non_negative_integer(
-                                    source["handle_before_pts"], "handle_before_pts"
-                                ),
-                                _stored_non_negative_integer(
-                                    source["handle_after_pts"], "handle_after_pts"
-                                ),
+                                _stored_non_negative_integer(source["handle_before_pts"], "handle_before_pts"),
+                                _stored_non_negative_integer(source["handle_after_pts"], "handle_after_pts"),
                             ),
                             tuple(parsed_effects),
                         )
@@ -549,7 +544,10 @@ class EditTimeline:
         parsed_markers = []
         for marker in markers:
             if not isinstance(marker, dict) or set(marker) != {
-                "marker_id", "frame", "label", "note",
+                "marker_id",
+                "frame",
+                "label",
+                "note",
             }:
                 raise ValueError("stored timeline marker is invalid")
             parsed_markers.append(

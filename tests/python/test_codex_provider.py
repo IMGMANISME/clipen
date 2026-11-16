@@ -1,11 +1,11 @@
 import json
-from pathlib import Path
 import stat
 import tempfile
 import textwrap
 import threading
 import time
 import unittest
+from pathlib import Path
 
 from clipen.providers import (
     CodexAttempt,
@@ -26,7 +26,6 @@ from clipen.providers.recovery import (
     sha256_bytes,
     sha256_file,
 )
-
 
 SUCCESSFUL_FAKE = r"""
 import json
@@ -119,7 +118,7 @@ class CodexProviderTests(unittest.TestCase):
         adapter = CodexExecAdapter(self.root, self.fake_codex(SUCCESSFUL_FAKE), environment={"PATH": "/usr/bin"})
         adapter.execute(attempt)
         arguments = json.loads((self.workspace / "observation.json").read_text())["arguments"]
-        attached = [arguments[i+1] for i, value in enumerate(arguments) if value == "--image"]
+        attached = [arguments[i + 1] for i, value in enumerate(arguments) if value == "--image"]
         self.assertEqual(attached, [str(path.resolve()) for path in images])
         self.assertEqual(adapter.reconcile(attempt).state, ProviderAttemptState.SUCCEEDED)
         images[0].write_bytes(b"\x89PNG\r\n\x1a\nchanged")
@@ -139,9 +138,7 @@ class CodexProviderTests(unittest.TestCase):
             self.attempt(images=(oversized,))
 
     def test_executes_one_ephemeral_attempt_with_prompt_on_stdin(self) -> None:
-        adapter = CodexExecAdapter(
-            self.root, self.fake_codex(SUCCESSFUL_FAKE), environment={"PATH": "/usr/bin"}
-        )
+        adapter = CodexExecAdapter(self.root, self.fake_codex(SUCCESSFUL_FAKE), environment={"PATH": "/usr/bin"})
         result = adapter.execute(self.attempt())
 
         observation = json.loads((self.workspace / "observation.json").read_text(encoding="utf-8"))
@@ -157,12 +154,9 @@ class CodexProviderTests(unittest.TestCase):
         self.assertIn("--strict-config", arguments)
         self.assertNotIn("--sandbox", arguments)
         self.assertEqual(arguments[arguments.index("--ask-for-approval") + 1], "never")
+        self.assertTrue(any(argument.startswith("default_permissions=") for argument in arguments))
         self.assertTrue(
-            any(argument.startswith("default_permissions=") for argument in arguments)
-        )
-        self.assertTrue(
-            any("filesystem=" in argument and '":workspace_roots"="read"' in argument
-                for argument in arguments)
+            any("filesystem=" in argument and '":workspace_roots"="read"' in argument for argument in arguments)
         )
         self.assertIn(
             "permissions.clipen_attempt.network.enabled=false",
@@ -180,15 +174,11 @@ class CodexProviderTests(unittest.TestCase):
         self.assertEqual(reconciled.result.payload, result.payload)
         self.assertEqual(reconciled.result.event_types, result.event_types)
         self.assertEqual(reconciled.result.usage, result.usage)
-        receipt_text = AttemptReceiptStore(
-            self.workspace, "attempt-1"
-        ).path.read_text(encoding="utf-8")
+        receipt_text = AttemptReceiptStore(self.workspace, "attempt-1").path.read_text(encoding="utf-8")
         self.assertNotIn("Return the approved candidate plan", receipt_text)
 
     def test_probe_checks_auth_and_required_cli_capabilities_without_an_attempt(self) -> None:
-        adapter = CodexExecAdapter(
-            self.root, self.fake_codex(PROBE_FAKE), environment={"PATH": "/usr/bin"}
-        )
+        adapter = CodexExecAdapter(self.root, self.fake_codex(PROBE_FAKE), environment={"PATH": "/usr/bin"})
 
         result = adapter.probe()
 
@@ -198,12 +188,10 @@ class CodexProviderTests(unittest.TestCase):
         self.assertTrue(result.available)
 
     def test_probe_fails_closed_when_confinement_canary_fails(self) -> None:
-        fake = self.fake_codex(PROBE_FAKE.replace(
-            'print("clipen-confinement-ok")', 'print("unexpected"); raise SystemExit(1)'
-        ))
-        result = CodexExecAdapter(
-            self.root, fake, environment={"PATH": "/usr/bin"}
-        ).probe()
+        fake = self.fake_codex(
+            PROBE_FAKE.replace('print("clipen-confinement-ok")', 'print("unexpected"); raise SystemExit(1)')
+        )
+        result = CodexExecAdapter(self.root, fake, environment={"PATH": "/usr/bin"}).probe()
 
         self.assertFalse(result.confinement_verified)
         self.assertFalse(result.available)
@@ -214,18 +202,14 @@ class CodexProviderTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.attempt(output_schema=outside)
 
-        adapter = CodexExecAdapter(
-            self.root, self.fake_codex(SUCCESSFUL_FAKE), environment={"PATH": "/usr/bin"}
-        )
+        adapter = CodexExecAdapter(self.root, self.fake_codex(SUCCESSFUL_FAKE), environment={"PATH": "/usr/bin"})
         with self.assertRaises(ValueError):
             adapter.command(self.attempt(), self.root / "outside-output.json")
 
     def test_requires_workspace_to_be_under_managed_attempt_root(self) -> None:
         other_root = self.root / "other-managed-root"
         other_root.mkdir()
-        adapter = CodexExecAdapter(
-            other_root, self.fake_codex(SUCCESSFUL_FAKE), environment={"PATH": "/usr/bin"}
-        )
+        adapter = CodexExecAdapter(other_root, self.fake_codex(SUCCESSFUL_FAKE), environment={"PATH": "/usr/bin"})
         with self.assertRaises(ValueError):
             adapter.command(self.attempt(), self.workspace / "new-output.json")
 
@@ -286,9 +270,9 @@ class CodexProviderTests(unittest.TestCase):
             """
         )
         with self.assertRaises(ProviderTimedOut):
-            CodexExecAdapter(
-                self.root, fake, environment={"PATH": "/usr/bin"}
-            ).execute(self.attempt(timeout_seconds=0.05))
+            CodexExecAdapter(self.root, fake, environment={"PATH": "/usr/bin"}).execute(
+                self.attempt(timeout_seconds=0.05)
+            )
         time.sleep(0.6)
         self.assertFalse(child_marker.exists())
 
@@ -305,9 +289,7 @@ class CodexProviderTests(unittest.TestCase):
         started = time.monotonic()
         try:
             with self.assertRaises(ProviderCancelled):
-                CodexExecAdapter(self.root, fake, environment={"PATH": "/usr/bin"}).execute(
-                    self.attempt(), cancelled
-                )
+                CodexExecAdapter(self.root, fake, environment={"PATH": "/usr/bin"}).execute(self.attempt(), cancelled)
         finally:
             timer.cancel()
         self.assertLess(time.monotonic() - started, 3)
@@ -337,9 +319,7 @@ class CodexProviderTests(unittest.TestCase):
         timer.start()
         try:
             with self.assertRaises(ProviderCancelled):
-                CodexExecAdapter(
-                    self.root, fake, environment={"PATH": "/usr/bin"}
-                ).execute(self.attempt(), cancelled)
+                CodexExecAdapter(self.root, fake, environment={"PATH": "/usr/bin"}).execute(self.attempt(), cancelled)
         finally:
             timer.cancel()
         time.sleep(0.7)
@@ -370,18 +350,14 @@ class CodexProviderTests(unittest.TestCase):
             ProviderAttemptReceipt(
                 attempt_id="attempt-1",
                 state=ProviderAttemptState.RUNNING,
-                prompt_sha256=sha256_bytes(
-                    b"Return the approved candidate plan."
-                ),
+                prompt_sha256=sha256_bytes(b"Return the approved candidate plan."),
                 schema_sha256=sha256_file(self.schema, 1_000_000),
                 started_at="2026-09-01T00:00:00+00:00",
                 pid=123,
             )
         )
 
-        adapter = CodexExecAdapter(
-            self.root, self.fake_codex(PROBE_FAKE), environment={"PATH": "/usr/bin"}
-        )
+        adapter = CodexExecAdapter(self.root, self.fake_codex(PROBE_FAKE), environment={"PATH": "/usr/bin"})
         reconciled = adapter.reconcile(self.attempt())
 
         self.assertEqual(reconciled.state, ProviderAttemptState.SUCCEEDED)
@@ -390,9 +366,7 @@ class CodexProviderTests(unittest.TestCase):
         self.assertEqual(store.read().state, ProviderAttemptState.SUCCEEDED)
 
     def test_reconcile_fails_closed_for_tampered_terminal_output(self) -> None:
-        adapter = CodexExecAdapter(
-            self.root, self.fake_codex(SUCCESSFUL_FAKE), environment={"PATH": "/usr/bin"}
-        )
+        adapter = CodexExecAdapter(self.root, self.fake_codex(SUCCESSFUL_FAKE), environment={"PATH": "/usr/bin"})
         adapter.execute(self.attempt())
         (self.workspace / "provider-output-attempt-1.json").write_text(
             json.dumps({"plan": "tampered"}), encoding="utf-8"
@@ -409,15 +383,11 @@ class CodexProviderTests(unittest.TestCase):
             ProviderAttemptReceipt(
                 attempt_id="attempt-1",
                 state=ProviderAttemptState.PREPARED,
-                prompt_sha256=sha256_bytes(
-                    b"Return the approved candidate plan."
-                ),
+                prompt_sha256=sha256_bytes(b"Return the approved candidate plan."),
                 schema_sha256=sha256_file(self.schema, 1_000_000),
             )
         )
-        adapter = CodexExecAdapter(
-            self.root, self.fake_codex(PROBE_FAKE), environment={"PATH": "/usr/bin"}
-        )
+        adapter = CodexExecAdapter(self.root, self.fake_codex(PROBE_FAKE), environment={"PATH": "/usr/bin"})
 
         reconciled = adapter.reconcile(self.attempt())
 
@@ -432,9 +402,7 @@ class CodexProviderTests(unittest.TestCase):
             """
         )
         with self.assertRaises(ProviderProtocolError):
-            CodexExecAdapter(self.root, fake, environment={"PATH": "/usr/bin"}).execute(
-                self.attempt()
-            )
+            CodexExecAdapter(self.root, fake, environment={"PATH": "/usr/bin"}).execute(self.attempt())
 
     def test_requires_object_result_and_completed_turn_event(self) -> None:
         non_object = self.fake_codex(
@@ -448,9 +416,7 @@ class CodexProviderTests(unittest.TestCase):
             """
         )
         with self.assertRaises(ProviderProtocolError):
-            CodexExecAdapter(
-                self.root, non_object, environment={"PATH": "/usr/bin"}
-            ).execute(self.attempt())
+            CodexExecAdapter(self.root, non_object, environment={"PATH": "/usr/bin"}).execute(self.attempt())
 
         missing_terminal_event = self.fake_codex(
             """
@@ -463,9 +429,9 @@ class CodexProviderTests(unittest.TestCase):
             """
         )
         with self.assertRaises(ProviderProtocolError):
-            CodexExecAdapter(
-                self.root, missing_terminal_event, environment={"PATH": "/usr/bin"}
-            ).execute(self.attempt(attempt_id="attempt-missing-event"))
+            CodexExecAdapter(self.root, missing_terminal_event, environment={"PATH": "/usr/bin"}).execute(
+                self.attempt(attempt_id="attempt-missing-event")
+            )
 
     def test_validates_result_against_the_local_output_schema(self) -> None:
         missing_required_property = self.fake_codex(
@@ -479,14 +445,12 @@ class CodexProviderTests(unittest.TestCase):
             """
         )
         with self.assertRaises(ProviderProtocolError):
-            CodexExecAdapter(
-                self.root, missing_required_property, environment={"PATH": "/usr/bin"}
-            ).execute(self.attempt())
+            CodexExecAdapter(self.root, missing_required_property, environment={"PATH": "/usr/bin"}).execute(
+                self.attempt()
+            )
 
     def test_rejects_invalid_json_schema_before_launch(self) -> None:
-        self.schema.write_text(
-            json.dumps({"type": "definitely-not-a-json-schema-type"}), encoding="utf-8"
-        )
+        self.schema.write_text(json.dumps({"type": "definitely-not-a-json-schema-type"}), encoding="utf-8")
         with self.assertRaises(ValueError):
             self.attempt()
 
@@ -507,31 +471,36 @@ class CodexProviderTests(unittest.TestCase):
                     """
                 )
                 with self.assertRaises(expected):
-                    CodexExecAdapter(
-                        self.root, fake, environment={"PATH": "/usr/bin"}
-                    ).execute(self.attempt(attempt_id=f"attempt-failure-{index}"))
+                    CodexExecAdapter(self.root, fake, environment={"PATH": "/usr/bin"}).execute(
+                        self.attempt(attempt_id=f"attempt-failure-{index}")
+                    )
 
     def test_jsonl_only_usage_limit_is_classified_and_preserves_unknown_usage(self):
-        for code in (0,1):
+        for code in (0, 1):
             with self.subTest(returncode=code):
-                fake=self.fake_codex('''
+                fake = self.fake_codex(
+                    """
                     import json
                     print(json.dumps({'type':'error','message':"You've hit your usage limit."}))
                     print(json.dumps({'type':'turn.failed','error':{'message':"You've hit your usage limit."}}))
-                    raise SystemExit('''+str(code)+''')
-                ''')
-                attempt=self.attempt(attempt_id=f'quota-jsonl-{code}')
+                    raise SystemExit("""
+                    + str(code)
+                    + """)
+                """
+                )
+                attempt = self.attempt(attempt_id=f"quota-jsonl-{code}")
                 with self.assertRaises(ProviderUsageLimitError):
-                    CodexExecAdapter(self.root,fake,environment={'PATH':'/usr/bin'}).execute(attempt)
-                receipt=AttemptReceiptStore(attempt.workspace,attempt.attempt_id).read()
-                self.assertEqual(receipt.error_code,'usage_limit');self.assertIsNone(receipt.usage)
+                    CodexExecAdapter(self.root, fake, environment={"PATH": "/usr/bin"}).execute(attempt)
+                receipt = AttemptReceiptStore(attempt.workspace, attempt.attempt_id).read()
+                self.assertEqual(receipt.error_code, "usage_limit")
+                self.assertIsNone(receipt.usage)
 
     def test_failure_classifier_ignores_ordinary_model_text_and_recovered_errors(self):
         for events in (
-            [{'type':'item.completed','item':{'text':'usage limit'}},{'type':'turn.completed'}],
-            [{'type':'error','message':'rate limit'},{'type':'turn.completed'}],
+            [{"type": "item.completed", "item": {"text": "usage limit"}}, {"type": "turn.completed"}],
+            [{"type": "error", "message": "rate limit"}, {"type": "turn.completed"}],
         ):
-            CodexExecAdapter._raise_for_failed_turn('\n'.join(json.dumps(e) for e in events).encode())
+            CodexExecAdapter._raise_for_failed_turn("\n".join(json.dumps(e) for e in events).encode())
 
     def test_failed_attempt_preserves_reported_usage(self) -> None:
         fake = self.fake_codex(
@@ -549,9 +518,7 @@ class CodexProviderTests(unittest.TestCase):
             """
         )
         with self.assertRaises(ProviderProtocolError):
-            CodexExecAdapter(
-                self.root, fake, environment={"PATH": "/usr/bin"}
-            ).execute(self.attempt())
+            CodexExecAdapter(self.root, fake, environment={"PATH": "/usr/bin"}).execute(self.attempt())
         receipt = AttemptReceiptStore(self.workspace, "attempt-1").read()
         self.assertEqual(receipt.state, ProviderAttemptState.FAILED)
         self.assertEqual(receipt.usage, ProviderUsage(40, 10, 2))
@@ -571,14 +538,10 @@ class CodexProviderTests(unittest.TestCase):
         )
         attempt = self.attempt(prompt="private synthetic prompt")
         with self.assertRaises(ProviderProtocolError):
-            CodexExecAdapter(
-                self.root, fake, environment={"PATH": "/usr/bin"}
-            ).execute(attempt)
+            CodexExecAdapter(self.root, fake, environment={"PATH": "/usr/bin"}).execute(attempt)
 
         persisted = b"".join(
-            path.read_bytes()
-            for path in self.workspace.iterdir()
-            if path.name.startswith("provider-")
+            path.read_bytes() for path in self.workspace.iterdir() if path.name.startswith("provider-")
         )
         self.assertNotIn(b"private synthetic prompt", persisted)
         self.assertNotIn(b"secret-token-value", persisted)

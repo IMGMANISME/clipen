@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 import sys
 import time
+from pathlib import Path
 
 from clipen.asr_release import NOTICE_VERSION, PROGRESS_RECORD_PREFIX
 
@@ -29,14 +29,8 @@ def _progress_line(status: ASRSetupStatus, elapsed: int) -> str:
     bar = "█" * filled + "░" * (width - filled)
     detail = ""
     if status.detail_total_bytes > 0:
-        detail = (
-            f" · {_format_bytes(status.detail_completed_bytes)}"
-            f" / {_format_bytes(status.detail_total_bytes)}"
-        )
-    return (
-        f"[{bar}] {percent:3d}%  {status.message}{detail}"
-        f" · {elapsed // 60} 分 {elapsed % 60} 秒"
-    )
+        detail = f" · {_format_bytes(status.detail_completed_bytes)} / {_format_bytes(status.detail_total_bytes)}"
+    return f"[{bar}] {percent:3d}%  {status.message}{detail} · {elapsed // 60} 分 {elapsed % 60} 秒"
 
 
 def main(arguments: list[str] | None = None) -> int:
@@ -71,13 +65,9 @@ def main(arguments: list[str] | None = None) -> int:
         while True:
             status = manager.status()
             now = time.monotonic()
-            should_report_progress = (
-                status.progress_percent != last_percent and now - last_reported_at >= 0.5
-            )
+            should_report_progress = status.progress_percent != last_percent and now - last_reported_at >= 0.5
             if status.state is ASRSetupState.INSTALLING and (
-                status.phase != last_phase
-                or should_report_progress
-                or now - last_reported_at >= 5
+                status.phase != last_phase or should_report_progress or now - last_reported_at >= 5
             ):
                 elapsed = max(0, int(now - started_at))
                 print(

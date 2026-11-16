@@ -34,12 +34,14 @@ class ProviderDescriptor:
 
 PROVIDERS: dict[str, ProviderDescriptor] = {
     "codex": ProviderDescriptor(
-        "codex", "Codex",
+        "codex",
+        "Codex",
         "clipen.providers.codex_editing:CodexEditingAgent",
         "clipen.providers.codex:CodexExecAdapter",
     ),
     "claude": ProviderDescriptor(
-        "claude", "Claude",
+        "claude",
+        "Claude",
         "clipen.providers.claude_editing:ClaudeEditingAgent",
         "clipen.providers.claude:ClaudeExecAdapter",
     ),

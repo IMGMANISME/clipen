@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import secrets
 import sqlite3
+from pathlib import Path
 
 from clipen.filesystem import restrict_permissions
 from clipen.projects import ProjectError, ProjectRepository
@@ -16,18 +16,14 @@ class PreviewRenderRepository:
     def __init__(self, projects: ProjectRepository) -> None:
         self.projects = projects
 
-    def create(
-        self, project_id: str, request_id: object, timeline_id: str
-    ) -> dict[str, object]:
+    def create(self, project_id: str, request_id: object, timeline_id: str) -> dict[str, object]:
         validate_project_id(project_id)
         request = validate_request_id(request_id)
         now = utc_now()
         try:
             with self.projects.connect(project_id) as database:
                 database.execute("BEGIN IMMEDIATE")
-                existing = database.execute(
-                    "SELECT * FROM preview_renders WHERE request_id=?", (request,)
-                ).fetchone()
+                existing = database.execute("SELECT * FROM preview_renders WHERE request_id=?", (request,)).fetchone()
                 if existing is not None:
                     if existing["timeline_id"] != timeline_id:
                         database.rollback()
@@ -70,7 +66,6 @@ class PreviewRenderRepository:
             ).fetchone()
         return None if row is None else self._public(row)
 
-
     def get(self, project_id: str, render_id: str) -> dict[str, object]:
         validate_project_id(project_id)
         with self.projects.connect(project_id) as database:
@@ -110,8 +105,7 @@ class PreviewRenderRepository:
         values.extend([render_id, project_id])
         with self.projects.connect(project_id) as database:
             database.execute(
-                f"UPDATE preview_renders SET {','.join(fields)} "
-                "WHERE render_id=? AND project_id=?",
+                f"UPDATE preview_renders SET {','.join(fields)} WHERE render_id=? AND project_id=?",
                 values,
             )
         return self.get(project_id, render_id)
@@ -127,14 +121,11 @@ class PreviewRenderRepository:
             )
         return self.get(project_id, render_id)
 
-    def update_progress(
-        self, project_id: str, render_id: str, progress: float
-    ) -> dict[str, object]:
+    def update_progress(self, project_id: str, render_id: str, progress: float) -> dict[str, object]:
         normalized = max(0.0, min(1.0, progress))
         with self.projects.connect(project_id) as database:
             database.execute(
-                "UPDATE preview_renders SET progress=? "
-                "WHERE render_id=? AND project_id=? AND state='running'",
+                "UPDATE preview_renders SET progress=? WHERE render_id=? AND project_id=? AND state='running'",
                 (normalized, render_id, project_id),
             )
         return self.get(project_id, render_id)
@@ -189,11 +180,10 @@ class PreviewRenderRepository:
             cursor = database.execute(
                 "UPDATE preview_renders SET state='interrupted',error_code='attempt_ended',completed_at=? "
                 "WHERE state IN ('queued','running','cancelling') AND request_id LIKE ? ESCAPE '\\'",
-                (utc_now(), 'agent-preview-' + run_id.replace('_', '\\_') + '-%'),
+                (utc_now(), "agent-preview-" + run_id.replace("_", "\\_") + "-%"),
             )
             database.commit()
             return cursor.rowcount
-
 
     def output_path(
         self,
@@ -214,9 +204,7 @@ class PreviewRenderRepository:
             name = f".{render_id}.partial.mp4" if staging else f"{render_id}.mp4"
             return directory / name
         if directory.is_symlink() or not directory.is_dir():
-            raise ProjectError(
-                "storage_corrupt", "Clipen 無法安全建立初剪資料夾。", status_code=500
-            )
+            raise ProjectError("storage_corrupt", "Clipen 無法安全建立初剪資料夾。", status_code=500)
         if prepare:
             restrict_permissions(directory, 0o700)
         name = f".{render_id}.partial.mp4" if staging else f"{render_id}.mp4"
@@ -235,8 +223,7 @@ class PreviewRenderRepository:
             "started_at": row["started_at"],
             "completed_at": row["completed_at"],
             "playback_url": (
-                f"/api/projects/{row['project_id']}/preview/"
-                f"{row['render_id']}/media"
+                f"/api/projects/{row['project_id']}/preview/{row['render_id']}/media"
                 if row["state"] == "succeeded" and row["output_relative_path"]
                 else None
             ),

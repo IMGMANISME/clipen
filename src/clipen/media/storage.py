@@ -31,7 +31,6 @@ from .models import (
     validate_run_id,
 )
 
-
 _TERMINAL_STATES = frozenset(
     {
         InventoryState.SUCCEEDED,
@@ -94,15 +93,11 @@ class InventoryRepository:
             try:
                 connection.execute("BEGIN IMMEDIATE")
                 receipt = connection.execute(
-                    "SELECT command_type, request_hash, run_id "
-                    "FROM inventory_command_receipts WHERE request_id = ?",
+                    "SELECT command_type, request_hash, run_id FROM inventory_command_receipts WHERE request_id = ?",
                     (normalized_request,),
                 ).fetchone()
                 if receipt is not None:
-                    if (
-                        receipt["command_type"] != "start_inventory"
-                        or receipt["request_hash"] != request_hash
-                    ):
+                    if receipt["command_type"] != "start_inventory" or receipt["request_hash"] != request_hash:
                         raise ProjectError(
                             "request_reused",
                             "這次操作的識別資訊已用於不同內容。",
@@ -124,8 +119,7 @@ class InventoryRepository:
                         status_code=409,
                     )
                 rows = connection.execute(
-                    "SELECT role, canonical_path, device, inode, saved_at "
-                    "FROM project_directories ORDER BY role"
+                    "SELECT role, canonical_path, device, inode, saved_at FROM project_directories ORDER BY role"
                 ).fetchall()
                 roots = tuple(
                     InventoryRoot(
@@ -144,8 +138,7 @@ class InventoryRepository:
                         status_code=409,
                     )
                 incomplete = connection.execute(
-                    "SELECT run_id FROM inventory_runs "
-                    "WHERE state IN ('queued', 'running', 'cancelling') LIMIT 1"
+                    "SELECT run_id FROM inventory_runs WHERE state IN ('queued', 'running', 'cancelling') LIMIT 1"
                 ).fetchone()
                 if incomplete is not None:
                     raise ProjectError(
@@ -200,14 +193,10 @@ class InventoryRepository:
                 raise
             except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
                 connection.rollback()
-                raise ProjectError(
-                    "storage_corrupt", "Clipen 無法讀取素材檢查紀錄。", status_code=500
-                ) from error
+                raise ProjectError("storage_corrupt", "Clipen 無法讀取素材檢查紀錄。", status_code=500) from error
             except sqlite3.Error as error:
                 connection.rollback()
-                raise ProjectError(
-                    "storage_failed", "Clipen 無法建立素材檢查。", status_code=500
-                ) from error
+                raise ProjectError("storage_failed", "Clipen 無法建立素材檢查。", status_code=500) from error
 
     def get_run(self, project_id: str, run_id: object) -> InventoryRun:
         validate_project_id(project_id)
@@ -221,17 +210,13 @@ class InventoryRepository:
     def current_run(self, project_id: str) -> InventoryRun | None:
         validate_project_id(project_id)
         with self.projects.connect(project_id) as connection:
-            row = connection.execute(
-                "SELECT run_id FROM current_inventory WHERE slot = 1"
-            ).fetchone()
+            row = connection.execute("SELECT run_id FROM current_inventory WHERE slot = 1").fetchone()
             return None if row is None else self._read_run(connection, row["run_id"])
 
     def latest_run(self, project_id: str) -> InventoryRun | None:
         validate_project_id(project_id)
         with self.projects.connect(project_id) as connection:
-            row = connection.execute(
-                "SELECT run_id FROM inventory_runs ORDER BY created_at DESC LIMIT 1"
-            ).fetchone()
+            row = connection.execute("SELECT run_id FROM inventory_runs ORDER BY created_at DESC LIMIT 1").fetchone()
             return None if row is None else self._read_run(connection, row["run_id"])
 
     def list_items(
@@ -252,15 +237,11 @@ class InventoryRepository:
             or not isinstance(limit, int)
             or not 1 <= limit <= 200
         ):
-            raise ProjectError(
-                "pagination_invalid", "素材清單頁碼無效。", status_code=422
-            )
+            raise ProjectError("pagination_invalid", "素材清單頁碼無效。", status_code=422)
         with self.projects.connect(project_id) as connection:
             run = self._read_run(connection, normalized_run)
             if run.project_id != project_id:
-                raise ProjectError(
-                    "inventory_not_found", "找不到這次素材檢查。", status_code=404
-                )
+                raise ProjectError("inventory_not_found", "找不到這次素材檢查。", status_code=404)
             total = connection.execute(
                 "SELECT COUNT(*) FROM inventory_items WHERE run_id = ?",
                 (normalized_run,),
@@ -302,9 +283,7 @@ class InventoryRepository:
                             "Clipen 無法讀取素材清單。",
                             status_code=500,
                         ) from error
-                    streams_by_version.setdefault(stream_row["version_id"], []).append(
-                        stream
-                    )
+                    streams_by_version.setdefault(stream_row["version_id"], []).append(stream)
             try:
                 items = tuple(
                     InventoryItem(
@@ -316,21 +295,15 @@ class InventoryRepository:
                         ItemStatus(row["status"]),
                         row["issue_code"],
                         row["size_bytes"],
-                        None
-                        if row["probe_status"] is None
-                        else ProbeStatus(row["probe_status"]),
-                        None
-                        if row["probe_json"] is None
-                        else json.loads(row["probe_json"]),
+                        None if row["probe_status"] is None else ProbeStatus(row["probe_status"]),
+                        None if row["probe_json"] is None else json.loads(row["probe_json"]),
                         tuple(streams_by_version.get(row["version_id"], ())),
                     )
                     for row in rows
                 )
                 return InventoryPage(items, total, offset, limit)
             except (json.JSONDecodeError, TypeError, ValueError) as error:
-                raise ProjectError(
-                    "storage_corrupt", "Clipen 無法讀取素材清單。", status_code=500
-                ) from error
+                raise ProjectError("storage_corrupt", "Clipen 無法讀取素材清單。", status_code=500) from error
 
     def request_cancel(self, project_id: str, run_id: object) -> InventoryRun:
         """Idempotently request cancellation without reviving terminal work."""
@@ -341,9 +314,7 @@ class InventoryRepository:
                 connection.execute("BEGIN IMMEDIATE")
                 current = self._read_run(connection, normalized_run)
                 if current.project_id != project_id:
-                    raise ProjectError(
-                        "inventory_not_found", "找不到這次素材檢查。", status_code=404
-                    )
+                    raise ProjectError("inventory_not_found", "找不到這次素材檢查。", status_code=404)
                 if current.state in _TERMINAL_STATES or current.state is InventoryState.CANCELLING:
                     connection.rollback()
                     return current
@@ -356,8 +327,7 @@ class InventoryRepository:
                     )
                 else:
                     connection.execute(
-                        "UPDATE inventory_runs SET state = 'cancelling', "
-                        "phase = 'cancelling' WHERE run_id = ?",
+                        "UPDATE inventory_runs SET state = 'cancelling', phase = 'cancelling' WHERE run_id = ?",
                         (normalized_run,),
                     )
                 updated = self._read_run(connection, normalized_run)
@@ -368,9 +338,7 @@ class InventoryRepository:
                 raise
             except sqlite3.Error as error:
                 connection.rollback()
-                raise ProjectError(
-                    "storage_failed", "Clipen 無法取消素材檢查。", status_code=500
-                ) from error
+                raise ProjectError("storage_failed", "Clipen 無法取消素材檢查。", status_code=500) from error
 
     def transition(
         self,
@@ -392,9 +360,7 @@ class InventoryRepository:
                 connection.execute("BEGIN IMMEDIATE")
                 current = self._read_run(connection, normalized_run)
                 if current.project_id != project_id:
-                    raise ProjectError(
-                        "inventory_not_found", "找不到這次素材檢查。", status_code=404
-                    )
+                    raise ProjectError("inventory_not_found", "找不到這次素材檢查。", status_code=404)
                 if target not in _TRANSITIONS.get(current.state, set()):
                     raise ProjectError(
                         "inventory_state_conflict",
@@ -417,9 +383,7 @@ class InventoryRepository:
                 raise
             except sqlite3.Error as error:
                 connection.rollback()
-                raise ProjectError(
-                    "storage_failed", "Clipen 無法更新素材檢查。", status_code=500
-                ) from error
+                raise ProjectError("storage_failed", "Clipen 無法更新素材檢查。", status_code=500) from error
 
     def publish(self, project_id: str, run_id: object) -> InventoryRun:
         validate_project_id(project_id)
@@ -435,8 +399,7 @@ class InventoryRepository:
                         status_code=409,
                     )
                 root_rows = connection.execute(
-                    "SELECT role, canonical_path, device, inode, saved_at "
-                    "FROM project_directories ORDER BY role"
+                    "SELECT role, canonical_path, device, inode, saved_at FROM project_directories ORDER BY role"
                 ).fetchall()
                 current_roots = tuple(
                     InventoryRoot(
@@ -497,9 +460,7 @@ class InventoryRepository:
                 raise
             except sqlite3.Error as error:
                 connection.rollback()
-                raise ProjectError(
-                    "storage_failed", "Clipen 無法發布素材檢查結果。", status_code=500
-                ) from error
+                raise ProjectError("storage_failed", "Clipen 無法發布素材檢查結果。", status_code=500) from error
 
     def stage_item(
         self,
@@ -543,8 +504,7 @@ class InventoryRepository:
                         now,
                     )
                     probed_increment += int(
-                        candidate.probe_status is not None
-                        and candidate.probe_status.value != "pending"
+                        candidate.probe_status is not None and candidate.probe_status.value != "pending"
                     )
                     usable_increment += int(candidate.status is ItemStatus.USABLE)
                     issue_increment += int(candidate.status is ItemStatus.NEEDS_ATTENTION)
@@ -576,9 +536,7 @@ class InventoryRepository:
                 ) from error
             except sqlite3.Error as error:
                 connection.rollback()
-                raise ProjectError(
-                    "storage_failed", "Clipen 無法保存素材檢查結果。", status_code=500
-                ) from error
+                raise ProjectError("storage_failed", "Clipen 無法保存素材檢查結果。", status_code=500) from error
 
     @staticmethod
     def _insert_candidate(
@@ -652,7 +610,9 @@ class InventoryRepository:
                 )
                 # Enrich legacy probe rows with newly understood disposition flags.
                 # Do not replace the immutable source version or its time mapping.
-                flags = {key: stream.details[key] for key in ("attached_pic", "timed_thumbnails") if key in stream.details}
+                flags = {
+                    key: stream.details[key] for key in ("attached_pic", "timed_thumbnails") if key in stream.details
+                }
                 if flags:
                     existing_details = connection.execute(
                         "SELECT details_json FROM media_streams WHERE version_id=? AND stream_index=?",
@@ -663,7 +623,11 @@ class InventoryRepository:
                         details.update(flags)
                         connection.execute(
                             "UPDATE media_streams SET details_json=? WHERE version_id=? AND stream_index=?",
-                            (json.dumps(details, sort_keys=True, separators=(",", ":")), version_id, stream.stream_index),
+                            (
+                                json.dumps(details, sort_keys=True, separators=(",", ":")),
+                                version_id,
+                                stream.stream_index,
+                            ),
                         )
         connection.execute(
             "INSERT INTO inventory_items "
@@ -697,9 +661,7 @@ class InventoryRepository:
                 return cursor.rowcount
             except sqlite3.Error as error:
                 connection.rollback()
-                raise ProjectError(
-                    "storage_failed", "Clipen 無法恢復素材檢查。", status_code=500
-                ) from error
+                raise ProjectError("storage_failed", "Clipen 無法恢復素材檢查。", status_code=500) from error
 
     @staticmethod
     def _read_run(connection: sqlite3.Connection, run_id: str) -> InventoryRun:
@@ -737,6 +699,4 @@ class InventoryRepository:
                 completed_at=row["completed_at"],
             )
         except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
-            raise ProjectError(
-                "storage_corrupt", "Clipen 無法讀取素材檢查紀錄。", status_code=500
-            ) from error
+            raise ProjectError("storage_corrupt", "Clipen 無法讀取素材檢查紀錄。", status_code=500) from error

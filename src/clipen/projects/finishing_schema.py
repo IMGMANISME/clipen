@@ -31,4 +31,6 @@ CREATE TABLE finishing_draft (
 CREATE INDEX finishing_runs_created ON finishing_runs(created_at DESC);
 """
 
-FINISHING_RUNS_SCHEMA = FINISHING_SCHEMA[FINISHING_SCHEMA.index("CREATE TABLE finishing_runs"):FINISHING_SCHEMA.index("CREATE TABLE finishing_draft")]
+FINISHING_RUNS_SCHEMA = FINISHING_SCHEMA[
+    FINISHING_SCHEMA.index("CREATE TABLE finishing_runs") : FINISHING_SCHEMA.index("CREATE TABLE finishing_draft")
+]

@@ -1,9 +1,9 @@
 import hashlib
 import json
 import os
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 
 from clipen.analysis import ArtifactKind, ArtifactStore, Rational, SourceSpan
 from clipen.analysis.evidence import CoverageInterval, EvidenceCoverage, EvidenceModality
@@ -91,9 +91,7 @@ class ArtifactStoreTests(unittest.TestCase):
             )
 
         self.assertEqual(records[0], records[1])
-        blobs = list(
-            (self.root / "projects" / self.project.project_id / "artifacts" / "sha256").glob("*/*")
-        )
+        blobs = list((self.root / "projects" / self.project.project_id / "artifacts" / "sha256").glob("*/*"))
         self.assertEqual(len(blobs), 1)
 
     def test_prune_only_removes_blobs_without_any_live_record(self) -> None:
@@ -117,21 +115,15 @@ class ArtifactStoreTests(unittest.TestCase):
         blob = self.store.path(records[0])
 
         with self.projects.connect(self.project.project_id) as connection:
-            connection.execute(
-                "DELETE FROM artifacts WHERE artifact_id = ?", (records[0].artifact_id,)
-            )
+            connection.execute("DELETE FROM artifacts WHERE artifact_id = ?", (records[0].artifact_id,))
         self.assertEqual(
-            self.store.prune_unreferenced(
-                self.project.project_id, (records[0].relative_path,)
-            ),
+            self.store.prune_unreferenced(self.project.project_id, (records[0].relative_path,)),
             0,
         )
         self.assertTrue(blob.exists())
 
         with self.projects.connect(self.project.project_id) as connection:
-            connection.execute(
-                "DELETE FROM artifacts WHERE artifact_id = ?", (records[1].artifact_id,)
-            )
+            connection.execute("DELETE FROM artifacts WHERE artifact_id = ?", (records[1].artifact_id,))
         self.assertEqual(
             self.store.prune_unreferenced(
                 self.project.project_id,
@@ -214,29 +206,42 @@ class ArtifactStoreTests(unittest.TestCase):
         self.assertEqual(context.exception.code, "artifact_store_unsafe")
         self.assertEqual(list(outside.iterdir()), [])
 
+
 class EvidenceCoverageTests(unittest.TestCase):
     def setUp(self) -> None:
         self.span = SourceSpan("av_" + "e" * 32, 0, "-10", "90", Rational(1, 1000))
 
     def test_samples_never_imply_continuous_coverage(self) -> None:
-        coverage = EvidenceCoverage(
-            self.span, EvidenceModality.VISUAL, sampled_pts=(-10, 0, 89)
-        )
+        coverage = EvidenceCoverage(self.span, EvidenceModality.VISUAL, sampled_pts=(-10, 0, 89))
         self.assertEqual(coverage.uncovered, (CoverageInterval(-10, 90),))
         self.assertEqual(coverage.to_storage()["sampled_pts"], ["-10", "0", "89"])
         self.assertFalse(coverage.to_storage()["complete"])
 
     def test_merges_overlap_and_adjacency_without_erasing_gaps(self) -> None:
-        coverage = EvidenceCoverage(self.span, EvidenceModality.AUDIO, (
-            CoverageInterval(30, 40), CoverageInterval(0, 20),
-            CoverageInterval(-10, 5), CoverageInterval(40, 60),
-        ))
-        self.assertEqual(coverage.merged_intervals, (
-            CoverageInterval(-10, 20), CoverageInterval(30, 60),
-        ))
-        self.assertEqual(coverage.uncovered, (
-            CoverageInterval(20, 30), CoverageInterval(60, 90),
-        ))
+        coverage = EvidenceCoverage(
+            self.span,
+            EvidenceModality.AUDIO,
+            (
+                CoverageInterval(30, 40),
+                CoverageInterval(0, 20),
+                CoverageInterval(-10, 5),
+                CoverageInterval(40, 60),
+            ),
+        )
+        self.assertEqual(
+            coverage.merged_intervals,
+            (
+                CoverageInterval(-10, 20),
+                CoverageInterval(30, 60),
+            ),
+        )
+        self.assertEqual(
+            coverage.uncovered,
+            (
+                CoverageInterval(20, 30),
+                CoverageInterval(60, 90),
+            ),
+        )
 
     def test_full_speech_coverage_does_not_imply_visual_coverage(self) -> None:
         speech = EvidenceCoverage(self.span, EvidenceModality.SPEECH, (CoverageInterval(-10, 90),))

@@ -1,10 +1,10 @@
 import errno
 import os
-from pathlib import Path
 import tempfile
 import threading
 import time
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from clipen.media import (
@@ -212,9 +212,7 @@ JSON
             oversized.probe(root_snapshot(self.root), self.asset)
         self.assertEqual(oversized_error.exception.code, "probe_output_too_large")
 
-        diagnostic = FFprobeAdapter(
-            self.script("echo 'private source diagnostic' >&2\nexit 1")
-        )
+        diagnostic = FFprobeAdapter(self.script("echo 'private source diagnostic' >&2\nexit 1"))
         with self.assertRaises(MediaProbeError) as diagnostic_error:
             diagnostic.probe(root_snapshot(self.root), self.asset)
         self.assertEqual(diagnostic_error.exception.code, "unreadable")
@@ -223,9 +221,7 @@ JSON
 
     def test_timeout_terminates_the_complete_process_group(self) -> None:
         pid_file = Path("/private/tmp") / f"clipen-ffprobe-child-{os.getpid()}-{time.monotonic_ns()}.pid"
-        script = self.script(
-            f"/bin/sleep 30 &\necho $! > '{pid_file}'\nwait\n"
-        )
+        script = self.script(f"/bin/sleep 30 &\necho $! > '{pid_file}'\nwait\n")
         try:
             adapter = FFprobeAdapter(script, timeout_seconds=0.5)
             with self.assertRaises(MediaProbeError) as timeout:
@@ -246,10 +242,7 @@ JSON
             pid_file.unlink(missing_ok=True)
 
     def test_cancel_terminates_the_complete_process_group(self) -> None:
-        pid_file = (
-            Path("/private/tmp")
-            / f"clipen-ffprobe-cancel-child-{os.getpid()}-{time.monotonic_ns()}.pid"
-        )
+        pid_file = Path("/private/tmp") / f"clipen-ffprobe-cancel-child-{os.getpid()}-{time.monotonic_ns()}.pid"
         script = self.script(f"/bin/sleep 30 &\necho $! > '{pid_file}'\nwait\n")
         cancelled = threading.Event()
 
@@ -263,9 +256,7 @@ JSON
         try:
             canceller.start()
             with self.assertRaises(MediaProbeError) as cancellation:
-                FFprobeAdapter(script, timeout_seconds=5).probe(
-                    root_snapshot(self.root), self.asset, cancelled
-                )
+                FFprobeAdapter(script, timeout_seconds=5).probe(root_snapshot(self.root), self.asset, cancelled)
             self.assertEqual(cancellation.exception.code, "cancelled")
             child_pid = int(pid_file.read_text(encoding="ascii"))
             deadline = time.monotonic() + 2
@@ -286,9 +277,7 @@ JSON
         self.media.unlink()
         self.media.symlink_to(self.outside_file())
         with self.assertRaises(MediaProbeError) as error:
-            FFprobeAdapter(self.successful_script()).probe(
-                root_snapshot(self.root), self.asset
-            )
+            FFprobeAdapter(self.successful_script()).probe(root_snapshot(self.root), self.asset)
         self.assertIn(error.exception.code, {"entry_unreadable", "entry_not_regular"})
 
     def outside_file(self) -> Path:

@@ -1,6 +1,6 @@
 import json
-from pathlib import Path
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from jsonschema import Draft202012Validator
@@ -315,9 +315,7 @@ class TimelineTests(unittest.TestCase):
 
     def test_public_schema_rejects_text_the_domain_rejects(self) -> None:
         schema_path = Path(__file__).parents[2] / "schemas/v1/edit-timeline.schema.json"
-        validator = Draft202012Validator(
-            json.loads(schema_path.read_text(encoding="utf-8"))
-        )
+        validator = Draft202012Validator(json.loads(schema_path.read_text(encoding="utf-8")))
         payload = self.timeline().to_payload()
         payload["tracks"][1]["items"][0]["text"] = "   "
         self.assertTrue(list(validator.iter_errors(payload)))

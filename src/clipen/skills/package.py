@@ -7,19 +7,19 @@ and an optional ``clipen.json`` that binds built-in Clipen design and may
 and PNG files are read. Scripts and other files are reported and ignored;
 nothing in a package is ever executed.
 """
+
 from __future__ import annotations
 
 import base64
-from dataclasses import dataclass, field
 import hashlib
 import json
 import os
-from pathlib import Path, PurePosixPath
 import re
 import stat
+from dataclasses import dataclass, field
+from pathlib import Path, PurePosixPath
 
 from clipen.projects import ProjectError
-
 
 SKILL_ID = re.compile(r"[a-z0-9][a-z0-9-]{1,63}")
 VERSION = re.compile(r"\d{1,4}(\.\d{1,4}){0,2}")
@@ -34,8 +34,9 @@ MAX_DEPTH = 4
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 # Finder and editor droppings that are neither content nor worth reporting.
 _QUIET = frozenset({".DS_Store", "Thumbs.db"})
-CLIPEN_KEYS = frozenset({"skill_id", "version", "extends", "visual_style_id", "font_style_id",
-                         "components", "default_duration_seconds"})
+CLIPEN_KEYS = frozenset(
+    {"skill_id", "version", "extends", "visual_style_id", "font_style_id", "components", "default_duration_seconds"}
+)
 
 
 def invalid(message: str, code: str = "skill_package_invalid") -> ProjectError:
@@ -56,9 +57,13 @@ class SkillPackage:
 
     @property
     def content_hash(self) -> str:
-        return hashlib.sha256(json.dumps(
-            {"resources": self.resources, "assets": {k: v["sha256"] for k, v in self.assets.items()}},
-            ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+        return hashlib.sha256(
+            json.dumps(
+                {"resources": self.resources, "assets": {k: v["sha256"] for k, v in self.assets.items()}},
+                ensure_ascii=False,
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()
 
     def files(self) -> dict[str, bytes]:
         """Exact bytes to persist when this package is copied into a library."""
@@ -67,10 +72,17 @@ class SkillPackage:
         return content
 
     def summary(self) -> dict[str, object]:
-        return {"skill_id": self.skill_id, "name": self.name, "description": self.description,
-                "version": self.version, "content_hash": self.content_hash, "binding": self.binding,
-                "resources": sorted(self.resources), "assets": sorted(self.assets),
-                "ignored": list(self.ignored)}
+        return {
+            "skill_id": self.skill_id,
+            "name": self.name,
+            "description": self.description,
+            "version": self.version,
+            "content_hash": self.content_hash,
+            "binding": self.binding,
+            "resources": sorted(self.resources),
+            "assets": sorted(self.assets),
+            "ignored": list(self.ignored),
+        }
 
 
 def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
@@ -93,7 +105,7 @@ def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
         if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
             value = value[1:-1]
         values[key.strip()] = value
-    return values, "\n".join(lines[end + 1:])
+    return values, "\n".join(lines[end + 1 :])
 
 
 def _slug(value: str) -> str | None:
@@ -135,8 +147,9 @@ def _read_regular(path: Path, limit: int, relative: str) -> bytes:
         os.close(descriptor)
 
 
-def load_package(root: Path, design: dict[str, object] | None = None,
-                 reserved: frozenset[str] = frozenset()) -> SkillPackage:
+def load_package(
+    root: Path, design: dict[str, object] | None = None, reserved: frozenset[str] = frozenset()
+) -> SkillPackage:
     """Validate a folder; ``design`` lists the built-in ids clipen.json may bind."""
     if root.is_symlink() or not root.is_dir():
         raise invalid("請選擇一個樣板資料夾。")
@@ -164,8 +177,11 @@ def load_package(root: Path, design: dict[str, object] | None = None,
             data = _read_regular(path, MAX_IMAGE_BYTES, relative)
             if not data.startswith(PNG_SIGNATURE):
                 raise invalid(f"樣板圖片必須是 PNG：{relative}")
-            assets[relative] = {"mime_type": "image/png", "sha256": hashlib.sha256(data).hexdigest(),
-                                "data": base64.b64encode(data).decode("ascii")}
+            assets[relative] = {
+                "mime_type": "image/png",
+                "sha256": hashlib.sha256(data).hexdigest(),
+                "data": base64.b64encode(data).decode("ascii"),
+            }
         else:
             # Scripts, binaries and unknown files stay out; Clipen never runs them.
             ignored.append(relative)
@@ -192,13 +208,16 @@ def load_package(root: Path, design: dict[str, object] | None = None,
     if not SKILL_ID.fullmatch(skill_id):
         raise invalid("clipen.json 的 skill_id 只能用小寫英數與 -，長度 2–64。")
     if skill_id in reserved or skill_id.startswith("clipen-"):
-        raise invalid(f"skill_id「{skill_id}」是 Clipen 內建樣板 使用的名稱，請在 clipen.json 換一個 skill_id。",
-                      "skill_id_reserved")
+        raise invalid(
+            f"skill_id「{skill_id}」是 Clipen 內建樣板 使用的名稱，請在 clipen.json 換一個 skill_id。",
+            "skill_id_reserved",
+        )
     version = str(binding.pop("version", frontmatter.get("version", "1.0.0")))
     if not VERSION.fullmatch(version):
         raise invalid("版本號需要像 1.0.0 這樣的格式。")
-    return SkillPackage(skill_id, name, description, version, frontmatter, resources, assets,
-                        binding, tuple(sorted(ignored)))
+    return SkillPackage(
+        skill_id, name, description, version, frontmatter, resources, assets, binding, tuple(sorted(ignored))
+    )
 
 
 def _binding(raw: str | None, design: dict[str, object] | None) -> dict[str, object]:
@@ -221,8 +240,12 @@ def _binding(raw: str | None, design: dict[str, object] | None) -> dict[str, obj
             raise invalid(f"clipen.json 的 {key}「{value[key]}」不是 Clipen 內建的選項。")
     if "components" in value:
         components = value["components"]
-        if (not isinstance(components, list) or not components or len(set(components)) != len(components)
-                or any(c not in design.get("components", ()) for c in components)):
+        if (
+            not isinstance(components, list)
+            or not components
+            or len(set(components)) != len(components)
+            or any(c not in design.get("components", ()) for c in components)
+        ):
             raise invalid("clipen.json 的 components 必須是不重複的內建元件名稱清單。")
     if "default_duration_seconds" in value:
         duration = value["default_duration_seconds"]

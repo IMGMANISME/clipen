@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from fractions import Fraction
 import hashlib
 import json
 import os
 import re
 import sqlite3
-from typing import Mapping, Any
+from dataclasses import dataclass
+from fractions import Fraction
+from typing import Any, Mapping
 
 from clipen.annotations.suggestions import annotation_suggestions
 from clipen.media import InventoryRoot
@@ -34,7 +34,6 @@ from .models import (
     TimelineSegment,
 )
 from .transcription import TranscriptionResult
-
 
 _TERMINAL_STATES = frozenset(
     {
@@ -120,18 +119,9 @@ class PreparationScope:
             raise ValueError("preparation estimate is invalid")
 
     def to_public(self) -> dict[str, object]:
-        pending = sum(
-            target.initial_status is PreparationItemStatus.PENDING
-            for target in self.targets
-        )
-        no_audio = sum(
-            target.initial_status is PreparationItemStatus.NO_AUDIO
-            for target in self.targets
-        )
-        issues = sum(
-            target.initial_status is PreparationItemStatus.FAILED
-            for target in self.targets
-        )
+        pending = sum(target.initial_status is PreparationItemStatus.PENDING for target in self.targets)
+        no_audio = sum(target.initial_status is PreparationItemStatus.NO_AUDIO for target in self.targets)
+        issues = sum(target.initial_status is PreparationItemStatus.FAILED for target in self.targets)
         return {
             "scope_id": self.scope_id,
             "inventory_run_id": self.inventory_run_id,
@@ -184,9 +174,7 @@ class PreparationRepository:
     def preflight(self, project_id: str) -> PreparationScope:
         validate_project_id(project_id)
         with self.projects.connect(project_id) as connection:
-            project = connection.execute(
-                "SELECT revision FROM project WHERE project_id = ?", (project_id,)
-            ).fetchone()
+            project = connection.execute("SELECT revision FROM project WHERE project_id = ?", (project_id,)).fetchone()
             current = connection.execute(
                 "SELECT i.run_id, r.roots_json FROM current_inventory i "
                 "JOIN inventory_runs r ON r.run_id = i.run_id WHERE i.slot = 1"
@@ -201,16 +189,9 @@ class PreparationRepository:
                 )
             try:
                 raw_roots = json.loads(current["roots_json"])
-                roots = {
-                    root.role: root
-                    for root in (
-                        InventoryRoot.from_storage(value) for value in raw_roots
-                    )
-                }
+                roots = {root.role: root for root in (InventoryRoot.from_storage(value) for value in raw_roots)}
             except (json.JSONDecodeError, TypeError, ValueError, KeyError) as error:
-                raise ProjectError(
-                    "storage_corrupt", "Clipen 無法讀取素材範圍。", status_code=500
-                ) from error
+                raise ProjectError("storage_corrupt", "Clipen 無法讀取素材範圍。", status_code=500) from error
             for root in roots.values():
                 _verify_inventory_root(root)
             rows = connection.execute(
@@ -237,9 +218,7 @@ class PreparationRepository:
             role = DirectoryRole(row["role"])
             root = roots.get(role)
             if root is None:
-                raise ProjectError(
-                    "storage_corrupt", "Clipen 無法讀取素材範圍。", status_code=500
-                )
+                raise ProjectError("storage_corrupt", "Clipen 無法讀取素材範圍。", status_code=500)
             if row["stream_index"] is None:
                 if row["version_id"] not in seen_no_audio:
                     seen_no_audio.add(row["version_id"])
@@ -257,9 +236,7 @@ class PreparationRepository:
                 continue
             try:
                 details = json.loads(row["details_json"])
-                span = _source_span(
-                    row["version_id"], row["stream_index"], details
-                )
+                span = _source_span(row["version_id"], row["stream_index"], details)
                 audio = AudioPreparationInput(
                     root,
                     row["relative_path"],
@@ -270,9 +247,7 @@ class PreparationRepository:
                     row["fingerprint"],
                     span,
                 )
-                duration += Fraction(span.duration_pts) * Fraction(
-                    span.time_base.numerator, span.time_base.denominator
-                )
+                duration += Fraction(span.duration_pts) * Fraction(span.time_base.numerator, span.time_base.denominator)
                 targets.append(
                     PreparationTarget(
                         row["version_id"],
@@ -353,15 +328,11 @@ class PreparationRepository:
         # later project edit or inventory refresh.
         with self.projects.connect(project_id) as connection:
             receipt = connection.execute(
-                "SELECT command_type, request_hash, run_id "
-                "FROM preparation_command_receipts WHERE request_id = ?",
+                "SELECT command_type, request_hash, run_id FROM preparation_command_receipts WHERE request_id = ?",
                 (normalized_request,),
             ).fetchone()
             if receipt is not None:
-                if (
-                    receipt["command_type"] != "start_preparation"
-                    or receipt["request_hash"] != request_hash
-                ):
+                if receipt["command_type"] != "start_preparation" or receipt["request_hash"] != request_hash:
                     raise ProjectError(
                         "request_reused",
                         "這次操作的識別資訊已用於不同內容。",
@@ -394,15 +365,11 @@ class PreparationRepository:
             try:
                 connection.execute("BEGIN IMMEDIATE")
                 receipt = connection.execute(
-                    "SELECT command_type, request_hash, run_id "
-                    "FROM preparation_command_receipts WHERE request_id = ?",
+                    "SELECT command_type, request_hash, run_id FROM preparation_command_receipts WHERE request_id = ?",
                     (normalized_request,),
                 ).fetchone()
                 if receipt is not None:
-                    if (
-                        receipt["command_type"] != "start_preparation"
-                        or receipt["request_hash"] != request_hash
-                    ):
+                    if receipt["command_type"] != "start_preparation" or receipt["request_hash"] != request_hash:
                         raise ProjectError(
                             "request_reused",
                             "這次操作的識別資訊已用於不同內容。",
@@ -428,8 +395,7 @@ class PreparationRepository:
                         status_code=409,
                     )
                 busy = connection.execute(
-                    "SELECT run_id FROM preparation_runs "
-                    "WHERE state IN ('queued', 'running', 'cancelling') LIMIT 1"
+                    "SELECT run_id FROM preparation_runs WHERE state IN ('queued', 'running', 'cancelling') LIMIT 1"
                 ).fetchone()
                 if busy is not None:
                     raise ProjectError(
@@ -440,13 +406,9 @@ class PreparationRepository:
                 retired_artifact_paths = self._remove_previous_analysis(connection)
                 now = utc_now()
                 initial_no_audio = sum(
-                    target.initial_status is PreparationItemStatus.NO_AUDIO
-                    for target in scope.targets
+                    target.initial_status is PreparationItemStatus.NO_AUDIO for target in scope.targets
                 )
-                initial_issues = sum(
-                    target.initial_status is PreparationItemStatus.FAILED
-                    for target in scope.targets
-                )
+                initial_issues = sum(target.initial_status is PreparationItemStatus.FAILED for target in scope.targets)
                 connection.execute(
                     "INSERT INTO preparation_runs "
                     "(run_id, project_id, request_id, project_revision, inventory_run_id, "
@@ -507,9 +469,7 @@ class PreparationRepository:
                 raise
             except sqlite3.Error as error:
                 connection.rollback()
-                raise ProjectError(
-                    "storage_failed", "Clipen 無法建立素材分析。", status_code=500
-                ) from error
+                raise ProjectError("storage_failed", "Clipen 無法建立素材分析。", status_code=500) from error
 
     @staticmethod
     def _remove_previous_analysis(connection: sqlite3.Connection) -> tuple[str, ...]:
@@ -534,8 +494,7 @@ class PreparationRepository:
         connection.execute("DELETE FROM transcription_revisions")
         connection.execute("DELETE FROM preparation_command_receipts")
         connection.execute(
-            "DELETE FROM operation_events WHERE operation_id IN "
-            "(SELECT operation_id FROM preparation_runs)"
+            "DELETE FROM operation_events WHERE operation_id IN (SELECT operation_id FROM preparation_runs)"
         )
         # Keep any record that another feature has explicitly adopted. This is
         # defensive today and prevents future evidence/export references from being
@@ -564,36 +523,26 @@ class PreparationRepository:
         with self.projects.connect(project_id) as connection:
             run = self._read_run(connection, run_id)
             if run.project_id != project_id:
-                raise ProjectError(
-                    "preparation_not_found", "找不到這次素材分析。", status_code=404
-                )
-            row = connection.execute(
-                "SELECT recipe_json FROM preparation_runs WHERE run_id = ?", (run_id,)
-            ).fetchone()
+                raise ProjectError("preparation_not_found", "找不到這次素材分析。", status_code=404)
+            row = connection.execute("SELECT recipe_json FROM preparation_runs WHERE run_id = ?", (run_id,)).fetchone()
         try:
             value = json.loads(row["recipe_json"])
             if not isinstance(value, dict):
                 raise ValueError("recipe is not an object")
             return value
         except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
-            raise ProjectError(
-                "storage_corrupt", "Clipen 無法讀取分析設定。", status_code=500
-            ) from error
+            raise ProjectError("storage_corrupt", "Clipen 無法讀取分析設定。", status_code=500) from error
 
     def latest_run(self, project_id: str) -> PreparationRun | None:
         validate_project_id(project_id)
         with self.projects.connect(project_id) as connection:
-            row = connection.execute(
-                "SELECT run_id FROM preparation_runs ORDER BY created_at DESC LIMIT 1"
-            ).fetchone()
+            row = connection.execute("SELECT run_id FROM preparation_runs ORDER BY created_at DESC LIMIT 1").fetchone()
             return None if row is None else self._read_run(connection, row["run_id"])
 
     def current_run(self, project_id: str) -> PreparationRun | None:
         validate_project_id(project_id)
         with self.projects.connect(project_id) as connection:
-            row = connection.execute(
-                "SELECT run_id FROM current_preparation WHERE slot = 1"
-            ).fetchone()
+            row = connection.execute("SELECT run_id FROM current_preparation WHERE slot = 1").fetchone()
             return None if row is None else self._read_run(connection, row["run_id"])
 
     def result_items(
@@ -618,9 +567,7 @@ class PreparationRepository:
         with self.projects.connect(project_id) as connection:
             run = self._read_run(connection, run_id)
             if run.project_id != project_id:
-                raise ProjectError(
-                    "preparation_not_found", "找不到這次素材分析。", status_code=404
-                )
+                raise ProjectError("preparation_not_found", "找不到這次素材分析。", status_code=404)
             suggestions = annotation_suggestions(connection)
             material_rows = {
                 row["version_id"]: row
@@ -633,8 +580,7 @@ class PreparationRepository:
                 ).fetchall()
             }
             version_counts = connection.execute(
-                "SELECT version_id,COUNT(*) AS item_count FROM preparation_items "
-                "WHERE run_id=? GROUP BY version_id",
+                "SELECT version_id,COUNT(*) AS item_count FROM preparation_items WHERE run_id=? GROUP BY version_id",
                 (run_id,),
             ).fetchall()
             effective_days: dict[str, int | None] = {}
@@ -650,13 +596,9 @@ class PreparationRepository:
             where = ["pi.run_id = ?"]
             parameters: list[object] = [run_id]
             if trip_day is not None:
-                matching_versions = [
-                    version_id for version_id, day in effective_days.items() if day == trip_day
-                ]
+                matching_versions = [version_id for version_id, day in effective_days.items() if day == trip_day]
                 if matching_versions:
-                    where.append(
-                        f"pi.version_id IN ({','.join('?' for _ in matching_versions)})"
-                    )
+                    where.append(f"pi.version_id IN ({','.join('?' for _ in matching_versions)})")
                     parameters.extend(matching_versions)
                 else:
                     where.append("0 = 1")
@@ -670,8 +612,7 @@ class PreparationRepository:
                 " AND ta.stream_index=pi.stream_index "
             )
             total = connection.execute(
-                "SELECT COUNT(*) FROM preparation_items pi" + joins
-                + " WHERE " + " AND ".join(where),
+                "SELECT COUNT(*) FROM preparation_items pi" + joins + " WHERE " + " AND ".join(where),
                 parameters,
             ).fetchone()[0]
             rows = connection.execute(
@@ -698,9 +639,7 @@ class PreparationRepository:
                 "JOIN inventory_items ii ON ii.run_id = pr.inventory_run_id "
                 " AND ii.asset_id = a.asset_id "
                 "LEFT JOIN transcription_revisions tr "
-                " ON tr.revision_id = pi.transcript_revision_id "
-                + joins
-                + "WHERE " + " AND ".join(where) + " "
+                " ON tr.revision_id = pi.transcript_revision_id " + joins + "WHERE " + " AND ".join(where) + " "
                 "ORDER BY ii.display_name COLLATE NOCASE, pi.stream_index "
                 "LIMIT ? OFFSET ?",
                 (*parameters, limit, offset),
@@ -721,28 +660,21 @@ class PreparationRepository:
                     raise ValueError("transcript preview is invalid")
                 public_status = (
                     "needs_review"
-                    if row["status"] == PreparationItemStatus.TRANSCRIBED.value
-                    and row["review_required"] == 1
+                    if row["status"] == PreparationItemStatus.TRANSCRIBED.value and row["review_required"] == 1
                     else PreparationItemStatus(row["status"]).value
                 )
                 suggestion = suggestions.get(row["version_id"], {})
                 effective_day = (
-                    row["annotated_trip_day"]
-                    if row["material_revision"] is not None
-                    else suggestion.get("trip_day")
+                    row["annotated_trip_day"] if row["material_revision"] is not None else suggestion.get("trip_day")
                 )
                 effective_day_part = (
-                    row["annotated_day_part"]
-                    if row["material_revision"] is not None
-                    else suggestion.get("day_part")
+                    row["annotated_day_part"] if row["material_revision"] is not None else suggestion.get("day_part")
                 )
                 transcript_confirmed = (
                     row["transcript_confirmed"] == 1
                     and row["annotation_source_revision"] == row["transcript_revision_id"]
                 )
-                transcript_discarded = (
-                    row["transcript_discarded"] == 1
-                )
+                transcript_discarded = row["transcript_discarded"] == 1
                 if row["usage"] == "exclude":
                     user_state = "excluded"
                 elif row["usage"] == "must_use":
@@ -765,13 +697,9 @@ class PreparationRepository:
                         "language": row["language"],
                         "source": source,
                         "segment_count": row["segment_count"],
-                        "preview_text": (
-                            None if preview is None or transcript_discarded else preview[:280]
-                        ),
+                        "preview_text": (None if preview is None or transcript_discarded else preview[:280]),
                         "preview_start_pts": row["preview_start_pts"],
-                        "preview_truncated": (
-                            not transcript_discarded and preview is not None and len(preview) > 280
-                        ),
+                        "preview_truncated": (not transcript_discarded and preview is not None and len(preview) > 280),
                         "transcript_discarded": transcript_discarded,
                         "user_state": user_state,
                         "trip_day": effective_day,
@@ -786,18 +714,13 @@ class PreparationRepository:
                 "limit": limit,
                 "next_offset": offset + len(items) if offset + len(items) < total else None,
                 "filters": {
-                    "trip_days": [
-                        {"day": day, "count": count}
-                        for day, count in sorted(day_counts.items())
-                    ],
+                    "trip_days": [{"day": day, "count": count} for day, count in sorted(day_counts.items())],
                     "review_state": review_state,
                     "trip_day": trip_day,
                 },
             }
         except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
-            raise ProjectError(
-                "storage_corrupt", "Clipen 無法讀取逐字稿清單。", status_code=500
-            ) from error
+            raise ProjectError("storage_corrupt", "Clipen 無法讀取逐字稿清單。", status_code=500) from error
 
     def transcript_segments(
         self,
@@ -813,19 +736,13 @@ class PreparationRepository:
         validate_project_id(project_id)
         self._validate_result_page(offset, limit)
         if re.fullmatch(r"av_[0-9a-f]{32}", version_id) is None:
-            raise ProjectError(
-                "transcript_not_found", "找不到這份逐字稿。", status_code=404
-            )
+            raise ProjectError("transcript_not_found", "找不到這份逐字稿。", status_code=404)
         if isinstance(stream_index, bool) or not isinstance(stream_index, int) or stream_index < 0:
-            raise ProjectError(
-                "transcript_not_found", "找不到這份逐字稿。", status_code=404
-            )
+            raise ProjectError("transcript_not_found", "找不到這份逐字稿。", status_code=404)
         with self.projects.connect(project_id) as connection:
             run = self._read_run(connection, run_id)
             if run.project_id != project_id:
-                raise ProjectError(
-                    "preparation_not_found", "找不到這次素材分析。", status_code=404
-                )
+                raise ProjectError("preparation_not_found", "找不到這次素材分析。", status_code=404)
             item = connection.execute(
                 "SELECT pi.status, pi.transcript_revision_id, ii.display_name, a.role, "
                 "tr.language, tr.source_span_json "
@@ -841,14 +758,10 @@ class PreparationRepository:
                 (run_id, version_id, stream_index),
             ).fetchone()
             if item is None:
-                raise ProjectError(
-                    "transcript_not_found", "找不到這份逐字稿。", status_code=404
-                )
+                raise ProjectError("transcript_not_found", "找不到這份逐字稿。", status_code=404)
             revision_id = item["transcript_revision_id"]
             if revision_id is None or item["status"] != PreparationItemStatus.TRANSCRIBED.value:
-                raise ProjectError(
-                    "transcript_unavailable", "這個素材沒有可查看的逐字稿。", status_code=409
-                )
+                raise ProjectError("transcript_unavailable", "這個素材沒有可查看的逐字稿。", status_code=409)
             total = connection.execute(
                 "SELECT COUNT(*) FROM transcript_segments WHERE revision_id = ?",
                 (revision_id,),
@@ -896,9 +809,7 @@ class PreparationRepository:
                 "next_offset": offset + len(segments) if offset + len(segments) < total else None,
             }
         except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
-            raise ProjectError(
-                "storage_corrupt", "Clipen 無法讀取逐字稿內容。", status_code=500
-            ) from error
+            raise ProjectError("storage_corrupt", "Clipen 無法讀取逐字稿內容。", status_code=500) from error
 
     @staticmethod
     def _validate_result_page(offset: int, limit: int) -> None:
@@ -934,9 +845,7 @@ class PreparationRepository:
         with self.projects.connect(project_id) as connection:
             run = self._read_run(connection, run_id)
             if run.project_id != project_id:
-                raise ProjectError(
-                    "preparation_not_found", "找不到這次素材分析。", status_code=404
-                )
+                raise ProjectError("preparation_not_found", "找不到這次素材分析。", status_code=404)
             rows = connection.execute(
                 "SELECT sequence, event_type, payload_json, created_at "
                 "FROM operation_events WHERE project_id = ? AND operation_id = ? "
@@ -958,14 +867,10 @@ class PreparationRepository:
                     }
                 )
         except (json.JSONDecodeError, TypeError, ValueError) as error:
-            raise ProjectError(
-                "storage_corrupt", "Clipen 無法讀取分析進度。", status_code=500
-            ) from error
+            raise ProjectError("storage_corrupt", "Clipen 無法讀取分析進度。", status_code=500) from error
         return tuple(events)
 
-    def list_work_items(
-        self, project_id: str, run_id: str
-    ) -> tuple[PreparationWorkItem, ...]:
+    def list_work_items(self, project_id: str, run_id: str) -> tuple[PreparationWorkItem, ...]:
         run = self.get_run(project_id, run_id)
         scope = self.preflight(project_id)
         if scope.scope_id != run.scope_id or scope.inventory_run_id != run.inventory_run_id:
@@ -974,9 +879,7 @@ class PreparationRepository:
                 "素材或作品內容已改變，無法繼續這次分析。",
                 status_code=409,
             )
-        targets = {
-            (target.version_id, target.stream_index): target for target in scope.targets
-        }
+        targets = {(target.version_id, target.stream_index): target for target in scope.targets}
         with self.projects.connect(project_id) as connection:
             rows = connection.execute(
                 "SELECT version_id, stream_index, status, audio_artifact_id, "
@@ -996,9 +899,7 @@ class PreparationRepository:
                 for row in rows
             )
         except (KeyError, TypeError, ValueError) as error:
-            raise ProjectError(
-                "storage_corrupt", "Clipen 無法讀取分析項目。", status_code=500
-            ) from error
+            raise ProjectError("storage_corrupt", "Clipen 無法讀取分析項目。", status_code=500) from error
 
     def register_chunks(
         self,
@@ -1021,8 +922,7 @@ class PreparationRepository:
                         status_code=409,
                     )
                 item = connection.execute(
-                    "SELECT status FROM preparation_items WHERE run_id = ? "
-                    "AND version_id = ? AND stream_index = ?",
+                    "SELECT status FROM preparation_items WHERE run_id = ? AND version_id = ? AND stream_index = ?",
                     (run_id, version_id, stream_index),
                 ).fetchone()
                 if item is None or item["status"] != PreparationItemStatus.PREPARED.value:
@@ -1040,8 +940,7 @@ class PreparationRepository:
                 ).fetchall()
                 if existing:
                     observed = tuple(
-                        (row["start_sample"], row["end_sample"], row["source_span_json"])
-                        for row in existing
+                        (row["start_sample"], row["end_sample"], row["source_span_json"]) for row in existing
                     )
                     requested = tuple(
                         (
@@ -1097,9 +996,7 @@ class PreparationRepository:
                 raise
             except sqlite3.Error as error:
                 connection.rollback()
-                raise ProjectError(
-                    "storage_failed", "Clipen 無法保存音訊切塊。", status_code=500
-                ) from error
+                raise ProjectError("storage_failed", "Clipen 無法保存音訊切塊。", status_code=500) from error
 
     def settle_chunk(
         self,
@@ -1111,11 +1008,7 @@ class PreparationRepository:
         artifact_id: str,
         result: TranscriptionResult,
     ) -> PreparationChunk:
-        status = (
-            PreparationChunkStatus.NO_SPEECH
-            if result.no_speech_detected
-            else PreparationChunkStatus.TRANSCRIBED
-        )
+        status = PreparationChunkStatus.NO_SPEECH if result.no_speech_detected else PreparationChunkStatus.TRANSCRIBED
         result_json = _encoded_json(result.to_storage(), "transcript result", 32 * 1024 * 1024)
         with self.projects.connect(project_id) as connection:
             try:
@@ -1134,9 +1027,7 @@ class PreparationRepository:
                     (run_id, version_id, stream_index, ordinal),
                 ).fetchone()
                 if row is None:
-                    raise ProjectError(
-                        "preparation_chunk_not_found", "找不到這個音訊切塊。", status_code=404
-                    )
+                    raise ProjectError("preparation_chunk_not_found", "找不到這個音訊切塊。", status_code=404)
                 if row["status"] != PreparationChunkStatus.PENDING.value:
                     completed = self._read_chunk(row)
                     if completed.transcript_artifact_id != artifact_id or completed.result != result:
@@ -1175,9 +1066,7 @@ class PreparationRepository:
                 raise
             except sqlite3.Error as error:
                 connection.rollback()
-                raise ProjectError(
-                    "storage_failed", "Clipen 無法保存逐字稿切塊。", status_code=500
-                ) from error
+                raise ProjectError("storage_failed", "Clipen 無法保存逐字稿切塊。", status_code=500) from error
 
     def publish_transcript_revision(
         self,
@@ -1199,17 +1088,14 @@ class PreparationRepository:
         if not re.fullmatch(r"[a-z][a-z0-9_.-]{0,127}", recipe_id):
             raise ValueError("transcript recipe is invalid")
         if any(
-            segment.source_span.version_id != version_id
-            or segment.source_span.stream_index != stream_index
+            segment.source_span.version_id != version_id or segment.source_span.stream_index != stream_index
             for segment in segments
         ):
             raise ValueError("timeline segment belongs to another source")
         if not isinstance(needs_review, bool) or (needs_review and not segments):
             raise ValueError("transcript review status is invalid")
         model_json = _bounded_json(model, "ASR model")
-        source_json = json.dumps(
-            source_span.to_storage(), sort_keys=True, separators=(",", ":")
-        )
+        source_json = json.dumps(source_span.to_storage(), sort_keys=True, separators=(",", ":"))
         identity = {
             "run_id": run_id,
             "version_id": version_id,
@@ -1219,9 +1105,10 @@ class PreparationRepository:
             "recipe_id": recipe_id,
             "needs_review": needs_review,
         }
-        revision_id = "trn_" + hashlib.sha256(
-            json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()
-        ).hexdigest()[:32]
+        revision_id = (
+            "trn_"
+            + hashlib.sha256(json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:32]
+        )
         with self.projects.connect(project_id) as connection:
             try:
                 connection.execute("BEGIN IMMEDIATE")
@@ -1238,9 +1125,7 @@ class PreparationRepository:
                     (run_id, version_id, stream_index),
                 ).fetchone()
                 if item is None:
-                    raise ProjectError(
-                        "preparation_item_not_found", "找不到這個分析項目。", status_code=404
-                    )
+                    raise ProjectError("preparation_item_not_found", "找不到這個分析項目。", status_code=404)
                 if item["transcript_revision_id"] is not None:
                     if item["transcript_revision_id"] != revision_id:
                         raise ProjectError(
@@ -1269,8 +1154,7 @@ class PreparationRepository:
                         status_code=409,
                     )
                 artifact = connection.execute(
-                    "SELECT project_id, kind, producer_operation_id FROM artifacts "
-                    "WHERE artifact_id = ?",
+                    "SELECT project_id, kind, producer_operation_id FROM artifacts WHERE artifact_id = ?",
                     (artifact_id,),
                 ).fetchone()
                 if (
@@ -1279,14 +1163,8 @@ class PreparationRepository:
                     or artifact["kind"] != "transcript"
                     or artifact["producer_operation_id"] != run.operation_id
                 ):
-                    raise ProjectError(
-                        "artifact_not_found", "找不到完整逐字稿成果。", status_code=409
-                    )
-                status = (
-                    "no_speech_detected"
-                    if not segments
-                    else "needs_review" if needs_review else "transcribed"
-                )
+                    raise ProjectError("artifact_not_found", "找不到完整逐字稿成果。", status_code=409)
+                status = "no_speech_detected" if not segments else "needs_review" if needs_review else "transcribed"
                 now = utc_now()
                 connection.execute(
                     "INSERT INTO transcription_revisions "
@@ -1313,9 +1191,7 @@ class PreparationRepository:
                         f"{revision_id}\0{ordinal}\0{segment.source_span.start_pts}\0"
                         f"{segment.source_span.end_pts}\0{segment.text}"
                     )
-                    segment_id = "seg_" + hashlib.sha256(
-                        segment_identity.encode("utf-8")
-                    ).hexdigest()[:32]
+                    segment_id = "seg_" + hashlib.sha256(segment_identity.encode("utf-8")).hexdigest()[:32]
                     connection.execute(
                         "INSERT INTO transcript_segments "
                         "(revision_id, segment_id, start_pts, end_pts, text, confidence, ordinal) "
@@ -1330,11 +1206,7 @@ class PreparationRepository:
                             ordinal,
                         ),
                     )
-                item_status = (
-                    PreparationItemStatus.NO_SPEECH
-                    if not segments
-                    else PreparationItemStatus.TRANSCRIBED
-                )
+                item_status = PreparationItemStatus.NO_SPEECH if not segments else PreparationItemStatus.TRANSCRIBED
                 connection.execute(
                     "UPDATE preparation_items SET status = ?, transcript_revision_id = ?, "
                     "review_required = ?, error_code = ? "
@@ -1369,9 +1241,7 @@ class PreparationRepository:
                 raise
             except sqlite3.Error as error:
                 connection.rollback()
-                raise ProjectError(
-                    "storage_failed", "Clipen 無法發布逐字稿。", status_code=500
-                ) from error
+                raise ProjectError("storage_failed", "Clipen 無法發布逐字稿。", status_code=500) from error
 
     def transition(
         self,
@@ -1385,9 +1255,7 @@ class PreparationRepository:
         validate_project_id(project_id)
         if not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", phase):
             raise ValueError("preparation phase is invalid")
-        if error_code is not None and not re.fullmatch(
-            r"[a-z][a-z0-9_]{0,63}", error_code
-        ):
+        if error_code is not None and not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", error_code):
             raise ValueError("preparation error code is invalid")
         if target is PreparationState.SUCCEEDED:
             raise ValueError("use publish() to complete a preparation")
@@ -1396,9 +1264,7 @@ class PreparationRepository:
                 connection.execute("BEGIN IMMEDIATE")
                 current = self._read_run(connection, run_id)
                 if current.project_id != project_id:
-                    raise ProjectError(
-                        "preparation_not_found", "找不到這次素材分析。", status_code=404
-                    )
+                    raise ProjectError("preparation_not_found", "找不到這次素材分析。", status_code=404)
                 if target not in _TRANSITIONS.get(current.state, set()):
                     raise ProjectError(
                         "preparation_state_conflict",
@@ -1429,9 +1295,7 @@ class PreparationRepository:
                 raise
             except sqlite3.Error as error:
                 connection.rollback()
-                raise ProjectError(
-                    "storage_failed", "Clipen 無法更新素材分析。", status_code=500
-                ) from error
+                raise ProjectError("storage_failed", "Clipen 無法更新素材分析。", status_code=500) from error
 
     def request_cancel(self, project_id: str, run_id: str) -> PreparationRun:
         validate_project_id(project_id)
@@ -1440,9 +1304,7 @@ class PreparationRepository:
                 connection.execute("BEGIN IMMEDIATE")
                 current = self._read_run(connection, run_id)
                 if current.project_id != project_id:
-                    raise ProjectError(
-                        "preparation_not_found", "找不到這次素材分析。", status_code=404
-                    )
+                    raise ProjectError("preparation_not_found", "找不到這次素材分析。", status_code=404)
                 if current.state in _TERMINAL_STATES or current.state is PreparationState.CANCELLING:
                     connection.rollback()
                     return current
@@ -1456,8 +1318,7 @@ class PreparationRepository:
                     event_type = "cancelled"
                 else:
                     connection.execute(
-                        "UPDATE preparation_runs SET state = 'cancelling', "
-                        "phase = 'cancelling' WHERE run_id = ?",
+                        "UPDATE preparation_runs SET state = 'cancelling', phase = 'cancelling' WHERE run_id = ?",
                         (run_id,),
                     )
                     event_type = "cancel_requested"
@@ -1477,27 +1338,19 @@ class PreparationRepository:
                 raise
             except sqlite3.Error as error:
                 connection.rollback()
-                raise ProjectError(
-                    "storage_failed", "Clipen 無法取消素材分析。", status_code=500
-                ) from error
+                raise ProjectError("storage_failed", "Clipen 無法取消素材分析。", status_code=500) from error
 
-    def resume_interrupted(
-        self, project_id: str, run_id: str, request_id: object
-    ) -> tuple[PreparationRun, bool]:
+    def resume_interrupted(self, project_id: str, run_id: str, request_id: object) -> tuple[PreparationRun, bool]:
         validate_project_id(project_id)
         normalized_request = validate_request_id(request_id)
         request_hash = command_digest({"run_id": run_id})
         with self.projects.connect(project_id) as connection:
             receipt = connection.execute(
-                "SELECT command_type, request_hash, run_id "
-                "FROM preparation_command_receipts WHERE request_id = ?",
+                "SELECT command_type, request_hash, run_id FROM preparation_command_receipts WHERE request_id = ?",
                 (normalized_request,),
             ).fetchone()
             if receipt is not None:
-                if (
-                    receipt["command_type"] != "resume_preparation"
-                    or receipt["request_hash"] != request_hash
-                ):
+                if receipt["command_type"] != "resume_preparation" or receipt["request_hash"] != request_hash:
                     raise ProjectError(
                         "request_reused",
                         "這次操作的識別資訊已用於不同內容。",
@@ -1509,15 +1362,11 @@ class PreparationRepository:
             try:
                 connection.execute("BEGIN IMMEDIATE")
                 receipt = connection.execute(
-                    "SELECT command_type, request_hash, run_id "
-                    "FROM preparation_command_receipts WHERE request_id = ?",
+                    "SELECT command_type, request_hash, run_id FROM preparation_command_receipts WHERE request_id = ?",
                     (normalized_request,),
                 ).fetchone()
                 if receipt is not None:
-                    if (
-                        receipt["command_type"] != "resume_preparation"
-                        or receipt["request_hash"] != request_hash
-                    ):
+                    if receipt["command_type"] != "resume_preparation" or receipt["request_hash"] != request_hash:
                         raise ProjectError(
                             "request_reused",
                             "這次操作的識別資訊已用於不同內容。",
@@ -1528,9 +1377,7 @@ class PreparationRepository:
                     return replay, False
                 current = self._read_run(connection, run_id)
                 if current.project_id != project_id:
-                    raise ProjectError(
-                        "preparation_not_found", "找不到這次素材分析。", status_code=404
-                    )
+                    raise ProjectError("preparation_not_found", "找不到這次素材分析。", status_code=404)
                 if current.state is not PreparationState.INTERRUPTED:
                     raise ProjectError(
                         "preparation_state_conflict",
@@ -1567,9 +1414,7 @@ class PreparationRepository:
                         status_code=409,
                     )
                 attempt_number = current.attempt_number + 1
-                attempt_id = _derived_id(
-                    "att", current.operation_id, str(attempt_number)
-                )
+                attempt_id = _derived_id("att", current.operation_id, str(attempt_number))
                 now = utc_now()
                 connection.execute(
                     "UPDATE preparation_runs SET attempt_id = ?, attempt_number = ?, "
@@ -1599,9 +1444,7 @@ class PreparationRepository:
                 raise
             except sqlite3.Error as error:
                 connection.rollback()
-                raise ProjectError(
-                    "storage_failed", "Clipen 無法接續素材分析。", status_code=500
-                ) from error
+                raise ProjectError("storage_failed", "Clipen 無法接續素材分析。", status_code=500) from error
 
     def settle_item(
         self,
@@ -1650,9 +1493,7 @@ class PreparationRepository:
                     (run_id, version_id, stream_index),
                 ).fetchone()
                 if item is None:
-                    raise ProjectError(
-                        "preparation_item_not_found", "找不到這個分析項目。", status_code=404
-                    )
+                    raise ProjectError("preparation_item_not_found", "找不到這個分析項目。", status_code=404)
                 current_status = PreparationItemStatus(item["status"])
                 allowed = (
                     current_status is PreparationItemStatus.PENDING
@@ -1712,9 +1553,7 @@ class PreparationRepository:
                 raise
             except sqlite3.Error as error:
                 connection.rollback()
-                raise ProjectError(
-                    "storage_failed", "Clipen 無法保存分析進度。", status_code=500
-                ) from error
+                raise ProjectError("storage_failed", "Clipen 無法保存分析進度。", status_code=500) from error
 
     def publish(self, project_id: str, run_id: str) -> PreparationRun:
         validate_project_id(project_id)
@@ -1729,8 +1568,7 @@ class PreparationRepository:
                         status_code=409,
                     )
                 incomplete = connection.execute(
-                    "SELECT COUNT(*) FROM preparation_items WHERE run_id = ? "
-                    "AND status IN ('pending', 'prepared')",
+                    "SELECT COUNT(*) FROM preparation_items WHERE run_id = ? AND status IN ('pending', 'prepared')",
                     (run_id,),
                 ).fetchone()[0]
                 if incomplete:
@@ -1801,9 +1639,7 @@ class PreparationRepository:
                 raise
             except sqlite3.Error as error:
                 connection.rollback()
-                raise ProjectError(
-                    "storage_failed", "Clipen 無法完成素材分析。", status_code=500
-                ) from error
+                raise ProjectError("storage_failed", "Clipen 無法完成素材分析。", status_code=500) from error
 
     def interrupt_incomplete(self, project_id: str) -> int:
         validate_project_id(project_id)
@@ -1834,9 +1670,7 @@ class PreparationRepository:
                 return len(rows)
             except sqlite3.Error as error:
                 connection.rollback()
-                raise ProjectError(
-                    "storage_failed", "Clipen 無法恢復素材分析狀態。", status_code=500
-                ) from error
+                raise ProjectError("storage_failed", "Clipen 無法恢復素材分析狀態。", status_code=500) from error
 
     @staticmethod
     def _refresh_counts(connection: sqlite3.Connection, run_id: str) -> None:
@@ -1943,17 +1777,13 @@ class PreparationRepository:
                 row["completed_at"],
             )
         except (TypeError, ValueError) as error:
-            raise ProjectError(
-                "storage_corrupt", "Clipen 無法讀取素材分析。", status_code=500
-            ) from error
+            raise ProjectError("storage_corrupt", "Clipen 無法讀取素材分析。", status_code=500) from error
 
     @staticmethod
     def _read_chunk(row: sqlite3.Row) -> PreparationChunk:
         try:
             raw_span = json.loads(row["source_span_json"])
-            raw_result = (
-                None if row["result_json"] is None else json.loads(row["result_json"])
-            )
+            raw_result = None if row["result_json"] is None else json.loads(row["result_json"])
             return PreparationChunk(
                 row["ordinal"],
                 row["start_sample"],
@@ -1961,14 +1791,10 @@ class PreparationRepository:
                 SourceSpan.from_storage(raw_span),
                 PreparationChunkStatus(row["status"]),
                 row["transcript_artifact_id"],
-                None
-                if raw_result is None
-                else TranscriptionResult.from_storage(raw_result),
+                None if raw_result is None else TranscriptionResult.from_storage(raw_result),
             )
         except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
-            raise ProjectError(
-                "storage_corrupt", "Clipen 無法讀取逐字稿切塊。", status_code=500
-            ) from error
+            raise ProjectError("storage_corrupt", "Clipen 無法讀取逐字稿切塊。", status_code=500) from error
 
 
 def _source_span(version_id: str, stream_index: int, details: Mapping[str, Any]) -> SourceSpan:
@@ -1990,22 +1816,14 @@ def _source_span(version_id: str, stream_index: int, details: Mapping[str, Any])
 
 
 def _verify_inventory_root(root: InventoryRoot) -> None:
-    flags = (
-        os.O_RDONLY
-        | getattr(os, "O_DIRECTORY", 0)
-        | getattr(os, "O_NOFOLLOW", 0)
-    )
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
     try:
         descriptor = os.open(root.canonical_path, flags)
     except OSError as error:
-        raise ProjectError(
-            "root_unavailable", "素材磁碟目前無法使用。", status_code=409
-        ) from error
+        raise ProjectError("root_unavailable", "素材磁碟目前無法使用。", status_code=409) from error
     try:
         if os.fstat(descriptor).st_ino != root.inode:
-            raise ProjectError(
-                "root_changed", "素材位置已改變，請重新檢查素材。", status_code=409
-            )
+            raise ProjectError("root_changed", "素材位置已改變，請重新檢查素材。", status_code=409)
     finally:
         os.close(descriptor)
 

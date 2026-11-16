@@ -5,9 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from pathlib import Path
 import stat
-
+from pathlib import Path
 
 NOTICE_VERSION = "asr-qwen3-1.7b-confidence-v1"
 RELEASE_ID = "qwen3-asr-1.7b-confidence-v1"
@@ -46,8 +45,7 @@ ASR_SOFTWARE_LICENSE_URL = "https://github.com/appautomaton/mlx-speech/blob/main
 MODEL_LICENSE = "Apache-2.0"
 MODEL_LICENSE_URL = f"https://huggingface.co/{MODEL_REPOSITORY}"
 LICENSE_NOTICE = (
-    "Qwen3-ASR 模型採 Apache-2.0，MLX Speech 執行程式採 MIT；"
-    "Clipen 只下載固定版本，不會把模型檔收進 Repo。"
+    "Qwen3-ASR 模型採 Apache-2.0，MLX Speech 執行程式採 MIT；Clipen 只下載固定版本，不會把模型檔收進 Repo。"
 )
 PROGRESS_RECORD_PREFIX = "CLIPEN_PROGRESS\t"
 
@@ -85,9 +83,7 @@ def quick_release_is_ready(data_root: Path, requirements: Path) -> bool:
             "runtime_python": "runtime/bin/python",
             "model_path": "model",
         }
-        if not isinstance(receipt, dict) or any(
-            receipt.get(key) != value for key, value in required.items()
-        ):
+        if not isinstance(receipt, dict) or any(receipt.get(key) != value for key, value in required.items()):
             return False
         if set(receipt) != {*required, "model_manifest_sha256"}:
             return False
@@ -97,10 +93,7 @@ def quick_release_is_ready(data_root: Path, requirements: Path) -> bool:
         runtime_root = release / "runtime"
         runtime_bin = runtime_root / "bin"
         model_root = release / "model"
-        if any(
-            path.is_symlink() or not path.is_dir()
-            for path in (runtime_root, runtime_bin, model_root)
-        ):
+        if any(path.is_symlink() or not path.is_dir() for path in (runtime_root, runtime_bin, model_root)):
             return False
         python = runtime_bin / "python"
         if python.is_symlink() or not python.is_file() or not os.access(python, os.X_OK):

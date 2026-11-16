@@ -1,14 +1,14 @@
 import base64
 import io
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 
 from clipen.editing import ToolResult
+from clipen.editing.production_catalog import AGENT_NAMES
 from clipen.mcp_editing import EditingMcpServer, run_stdio
 from clipen.projects import ProjectError
-from clipen.editing.production_catalog import AGENT_NAMES
 
 
 class FakeTools:
@@ -31,9 +31,7 @@ class FakeTools:
 class EditingMcpServerTests(unittest.TestCase):
     def test_lists_only_bounded_editing_tools(self):
         server = EditingMcpServer(FakeTools())
-        response = server.handle(
-            {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}
-        )
+        response = server.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}})
         names = {tool["name"] for tool in response["result"]["tools"]}
 
         self.assertEqual(
@@ -47,25 +45,22 @@ class EditingMcpServerTests(unittest.TestCase):
                 "set_clip_effect",
                 "undo_revision",
                 "finish_edit",
-            } | set(AGENT_NAMES),
+            }
+            | set(AGENT_NAMES),
         )
         # The AI designs every graphic itself; retired built-in templates are not offered.
-        self.assertFalse({'add_program_component', 'update_program_component', 'restyle_program_components'} & names)
+        self.assertFalse({"add_program_component", "update_program_component", "restyle_program_components"} & names)
         self.assertIn("add_custom_component", names)
         self.assertNotIn("shell", json.dumps(response))
         self.assertNotIn("filesystem", names)
-        replace = next(
-            tool for tool in response["result"]["tools"] if tool["name"] == "replace_sequence"
-        )
+        replace = next(tool for tool in response["result"]["tools"] if tool["name"] == "replace_sequence")
         clips = replace["inputSchema"]["properties"]["clips"]
         self.assertEqual((clips["minItems"], clips["maxItems"]), (1, 180))
         self.assertEqual(
             set(clips["items"]["required"]),
             {"candidate_id", "start_offset_seconds", "duration_seconds"},
         )
-        effect = next(
-            tool for tool in response["result"]["tools"] if tool["name"] == "set_clip_effect"
-        )
+        effect = next(tool for tool in response["result"]["tools"] if tool["name"] == "set_clip_effect")
         self.assertNotIn(
             "audio.dialogue_focus",
             effect["inputSchema"]["properties"]["effect_id"]["enum"],

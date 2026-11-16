@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
 import errno
 import http.client
 import json
 import os
-from pathlib import Path
 import secrets
 import signal
 import socket
@@ -16,8 +14,10 @@ import stat
 import sys
 import threading
 import time
-from typing import Callable
 import webbrowser
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Callable
 
 try:
     import fcntl as _fcntl
@@ -27,19 +27,19 @@ except ImportError:  # Windows does not provide POSIX advisory file locks.
 import uvicorn
 
 from clipen.analysis import (
-    ASRSetupManager,
     ArtifactStore,
+    ASRSetupManager,
     ManagedAnalysisRuntime,
     PreparationRepository,
 )
-from clipen.media import InventoryCoordinator, InventoryRepository, MediaPreviewRepository
-from clipen.editing import EditAgentCoordinator, EditAgentRepository
-from clipen.providers import CodexExecAdapter, ProviderUnavailable
-from clipen.providers.claude import ClaudeCliAdapter
-from clipen.provider_registry import exec_adapter_factory
 from clipen.analysis.evidence_service import EvidenceService
 from clipen.annotations import AnnotationRepository
+from clipen.editing import EditAgentCoordinator, EditAgentRepository
+from clipen.media import InventoryCoordinator, InventoryRepository, MediaPreviewRepository
 from clipen.projects import ProjectWorkspace
+from clipen.provider_registry import exec_adapter_factory
+from clipen.providers import CodexExecAdapter, ProviderUnavailable
+from clipen.providers.claude import ClaudeCliAdapter
 
 from .app import (
     ControllerConfig,
@@ -48,7 +48,6 @@ from .app import (
     ProviderStatus,
     create_app,
 )
-
 
 HOST = "127.0.0.1"
 PRIMARY_PORT = 4200
@@ -73,9 +72,7 @@ class _InstanceLease:
     @classmethod
     def acquire(cls, root: Path) -> "_InstanceLease | None":
         if _fcntl is None:
-            raise RuntimeError(
-                "這個開發版本尚不支援 Windows；本機工作台需要 POSIX 檔案鎖"
-            )
+            raise RuntimeError("這個開發版本尚不支援 Windows；本機工作台需要 POSIX 檔案鎖")
         lock_path = root / ".controller.lock"
         flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
         descriptor = os.open(lock_path, flags, 0o600)
@@ -97,9 +94,7 @@ class _InstanceLease:
             sort_keys=True,
             separators=(",", ":"),
         ).encode("utf-8")
-        temporary = self.registry_path.with_name(
-            f".{self.registry_path.name}.tmp-{os.getpid()}-{secrets.token_hex(4)}"
-        )
+        temporary = self.registry_path.with_name(f".{self.registry_path.name}.tmp-{os.getpid()}-{secrets.token_hex(4)}")
         flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
         descriptor = os.open(temporary, flags, 0o600)
         try:
@@ -155,20 +150,20 @@ class ServerPaths:
             if self.instance_root.is_symlink() or not self.instance_root.is_dir():
                 raise ValueError("instance root cannot be a symbolic link")
             self.instance_root.chmod(0o700)
-        if self.asr_requirements is not None and not self.asr_requirements.resolve(
-            strict=True
-        ).is_file():
+        if self.asr_requirements is not None and not self.asr_requirements.resolve(strict=True).is_file():
             raise ValueError("ASR runtime requirements are missing")
 
 
-def provider_account(provider_id: str, attempt_root: Path, ttl: float = 60.) -> Callable[[], dict]:
+def provider_account(provider_id: str, attempt_root: Path, ttl: float = 60.0) -> Callable[[], dict]:
     """A cached, read-only lookup of the running model and remaining quota."""
     from clipen.providers.account import claude_account, codex_account
+
     lock, cache = threading.Lock(), {}
 
     def lookup() -> dict:
         if provider_id == "claude":
             from clipen.providers.claude import claude_environment
+
             return claude_account(attempt_root, claude_environment())
         if provider_id != "codex":
             return {"model": None, "quota": None}
@@ -203,9 +198,7 @@ def probe_codex(attempt_root: Path) -> ProviderStatus:
     if not result.capabilities.supports_bounded_attempts:
         return ProviderStatus("Codex", ProviderState.UNSUPPORTED, "Codex 版本需要更新")
     if not result.confinement_verified:
-        return ProviderStatus(
-            "Codex", ProviderState.CONFINEMENT_FAILED, "Codex 安全檢查未通過"
-        )
+        return ProviderStatus("Codex", ProviderState.CONFINEMENT_FAILED, "Codex 安全檢查未通過")
     return ProviderStatus("Codex", ProviderState.READY, "AI 已連接，可以開始使用")
 
 
@@ -248,11 +241,7 @@ def _read_instance_record(path: Path) -> tuple[int, str] | None:
     try:
         descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
         info = os.fstat(descriptor)
-        if (
-            not stat.S_ISREG(info.st_mode)
-            or info.st_size > 4096
-            or info.st_mode & 0o077
-        ):
+        if not stat.S_ISREG(info.st_mode) or info.st_size > 4096 or info.st_mode & 0o077:
             return None
         raw = os.read(descriptor, 4097)
         if len(raw) > 4096:
@@ -365,11 +354,7 @@ async def _serve(
     edit_agents = None
     try:
         lease.publish(port)
-        workspace = (
-            ProjectWorkspace(paths.projects_root)
-            if paths.projects_root is not None
-            else None
-        )
+        workspace = ProjectWorkspace(paths.projects_root) if paths.projects_root is not None else None
         if workspace is not None:
             annotations = AnnotationRepository(workspace.repository)
             media_previews = MediaPreviewRepository(workspace.repository)
@@ -381,7 +366,9 @@ async def _serve(
                     edit_agent_repository,
                     paths.attempt_root,
                     provider_id=provider.provider_id,
-                    local_runtime=(paths.attempt_root.parent, paths.asr_requirements) if paths.asr_requirements else None,
+                    local_runtime=(paths.attempt_root.parent, paths.asr_requirements)
+                    if paths.asr_requirements
+                    else None,
                 )
                 edit_agents.recover()
             else:
@@ -389,11 +376,12 @@ async def _serve(
                     edit_agent_repository.interrupt_incomplete(project.project_id)
             repository = InventoryRepository(workspace.repository)
             inventories = InventoryCoordinator(repository)
-            inventories.recover_incomplete(
-                project.project_id for project in workspace.repository.list_projects()
+            inventories.recover_incomplete(project.project_id for project in workspace.repository.list_projects())
+            evidence_service = EvidenceService(
+                workspace.repository,
+                paths.attempt_root if provider.state is ProviderState.READY else None,
+                adapter_factory=exec_adapter,
             )
-            evidence_service = EvidenceService(workspace.repository, paths.attempt_root if provider.state is ProviderState.READY else None,
-                                               adapter_factory=exec_adapter)
             evidence_service.recover()
             preparation_repository = PreparationRepository(workspace.repository)
             for project in workspace.repository.list_projects():
@@ -437,6 +425,7 @@ async def _serve(
             lifespan="off",
         )
         server = uvicorn.Server(config)
+
         async def announce_when_started() -> None:
             while not server.started and not server.should_exit:
                 await asyncio.sleep(0.02)
@@ -503,6 +492,7 @@ def run_server(
 ) -> int:
     paths.prepare()
     from clipen.skills import configure_library
+
     # Custom skills live beside other Clipen data and are shared by all workspaces.
     configure_library(paths.attempt_root.parent / "skills")
     instance_root = paths.instance_root or paths.attempt_root.parent

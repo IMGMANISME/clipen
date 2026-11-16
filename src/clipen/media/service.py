@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import queue
 import threading
+from dataclasses import dataclass
 from typing import Callable, Iterable, Protocol
 
 from clipen.projects.models import ProjectError
@@ -21,7 +21,6 @@ from .models import (
 from .probe import FFprobeAdapter, MediaProbeError, MediaProbeResult
 from .storage import InventoryRepository
 
-
 _ITEM_PROBE_ERRORS = {
     "unsupported": ProbeStatus.UNSUPPORTED,
     "unreadable": ProbeStatus.UNREADABLE,
@@ -34,9 +33,7 @@ _STAGE_BATCH_SIZE = 32
 
 
 class _Discovery(Protocol):
-    def scan(
-        self, root: InventoryRoot, cancel: threading.Event | None = None
-    ) -> Iterable[DiscoveredAsset]: ...
+    def scan(self, root: InventoryRoot, cancel: threading.Event | None = None) -> Iterable[DiscoveredAsset]: ...
 
 
 class _Probe(Protocol):
@@ -83,12 +80,8 @@ class InventoryCoordinator:
             recovered += self.repository.interrupt_incomplete(project_id)
         return recovered
 
-    def start(
-        self, project_id: str, request_id: object, expected_revision: object
-    ) -> InventoryRun:
-        run, created = self.repository.create_run_with_status(
-            project_id, request_id, expected_revision
-        )
+    def start(self, project_id: str, request_id: object, expected_revision: object) -> InventoryRun:
+        run, created = self.repository.create_run_with_status(project_id, request_id, expected_revision)
         if not created:
             return run
         with self._lock:
@@ -180,9 +173,7 @@ class InventoryCoordinator:
                     candidate = self._inspect(prober, root, discovered, cancel)
                     batch.append(candidate)
                     if len(batch) >= _STAGE_BATCH_SIZE:
-                        self.repository.stage_items(
-                            job.project_id, job.run_id, tuple(batch)
-                        )
+                        self.repository.stage_items(job.project_id, job.run_id, tuple(batch))
                         batch.clear()
             if cancel.is_set():
                 self._finish_cancel(job)
@@ -217,11 +208,7 @@ class InventoryCoordinator:
     ) -> AssetCandidate:
         if not discovered.should_probe:
             issue_code = discovered.issue_code or "non_media"
-            status = (
-                ItemStatus.NEEDS_ATTENTION
-                if issue_code == "entry_unreadable"
-                else ItemStatus.IGNORED
-            )
+            status = ItemStatus.NEEDS_ATTENTION if issue_code == "entry_unreadable" else ItemStatus.IGNORED
             return AssetCandidate(
                 discovered.role,
                 discovered.relative_path,

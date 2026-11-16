@@ -1,6 +1,6 @@
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from clipen.analysis import ArtifactStore, ManagedAnalysisRuntime, PreparationRepository
@@ -66,9 +66,7 @@ class ManagedAnalysisRuntimeTests(unittest.TestCase):
         self.setup.binding = (lambda: object(), {"id": "test"})
         runtime = ManagedAnalysisRuntime(self.repository, self.artifacts, self.setup)
         coordinator = mock.Mock()
-        with mock.patch(
-            "clipen.analysis.runtime.PreparationCoordinator", return_value=coordinator
-        ):
+        with mock.patch("clipen.analysis.runtime.PreparationCoordinator", return_value=coordinator):
             runtime.coordinator()
         self.assertEqual(runtime.remove(), "removed")
         coordinator.close.assert_called_once_with(timeout=15)
@@ -78,9 +76,7 @@ class ManagedAnalysisRuntimeTests(unittest.TestCase):
         self.setup.binding = (lambda: object(), {"id": "test"})
         runtime = ManagedAnalysisRuntime(self.repository, self.artifacts, self.setup)
         coordinator = mock.Mock()
-        with mock.patch(
-            "clipen.analysis.runtime.PreparationCoordinator", return_value=coordinator
-        ):
+        with mock.patch("clipen.analysis.runtime.PreparationCoordinator", return_value=coordinator):
             runtime.coordinator()
         runtime.close()
         self.assertTrue(self.setup.closed)

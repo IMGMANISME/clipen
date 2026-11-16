@@ -13,6 +13,7 @@ from .audio import (
     inspect_normalized_audio,
     project_samples_to_source,
 )
+from .keyframes import AdaptiveKeyframeSelector, KeyframeCandidate, KeyframeSelection
 from .models import (
     ArtifactKind,
     ArtifactRecord,
@@ -23,7 +24,9 @@ from .models import (
     PreparationState,
     TimelineSegment,
 )
-from .keyframes import AdaptiveKeyframeSelector, KeyframeCandidate, KeyframeSelection
+from .runtime import ManagedAnalysisRuntime
+from .service import PreparationCoordinator, PreparationRecipe
+from .setup import ASRSetupError, ASRSetupManager, ASRSetupState, ASRSetupStatus
 from .storage import (
     PreparationChunk,
     PreparationRepository,
@@ -31,16 +34,13 @@ from .storage import (
     PreparationTarget,
     PreparationWorkItem,
 )
-from .service import PreparationCoordinator, PreparationRecipe
-from .runtime import ManagedAnalysisRuntime
-from .setup import ASRSetupError, ASRSetupManager, ASRSetupState, ASRSetupStatus
 from .transcription import (
-    Qwen3ASRAdapter,
     LocalModelSnapshot,
-    TranscriptSegment,
-    TranscriptWord,
+    Qwen3ASRAdapter,
     TranscriptionError,
     TranscriptionResult,
+    TranscriptSegment,
+    TranscriptWord,
     hash_model_directory,
 )
 

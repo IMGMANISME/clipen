@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from pathlib import Path
 import struct
 import zlib
-
+from dataclasses import dataclass
+from pathlib import Path
 
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 _GRID_SIZE = 8
@@ -21,9 +20,7 @@ class VisualFingerprint:
         if len(self.cells) != len(other.cells):
             return False
         mean_delta = abs(self.mean_luma - other.mean_luma) / 255
-        cell_delta = sum(abs(a - b) for a, b in zip(self.cells, other.cells)) / (
-            len(self.cells) * 255
-        )
+        cell_delta = sum(abs(a - b) for a, b in zip(self.cells, other.cells)) / (len(self.cells) * 255)
         return mean_delta <= 0.10 and cell_delta <= 0.085
 
 
@@ -66,9 +63,7 @@ def _decode_rgb8_png(data: bytes) -> tuple[int, int, bytes]:
         if kind == b"IHDR":
             if len(payload) != 13:
                 raise ValueError("preview PNG header is invalid")
-            width, height, depth, color, compression, filtering, interlace = struct.unpack(
-                ">IIBBBBB", payload
-            )
+            width, height, depth, color, compression, filtering, interlace = struct.unpack(">IIBBBBB", payload)
             if (
                 not width
                 or not height
@@ -96,11 +91,7 @@ def _decode_rgb8_png(data: bytes) -> tuple[int, int, bytes]:
         decoded = decompressor.decompress(bytes(compressed), expected_size + 1)
     except zlib.error as error:
         raise ValueError("preview PNG compression is invalid") from error
-    if (
-        len(decoded) != expected_size
-        or not decompressor.eof
-        or decompressor.unconsumed_tail
-    ):
+    if len(decoded) != expected_size or not decompressor.eof or decompressor.unconsumed_tail:
         raise ValueError("preview PNG data length is invalid")
     rows: list[bytearray] = []
     for row_index in range(height):

@@ -3,11 +3,11 @@ import errno
 import http.client
 import io
 import json
-from pathlib import Path
 import socket
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from clipen.controller import LocalSessionAuthority, ProviderState, ProviderStatus
@@ -15,8 +15,8 @@ from clipen.controller.server import (
     ExistingController,
     PortUnavailable,
     ServerPaths,
-    _InstanceLease,
     _bind_socket,
+    _InstanceLease,
     _print_ui_url,
     _read_instance_record,
     _serve,
@@ -65,9 +65,7 @@ class ControllerServerTests(unittest.TestCase):
             with self.subTest(expected=expected):
                 adapter = mock.Mock()
                 adapter.probe.return_value = result
-                with mock.patch(
-                    "clipen.controller.server.CodexExecAdapter", return_value=adapter
-                ):
+                with mock.patch("clipen.controller.server.CodexExecAdapter", return_value=adapter):
                     status = probe_codex(self.attempt_root)
                 self.assertEqual(status.state, expected)
 
@@ -97,9 +95,7 @@ class ControllerServerTests(unittest.TestCase):
         listeners = (mock.Mock(), mock.Mock())
         for listener in listeners:
             listener.bind.side_effect = OSError(errno.EADDRINUSE, "already in use")
-        with mock.patch(
-            "clipen.controller.server.socket.socket", side_effect=listeners
-        ):
+        with mock.patch("clipen.controller.server.socket.socket", side_effect=listeners):
             with self.assertRaises(PortUnavailable):
                 _bind_socket()
         for listener in listeners:
@@ -207,7 +203,9 @@ class ControllerServerTests(unittest.TestCase):
                 mock.patch.object(sys, "stdin", io.StringIO()),
                 mock.patch.object(sys, "stdout", io.StringIO()),
             ):
-                serving = asyncio.create_task(_serve(paths, provider, LocalSessionAuthority(), browser_open=browser_open, lease=lease))
+                serving = asyncio.create_task(
+                    _serve(paths, provider, LocalSessionAuthority(), browser_open=browser_open, lease=lease)
+                )
                 try:
                     await asyncio.wait_for(ready.wait(), 5)
                     record = _read_instance_record(self.root / ".controller.json")
@@ -220,21 +218,41 @@ class ControllerServerTests(unittest.TestCase):
                     status, _, body = await asyncio.to_thread(request, port, "GET", "/")
                     self.assertEqual((status, body), (200, b"clipen"))
                     mutation = {"Origin": url, "Sec-Fetch-Site": "same-origin"}
-                    status, headers, _ = await asyncio.to_thread(request, port, "POST", "/api/session/connect", mutation)
+                    status, headers, _ = await asyncio.to_thread(
+                        request, port, "POST", "/api/session/connect", mutation
+                    )
                     self.assertEqual(status, 200)
                     cookie = headers["set-cookie"].split(";", 1)[0]
                     status, _, body = await asyncio.to_thread(request, port, "GET", "/api/status", {"Cookie": cookie})
                     self.assertEqual(status, 200)
                     csrf = json.loads(body)["session"]["csrf_token"]
-                    status, _, _ = await asyncio.to_thread(request, port, "POST", "/api/future-command", {**mutation, "Cookie": cookie, "X-Clipen-CSRF": csrf})
+                    status, _, _ = await asyncio.to_thread(
+                        request,
+                        port,
+                        "POST",
+                        "/api/future-command",
+                        {**mutation, "Cookie": cookie, "X-Clipen-CSRF": csrf},
+                    )
                     self.assertEqual(status, 405)  # Passed authentication and CSRF.
-                    status, _, _ = await asyncio.to_thread(request, port, "POST", "/api/session/connect", {**mutation, "Origin": f"http://localhost:{occupied_port}"})
+                    status, _, _ = await asyncio.to_thread(
+                        request,
+                        port,
+                        "POST",
+                        "/api/session/connect",
+                        {**mutation, "Origin": f"http://localhost:{occupied_port}"},
+                    )
                     self.assertEqual(status, 403)
-                    status, _, _ = await asyncio.to_thread(request, port, "GET", "/api/health", {"Host": f"localhost:{occupied_port}"})
+                    status, _, _ = await asyncio.to_thread(
+                        request, port, "GET", "/api/health", {"Host": f"localhost:{occupied_port}"}
+                    )
                     self.assertEqual(status, 400)
-                    status, _, _ = await asyncio.to_thread(request, port, "POST", "/api/instance/reopen", {"X-Clipen-Instance": "incorrect"})
+                    status, _, _ = await asyncio.to_thread(
+                        request, port, "POST", "/api/instance/reopen", {"X-Clipen-Instance": "incorrect"}
+                    )
                     self.assertEqual(status, 404)
-                    result = await asyncio.to_thread(run_server, paths, provider, LocalSessionAuthority(), browser_open=browser_open)
+                    result = await asyncio.to_thread(
+                        run_server, paths, provider, LocalSessionAuthority(), browser_open=browser_open
+                    )
                     self.assertEqual(result, 0)
                     self.assertEqual(opened, [url, url])
                     self.assertEqual(len(servers), 1)
@@ -266,9 +284,7 @@ class ControllerServerTests(unittest.TestCase):
         opened: list[str] = []
         output = io.StringIO()
         with (
-            mock.patch(
-                "clipen.controller.server._InstanceLease.acquire", return_value=None
-            ),
+            mock.patch("clipen.controller.server._InstanceLease.acquire", return_value=None),
             mock.patch(
                 "clipen.controller.server._find_existing_controller",
                 return_value=existing,

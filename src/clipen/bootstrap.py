@@ -2,22 +2,22 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
-from datetime import datetime, timezone
 import hashlib
 import json
 import os
-from pathlib import Path
 import platform
 import re
-import shutil
 import shlex
+import shutil
 import stat
 import subprocess
 import sys
-from types import ModuleType
 import uuid
 import venv
+from contextlib import contextmanager
+from datetime import datetime, timezone
+from pathlib import Path
+from types import ModuleType
 from typing import Iterator, Mapping, Sequence, TextIO
 
 from clipen.asr_release import (
@@ -25,11 +25,11 @@ from clipen.asr_release import (
     ASR_SOFTWARE_LICENSE_URL,
     DOWNLOAD_BYTES,
     INSTALLED_BYTES,
+    LICENSE_NOTICE,
     MODEL_NAME,
     MODEL_REPOSITORY,
     MODEL_REVISION,
     PROGRESS_RECORD_PREFIX,
-    LICENSE_NOTICE,
     quick_release_is_ready,
     release_root,
 )
@@ -70,9 +70,7 @@ class BootstrapError(RuntimeError):
 
 def _require_posix_file_locking() -> ModuleType:
     if _fcntl is None:
-        raise BootstrapError(
-            "這個開發版本尚不支援 Windows；第一次設定需要 POSIX 檔案鎖"
-        )
+        raise BootstrapError("這個開發版本尚不支援 Windows；第一次設定需要 POSIX 檔案鎖")
     return _fcntl
 
 
@@ -88,17 +86,17 @@ def _toml_multiline_string(line: bytes, quote: bytes | None) -> bytes | None:
     index = 0
     while index < len(line):
         if quote is not None:
-            if quote.startswith(b'"') and line[index:index + 1] == b"\\":
+            if quote.startswith(b'"') and line[index : index + 1] == b"\\":
                 index += 2
             elif line.startswith(quote, index):
                 index += len(quote)
                 quote = None
             else:
                 index += 1
-        elif line[index:index + 1] == b"#":
+        elif line[index : index + 1] == b"#":
             break
-        elif line[index:index + 1] in (b'"', b"'"):
-            character = line[index:index + 1]
+        elif line[index : index + 1] in (b'"', b"'"):
+            character = line[index : index + 1]
             quote = character * 3 if line.startswith(character * 3, index) else character
             index += len(quote)
         else:
@@ -120,7 +118,7 @@ def _replace_project_version(contents: bytes, version: bytes) -> bytes:
                 line,
             )
             if match:
-                line = line[:match.start(2)] + version + line[match.end(2):]
+                line = line[: match.start(2)] + version + line[match.end(2) :]
         multiline = _toml_multiline_string(line, multiline)
         result.append(line)
     return b"".join(result)
@@ -137,9 +135,7 @@ def _runtime_fingerprint(repo_root: Path, *, project_version: bytes | None) -> s
     digest.update(f"python={sys.version_info.major}.{sys.version_info.minor}\n".encode())
     digest.update(f"platform={platform.system()}-{platform.machine()}\n".encode())
     digest.update(f"repo={repo_root.resolve(strict=True)}\n".encode())
-    digest.update(
-        f"bootstrap-tools={_PIP_VERSION},{_SETUPTOOLS_VERSION},{_WHEEL_VERSION}\n".encode()
-    )
+    digest.update(f"bootstrap-tools={_PIP_VERSION},{_SETUPTOOLS_VERSION},{_WHEEL_VERSION}\n".encode())
     for relative in (
         "pyproject.toml",
         "requirements/runtime.txt",
@@ -206,10 +202,11 @@ def _ready_runtime(root: Path, fingerprint: str, repo_root: Path) -> Path | None
         for metadata in sorted(packages.glob("clipen-*.dist-info")):
             if metadata.is_symlink() or not metadata.is_dir():
                 continue
-            version = metadata.name[len("clipen-"):-len(".dist-info")].encode()
-            if re.fullmatch(rb"[A-Za-z0-9.!+_-]+", version) and _runtime_fingerprint(
-                repo_root, project_version=version
-            ) == candidate.name:
+            version = metadata.name[len("clipen-") : -len(".dist-info")].encode()
+            if (
+                re.fullmatch(rb"[A-Za-z0-9.!+_-]+", version)
+                and _runtime_fingerprint(repo_root, project_version=version) == candidate.name
+            ):
                 return candidate
     return None
 
@@ -295,7 +292,7 @@ def _command_script(repo_root: Path) -> str:
         raise BootstrapError("Repo 內的 clipen launcher 不存在或不可執行")
     # Run the launcher with the Python that set Clipen up: a Mac's own python3 is too old.
     python = Path(sys.executable).resolve()
-    return f"#!/bin/sh\n{_COMMAND_MARKER}\nexec {shlex.quote(str(python))} {shlex.quote(str(launcher))} \"$@\"\n"
+    return f'#!/bin/sh\n{_COMMAND_MARKER}\nexec {shlex.quote(str(python))} {shlex.quote(str(launcher))} "$@"\n'
 
 
 def _shell_profile(home: Path, environment: Mapping[str, str]) -> Path:
@@ -304,17 +301,11 @@ def _shell_profile(home: Path, environment: Mapping[str, str]) -> Path:
         return home / ".zshrc"
     if shell == "bash":
         return home / (".bash_profile" if sys.platform == "darwin" else ".bashrc")
-    raise BootstrapError(
-        "目前只能自動設定 zsh 或 bash；請將 Clipen 的 bin 目錄手動加入 PATH"
-    )
+    raise BootstrapError("目前只能自動設定 zsh 或 bash；請將 Clipen 的 bin 目錄手動加入 PATH")
 
 
 def _profile_block(bin_root: Path) -> str:
-    return (
-        f"{_PROFILE_START}\n"
-        f"export PATH={shlex.quote(str(bin_root))}:\"$PATH\"\n"
-        f"{_PROFILE_END}"
-    )
+    return f'{_PROFILE_START}\nexport PATH={shlex.quote(str(bin_root))}:"$PATH"\n{_PROFILE_END}'
 
 
 def _replace_profile_block(contents: str, block: str) -> str:
@@ -563,11 +554,7 @@ def _install_asr_bundle(
                     process.terminate()
                     raise BootstrapError("語音辨識設定輸出超過安全上限")
                 is_progress = line.startswith(PROGRESS_RECORD_PREFIX)
-                visible_line = (
-                    line[len(PROGRESS_RECORD_PREFIX) :].rstrip("\r\n")
-                    if is_progress
-                    else line
-                )
+                visible_line = line[len(PROGRESS_RECORD_PREFIX) :].rstrip("\r\n") if is_progress else line
                 log.write(f"{visible_line}\n" if is_progress else visible_line)
                 log.flush()
                 if is_progress and stdout.isatty():
@@ -624,9 +611,7 @@ def ensure_runtime(
         if ready is not None:
             return ready
         if runtime.exists():
-            raise BootstrapError(
-                f"Clipen runtime 不完整，請先保留此目錄並回報問題：{runtime}"
-            )
+            raise BootstrapError(f"Clipen runtime 不完整，請先保留此目錄並回報問題：{runtime}")
         if not confirmed and not _confirm_setup(runtime, stdin, stdout):
             print("已取消，沒有建立 Clipen runtime。", file=stdout)
             return None
@@ -669,9 +654,7 @@ def ensure_installation(
     asr_requirements = repo_root / "requirements" / "asr-runtime.txt"
     runtime_ready = ready is not None
     asr_ready = quick_release_is_ready(selected_data_root, asr_requirements)
-    command_ready = _command_is_ready(
-        repo_root, selected_data_root, selected_home, selected_environment
-    )
+    command_ready = _command_is_ready(repo_root, selected_data_root, selected_home, selected_environment)
 
     if not runtime_ready or not asr_ready:
         command_path = selected_data_root / "bin" / "clipen"
@@ -759,9 +742,7 @@ def completed_runtime(repo_root: Path, *, data_root: Path | None = None) -> Path
     fingerprint = runtime_fingerprint(repo_root)
     runtime = _ready_runtime(selected_data_root / "runtimes", fingerprint, repo_root)
     requirements = repo_root / "requirements" / "asr-runtime.txt"
-    if runtime is None or not quick_release_is_ready(
-        selected_data_root, requirements
-    ):
+    if runtime is None or not quick_release_is_ready(selected_data_root, requirements):
         raise BootstrapError(
             f"Clipen 尚未完成安裝；第一次請執行 {_install_hint(repo_root)}，"
             "已有 clipen 指令時可執行 clipen install 修復"
@@ -867,21 +848,14 @@ def uninstall_installation(
         if command_path.is_symlink() or not command_path.is_file():
             raise BootstrapError("clipen 指令位置不是安全的實體檔案，未進行移除")
         command = command_path.read_text(encoding="utf-8")
-        if not any(
-            line.startswith(_MANAGED_COMMAND_PREFIX)
-            for line in command.splitlines()[:3]
-        ):
+        if not any(line.startswith(_MANAGED_COMMAND_PREFIX) for line in command.splitlines()[:3]):
             raise BootstrapError("clipen 指令不是由 Clipen 管理，未進行移除")
 
     if selected_data_root.exists():
         for name in _REMOVABLE_DIRECTORIES:
-            _validate_removable_path(
-                resolved_data_root / name, resolved_data_root, directory=True
-            )
+            _validate_removable_path(resolved_data_root / name, resolved_data_root, directory=True)
         for name in _REMOVABLE_FILES:
-            _validate_removable_path(
-                resolved_data_root / name, resolved_data_root, directory=False
-            )
+            _validate_removable_path(resolved_data_root / name, resolved_data_root, directory=False)
 
     if selected_data_root.exists():
         for name in _REMOVABLE_DIRECTORIES:

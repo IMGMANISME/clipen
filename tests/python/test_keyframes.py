@@ -46,10 +46,7 @@ class AdaptiveKeyframeSelectorTests(unittest.TestCase):
 
     def test_strong_relevance_can_focus_selection(self):
         candidates = list(self.selector.uniform(0, 1_000, 32))
-        candidates.extend(
-            KeyframeCandidate(point, 1.0, "semantic")
-            for point in (410, 420, 430, 440)
-        )
+        candidates.extend(KeyframeCandidate(point, 1.0, "semantic") for point in (410, 420, 430, 440))
         selection = self.selector.select(0, 1_000, candidates, 4)
         self.assertEqual([item.pts for item in selection.candidates], [410, 420, 430, 440])
         self.assertTrue(selection.semantic_relevance)
@@ -57,18 +54,14 @@ class AdaptiveKeyframeSelectorTests(unittest.TestCase):
     def test_scene_candidates_are_preferred_without_destroying_coverage(self):
         candidates = list(self.selector.uniform(0, 800, 16))
         candidates.extend(
-            KeyframeCandidate(point, score, "codec")
-            for point, score in ((50, 0.4), (250, 0.8), (450, 0.7), (650, 0.9))
+            KeyframeCandidate(point, score, "codec") for point, score in ((50, 0.4), (250, 0.8), (450, 0.7), (650, 0.9))
         )
         selection = self.selector.select(0, 800, candidates, 4)
         self.assertEqual([item.pts for item in selection.candidates], [50, 250, 450, 650])
 
     def test_codec_complexity_never_collapses_whole_timeline_coverage(self):
         candidates = list(self.selector.uniform(0, 2_000, 32))
-        candidates.extend(
-            KeyframeCandidate(point, 1.0, "codec")
-            for point in range(50, 1_000, 50)
-        )
+        candidates.extend(KeyframeCandidate(point, 1.0, "codec") for point in range(50, 1_000, 50))
         selection = self.selector.select(0, 2_000, candidates, 8)
         points = [item.pts for item in selection.candidates]
         self.assertLess(points[0], 250)

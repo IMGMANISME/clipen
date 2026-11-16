@@ -5,6 +5,9 @@ from .storage import AnnotationRepository
 from .suggestions import annotation_suggestion, annotation_suggestions
 
 __all__ = [
-    "AnnotationRepository", "DayPart", "MaterialUsage",
-    "annotation_suggestion", "annotation_suggestions",
+    "AnnotationRepository",
+    "DayPart",
+    "MaterialUsage",
+    "annotation_suggestion",
+    "annotation_suggestions",
 ]

@@ -1,7 +1,7 @@
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 
 from clipen.providers import (
     CodexAttempt,
@@ -12,8 +12,12 @@ from clipen.providers import (
 from clipen.providers.claude import ClaudeExecAdapter
 from clipen.providers.recovery import AttemptReceiptStore
 
-
-SCHEMA = {"type": "object", "properties": {"title": {"type": "string"}}, "required": ["title"], "additionalProperties": False}
+SCHEMA = {
+    "type": "object",
+    "properties": {"title": {"type": "string"}},
+    "required": ["title"],
+    "additionalProperties": False,
+}
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
 
 
@@ -26,7 +30,8 @@ def fake_claude(root: Path, events: list[dict], *, exit_code: int = 0) -> Path:
         "import sys\n"
         f"open({str(root / 'stdin.jsonl')!r}, 'wb').write(sys.stdin.buffer.read())\n"
         f"sys.stdout.write({body + chr(10)!r})\n"
-        f"sys.exit({exit_code})\n")
+        f"sys.exit({exit_code})\n"
+    )
     script.chmod(0o700)
     return script
 
@@ -36,29 +41,47 @@ def init():
 
 
 def success(payload):
-    return {"type": "result", "subtype": "success", "is_error": False, "result": "", "structured_output": payload,
-            "usage": {"input_tokens": 10, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0, "output_tokens": 5}}
+    return {
+        "type": "result",
+        "subtype": "success",
+        "is_error": False,
+        "result": "",
+        "structured_output": payload,
+        "usage": {
+            "input_tokens": 10,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "output_tokens": 5,
+        },
+    }
 
 
 class ClaudeExecAdapterTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
-        self.attempts = self.root / "attempts"; self.attempts.mkdir()
+        self.attempts = self.root / "attempts"
+        self.attempts.mkdir()
 
     def tearDown(self):
         self.temp.cleanup()
 
     def attempt(self, name="plan-1", images=0):
-        workspace = self.attempts / name; workspace.mkdir()
-        schema = workspace / "schema.json"; schema.write_text(json.dumps(SCHEMA))
+        workspace = self.attempts / name
+        workspace.mkdir()
+        schema = workspace / "schema.json"
+        schema.write_text(json.dumps(SCHEMA))
         paths = []
         for index in range(images):
-            path = workspace / f"frame-{index}.png"; path.write_bytes(PNG); paths.append(path)
+            path = workspace / f"frame-{index}.png"
+            path.write_bytes(PNG)
+            paths.append(path)
         return CodexAttempt(name, workspace, schema, "請產生標題", timeout_seconds=30, images=tuple(paths))
 
     def adapter(self, events, **kwargs):
-        return ClaudeExecAdapter(self.attempts, fake_claude(self.root, events, **kwargs), {"PATH": "/usr/bin:/bin", "HOME": str(self.root)})
+        return ClaudeExecAdapter(
+            self.attempts, fake_claude(self.root, events, **kwargs), {"PATH": "/usr/bin:/bin", "HOME": str(self.root)}
+        )
 
     def test_schema_bound_attempt_matches_codex_receipts_and_reconcile(self):
         adapter = self.adapter([init(), success({"title": "海邊的早餐"})])
@@ -83,7 +106,13 @@ class ClaudeExecAdapterTests(unittest.TestCase):
         adapter = self.adapter([])
         attempt = self.attempt()
         command = adapter.command(attempt, attempt.workspace / "provider-output-plan-1.json")
-        for flag in ("--print", "--safe-mode", "--strict-mcp-config", "--no-session-persistence", "--disable-slash-commands"):
+        for flag in (
+            "--print",
+            "--safe-mode",
+            "--strict-mcp-config",
+            "--no-session-persistence",
+            "--disable-slash-commands",
+        ):
             self.assertIn(flag, command)
         self.assertEqual(command[command.index("--tools") + 1], "")
         self.assertEqual(json.loads(command[command.index("--json-schema") + 1]), SCHEMA)
@@ -92,8 +121,20 @@ class ClaudeExecAdapterTests(unittest.TestCase):
     def test_schema_mismatch_and_login_failures_are_typed_and_receipted(self):
         cases = [
             ([init(), success({"wrong": 1})], 0, ProviderProtocolError, ProviderAttemptState.FAILED),
-            ([init(), {"type": "result", "subtype": "success", "is_error": True, "result": "Not logged in · Please run /login"}], 1,
-             ProviderAuthenticationError, ProviderAttemptState.FAILED),
+            (
+                [
+                    init(),
+                    {
+                        "type": "result",
+                        "subtype": "success",
+                        "is_error": True,
+                        "result": "Not logged in · Please run /login",
+                    },
+                ],
+                1,
+                ProviderAuthenticationError,
+                ProviderAttemptState.FAILED,
+            ),
             ([], 1, ProviderProtocolError, ProviderAttemptState.FAILED),
         ]
         for index, (events, code, error, state) in enumerate(cases):

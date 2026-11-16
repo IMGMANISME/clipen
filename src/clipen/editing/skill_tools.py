@@ -1,14 +1,16 @@
 """Skill discovery and source-anchored programme graphics exposed via MCP."""
-from dataclasses import dataclass, replace
+
 import base64
 import hashlib
 import os
+from dataclasses import dataclass, replace
 
 from clipen.domain import TextClip, Track, TrackKind
 from clipen.projects import ProjectError
-from clipen.skills import get_skill, list_skills
+from clipen.skills import list_skills
+from clipen.skills.visual_styles import font_presets, public_font_styles, public_styles, style_presets
+
 from .agent_models import ToolResult
-from clipen.skills.visual_styles import style_presets, public_styles, font_presets, public_font_styles
 
 # The colours a person may change on a graphic: its accent, its light and its dark colour.
 COMPONENT_COLORS = frozenset({"accent", "paper", "ink"})
@@ -17,6 +19,7 @@ COMPONENT_COLORS = frozenset({"accent", "paper", "ink"})
 @dataclass(frozen=True)
 class SourceContext:
     """An actual user brief with unknown evidence, not a synthetic confirmed plan."""
+
     brief: str
     candidates: tuple = ()
     limitations: tuple = ("素材尚未分析的範圍是未知；請用來源工具按需取證。",)
@@ -40,6 +43,7 @@ class SkillTools:
 
     def _source_rows(self):
         from .production_media import source_rows
+
         rows = source_rows(self.repository.projects, self.project_id)
         session = self._session_value()
         granted = {(r["version_id"], r["stream_index"]) for r in session["sources"]}
@@ -50,65 +54,106 @@ class SkillTools:
 
     def _skill_summary(self):
         value = self._skill_value()
-        return {**{key: value[key] for key in ("skill_id", "version", "name", "content_hash", "limitations")},
-                **({'core':value['core'],'skill_chain':value['skill_chain']} if value.get('skill_chain') else {}),
-                **({'template_skill':value['selected_template_skill']} if value.get('selected_template_skill') else {})}
+        return {
+            **{key: value[key] for key in ("skill_id", "version", "name", "content_hash", "limitations")},
+            **({"core": value["core"], "skill_chain": value["skill_chain"]} if value.get("skill_chain") else {}),
+            **({"template_skill": value["selected_template_skill"]} if value.get("selected_template_skill") else {}),
+        }
 
     def _production_read_production_skill(self, args):
         skill = self._skill_value()
         resource = args.get("resource", "SKILL.md")
-        if resource in skill.get('assets',{}):
-            asset=skill['assets'][resource];data=base64.b64decode(asset['data'],validate=True)
-            if len(data)>512*1024 or hashlib.sha256(data).hexdigest()!=asset['sha256']:
-                raise ProjectError('skill_asset_invalid','Skill 範例資產未通過校驗。',status_code=409)
-            path=self._workdir('skill-assets')/(asset['sha256']+'.png')
-            if path.is_symlink():raise ProjectError('storage_unsafe','Skill 資產路徑不安全。',status_code=409)
+        if resource in skill.get("assets", {}):
+            asset = skill["assets"][resource]
+            data = base64.b64decode(asset["data"], validate=True)
+            if len(data) > 512 * 1024 or hashlib.sha256(data).hexdigest() != asset["sha256"]:
+                raise ProjectError("skill_asset_invalid", "Skill 範例資產未通過校驗。", status_code=409)
+            path = self._workdir("skill-assets") / (asset["sha256"] + ".png")
+            if path.is_symlink():
+                raise ProjectError("storage_unsafe", "Skill 資產路徑不安全。", status_code=409)
             if not path.exists():
-                descriptor=os.open(path,os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600)
-                with os.fdopen(descriptor,'wb') as output:output.write(data)
-            elif hashlib.sha256(path.read_bytes()).hexdigest()!=asset['sha256']:
-                raise ProjectError('skill_asset_invalid','Skill 範例資產內容已改變。',status_code=409)
-            return ToolResult({'skill':self._skill_summary(),'resource':resource,'authority':'style_example_not_source_evidence',
-                               'instruction':'Use as a visual style reference only; never copy sample speech/facts into the film.'},(path,))
+                descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+                with os.fdopen(descriptor, "wb") as output:
+                    output.write(data)
+            elif hashlib.sha256(path.read_bytes()).hexdigest() != asset["sha256"]:
+                raise ProjectError("skill_asset_invalid", "Skill 範例資產內容已改變。", status_code=409)
+            return ToolResult(
+                {
+                    "skill": self._skill_summary(),
+                    "resource": resource,
+                    "authority": "style_example_not_source_evidence",
+                    "instruction": "Use as a visual style reference only; never copy sample speech/facts into the film.",
+                },
+                (path,),
+            )
         if resource not in skill["resources"]:
             raise ProjectError("skill_resource_not_found", "Skill 沒有這份資源。", status_code=404)
-        content=skill['resources'][resource]
+        content = skill["resources"][resource]
         # The default read must actually deliver the selected instructions,
         # even if the director has not discovered the nested resources yet.
         # Sessions frozen before the core/skill split carry one selected skill.
-        applied=skill.get('skill_chain') or ([skill['selected_template_skill']] if skill.get('selected_template_skill') else [])
-        if resource=='SKILL.md':
+        applied = skill.get("skill_chain") or (
+            [skill["selected_template_skill"]] if skill.get("selected_template_skill") else []
+        )
+        if resource == "SKILL.md":
             for selected in applied:
-                kind={'custom':'custom'}.get(selected.get('source'),'template' if 'skill_chain' not in skill else 'built-in')
-                content+='\n\n---\n\n'+f"Selected {kind} Skill: {selected['skill_id']} v{selected['version']}\nResource: {selected['resource']}\n\n"+skill['resources'][selected['resource']]
+                kind = {"custom": "custom"}.get(
+                    selected.get("source"), "template" if "skill_chain" not in skill else "built-in"
+                )
+                content += (
+                    "\n\n---\n\n"
+                    + f"Selected {kind} Skill: {selected['skill_id']} v{selected['version']}\nResource: {selected['resource']}\n\n"
+                    + skill["resources"][selected["resource"]]
+                )
         else:
-            applied=[]
-        return ToolResult({"skill": self._skill_summary(), "resource": resource,
-                           "content": content, 'applied_template_skills':applied,
-                           "available_resources": list(skill["resources"])+list(skill.get('assets',{}))})
+            applied = []
+        return ToolResult(
+            {
+                "skill": self._skill_summary(),
+                "resource": resource,
+                "content": content,
+                "applied_template_skills": applied,
+                "available_resources": list(skill["resources"]) + list(skill.get("assets", {})),
+            }
+        )
 
     def _production_list_program_components(self, args):
         """How graphics are made now, the looks they share, and the ones already in the film."""
         from clipen.rendering.custom_components import FONT_CHOICES
+
         from . import component_looks
         from .production_catalog import CUSTOM_COMPONENT_HELP
         from .production_media import load_text_styles
+
         styles = load_text_styles(self.repository.projects, self.project_id)
         timeline = self._timeline()
-        existing = [{"element_id": item.item_id, "start_frame": item.start_frame, "duration_frames": item.duration_frames,
-                     "text": item.text, "designed_freely": styles.get(item.style_id, {}).get("component_id") == "custom",
-                     "look_id": (styles.get(item.style_id, {}).get("look") or {}).get("look_id")}
-                    for track in timeline.tracks if track.track_id == "program-components" or track.track_id.startswith("program-components-")
-                    for item in track.items]
-        return ToolResult({"skill": self._skill_summary(), "how": "free_design_only", "tool": "add_custom_component",
-                           "guidance": CUSTOM_COMPONENT_HELP,
-                           "canvas": {"width": timeline.width, "height": timeline.height},
-                           "existing_graphics": existing,
-                           "looks": component_looks.listing(self),
-                           "font_choices": [{"family": family, "label": label} for family, label in FONT_CHOICES.items()],
-                           "older_graphics": "Graphics not designed_freely use retired built-in templates. Keep them, remove them with remove_program_component, "
-                                             "or replace them: remove, then design the new one with add_custom_component."})
-
+        existing = [
+            {
+                "element_id": item.item_id,
+                "start_frame": item.start_frame,
+                "duration_frames": item.duration_frames,
+                "text": item.text,
+                "designed_freely": styles.get(item.style_id, {}).get("component_id") == "custom",
+                "look_id": (styles.get(item.style_id, {}).get("look") or {}).get("look_id"),
+            }
+            for track in timeline.tracks
+            if track.track_id == "program-components" or track.track_id.startswith("program-components-")
+            for item in track.items
+        ]
+        return ToolResult(
+            {
+                "skill": self._skill_summary(),
+                "how": "free_design_only",
+                "tool": "add_custom_component",
+                "guidance": CUSTOM_COMPONENT_HELP,
+                "canvas": {"width": timeline.width, "height": timeline.height},
+                "existing_graphics": existing,
+                "looks": component_looks.listing(self),
+                "font_choices": [{"family": family, "label": label} for family, label in FONT_CHOICES.items()],
+                "older_graphics": "Graphics not designed_freely use retired built-in templates. Keep them, remove them with remove_program_component, "
+                "or replace them: remove, then design the new one with add_custom_component.",
+            }
+        )
 
     def _component_draft(self, args):
         """A programme graphic as a person's changes would leave it, checked but not saved.
@@ -118,15 +163,31 @@ class SkillTools:
         anything left out keeps its current value.
         Returns the changed clip, its style profile and the clip as it is now."""
         from clipen.finishing.models import digest
+
         from .production_media import load_text_styles
+
         if not isinstance(args, dict) or not isinstance(args.get("element_id"), str):
             raise ProjectError("agent_input_invalid", "元件設定格式不正確。", status_code=422)
         timeline = self._timeline()
-        item = next((i for t in timeline.tracks if t.track_id == "program-components" or t.track_id.startswith("program-components-")
-                     for i in t.items if i.item_id == args["element_id"]), None)
-        profile = load_text_styles(self.repository.projects, self.project_id).get(item.style_id, {}) if isinstance(item, TextClip) else {}
+        item = next(
+            (
+                i
+                for t in timeline.tracks
+                if t.track_id == "program-components" or t.track_id.startswith("program-components-")
+                for i in t.items
+                if i.item_id == args["element_id"]
+            ),
+            None,
+        )
+        profile = (
+            load_text_styles(self.repository.projects, self.project_id).get(item.style_id, {})
+            if isinstance(item, TextClip)
+            else {}
+        )
         if profile.get("kind") != "program_component":
-            raise ProjectError("component_not_found", "找不到這個畫面元件，影片可能已經更新，請重新讀取。", status_code=404)
+            raise ProjectError(
+                "component_not_found", "找不到這個畫面元件，影片可能已經更新，請重新讀取。", status_code=404
+            )
         if profile.get("component_id") == "custom":
             return self._custom_draft(args, timeline, item, profile)
         saved_text, _, saved_detail = item.text.partition("\n")
@@ -137,54 +198,100 @@ class SkillTools:
         if not text:
             raise ProjectError("component_text_empty", "元件的主要文字不能空白。", status_code=422)
         if "\n" in text or "\n" in detail:
-            raise ProjectError("component_text_overflow", "主要文字與補充文字各寫一行，換行由元件處理。", status_code=422)
+            raise ProjectError(
+                "component_text_overflow", "主要文字與補充文字各寫一行，換行由元件處理。", status_code=422
+            )
         skill = self._skill_value()
         component = next((c for c in skill["components"] if c["component_id"] == profile.get("component_id")), None)
         limit = component["max_characters"] if component else 48
         if len(text) > limit or len(detail) > 48:
-            raise ProjectError("component_text_overflow", f"這個元件的主要文字最多 {limit} 個字，補充文字最多 48 個字。", status_code=422)
+            raise ProjectError(
+                "component_text_overflow",
+                f"這個元件的主要文字最多 {limit} 個字，補充文字最多 48 個字。",
+                status_code=422,
+            )
+
         def number(key, low, high):
             value = args.get(key, profile.get(key))
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not low <= value <= high:
                 raise ProjectError("component_unsafe_position", "元件要留在畫面裡。", status_code=422)
             return round(float(value), 4)
-        x, y = number("x", 0, .95), number("y", 0, .95)
+
+        x, y = number("x", 0, 0.95), number("y", 0, 0.95)
         shot, start, duration = self._component_time(args, item, profile)
         visual_style, presets = style_presets(skill, args.get("visual_style_id", profile.get("visual_style_id")))
         font_style, presets = font_presets(skill, presets, args.get("font_style_id", profile.get("font_style_id")))
         scale = args.get("scale", profile.get("scale", 1))
-        if isinstance(scale, bool) or not isinstance(scale, (int, float)) or not .6 <= scale <= 1.6:
+        if isinstance(scale, bool) or not isinstance(scale, (int, float)) or not 0.6 <= scale <= 1.6:
             raise ProjectError("component_scale_invalid", "元件大小要在 60% 到 160% 之間。", status_code=422)
         colors = args.get("colors", profile.get("colors", {}))
-        if not isinstance(colors, dict) or not set(colors) <= COMPONENT_COLORS or not all(
-                isinstance(v, str) and len(v) == 7 and v[0] == "#" and all(c in "0123456789abcdefABCDEF" for c in v[1:]) for v in colors.values()):
+        if (
+            not isinstance(colors, dict)
+            or not set(colors) <= COMPONENT_COLORS
+            or not all(
+                isinstance(v, str) and len(v) == 7 and v[0] == "#" and all(c in "0123456789abcdefABCDEF" for c in v[1:])
+                for v in colors.values()
+            )
+        ):
             raise ProjectError("component_color_invalid", "顏色格式不正確。", status_code=422)
         # A person's colours replace the style's, keeping each colour's own transparency.
         for name, value in colors.items():
-            presets["palette"][name] = [int(value[1:3], 16), int(value[3:5], 16), int(value[5:7], 16), presets["palette"][name][3]]
+            presets["palette"][name] = [
+                int(value[1:3], 16),
+                int(value[3:5], 16),
+                int(value[5:7], 16),
+                presets["palette"][name][3],
+            ]
         changed_profile = {key: value for key, value in profile.items() if key not in {"scale", "colors"}}
-        changed_profile.update({"presets": presets, "visual_style_id": visual_style, "font_style_id": font_style,
-                                "x": x, "y": y, "anchor_item_id": shot.item_id, "start_offset_frames": start})
+        changed_profile.update(
+            {
+                "presets": presets,
+                "visual_style_id": visual_style,
+                "font_style_id": font_style,
+                "x": x,
+                "y": y,
+                "anchor_item_id": shot.item_id,
+                "start_offset_frames": start,
+            }
+        )
         # Designed size and the style's colours are left out, so untouched graphics keep their identity.
         if round(float(scale), 2) != 1:
             changed_profile["scale"] = round(float(scale), 2)
         if colors:
             changed_profile["colors"] = {name: value.lower() for name, value in sorted(colors.items())}
         style_id = "agent.component." + digest(changed_profile)[:24]
-        draft = replace(item, text=text + ("\n" + detail if detail else ""), start_frame=shot.start_frame + start,
-                        duration_frames=duration, style_id=style_id)
+        draft = replace(
+            item,
+            text=text + ("\n" + detail if detail else ""),
+            start_frame=shot.start_frame + start,
+            duration_frames=duration,
+            style_id=style_id,
+        )
         from PIL import Image, ImageDraw
+
         from clipen.rendering.program_components import draw_program_component
         from clipen.rendering.titles import TitleCardRenderer, TitleRenderError
+
         font = TitleCardRenderer._font_path()
         if font is None:
             raise ProjectError("preview_title_font_missing", "缺少可用的中文字型。", status_code=409)
         try:
-            draw_program_component(ImageDraw.Draw(Image.new("RGBA", (timeline.width, timeline.height))), font, timeline, draft, changed_profile, 8)
+            draw_program_component(
+                ImageDraw.Draw(Image.new("RGBA", (timeline.width, timeline.height))),
+                font,
+                timeline,
+                draft,
+                changed_profile,
+                8,
+            )
         except TitleRenderError as error:
-            message = ("這套字型無法顯示部分字元，請換個寫法或換字體。" if error.code == "program_component_missing_glyph"
-                       else "缺少這套字型，請換一套字體。" if error.code == "program_font_unavailable"
-                       else "元件超出畫面了，請縮小一點、縮短文字或往左上移。")
+            message = (
+                "這套字型無法顯示部分字元，請換個寫法或換字體。"
+                if error.code == "program_component_missing_glyph"
+                else "缺少這套字型，請換一套字體。"
+                if error.code == "program_font_unavailable"
+                else "元件超出畫面了，請縮小一點、縮短文字或往左上移。"
+            )
             raise ProjectError(error.code, message, status_code=422) from error
         return draft, changed_profile, item
 
@@ -192,15 +299,24 @@ class SkillTools:
         """A free design as a person's move or retime would leave it: x, y shift the whole page."""
         from clipen.finishing.models import digest
         from clipen.rendering import custom_components
+
         def shift(key):
             value = args.get(key, profile.get(key, 0))
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not -1 < value < 1:
                 raise ProjectError("component_unsafe_position", "元件要留在畫面裡。", status_code=422)
             return round(float(value), 4)
+
         shot, start, duration = self._component_time(args, item, profile)
-        changed = {**profile, "x": shift("x"), "y": shift("y"), "anchor_item_id": shot.item_id, "start_offset_frames": start}
+        changed = {
+            **profile,
+            "x": shift("x"),
+            "y": shift("y"),
+            "anchor_item_id": shot.item_id,
+            "start_offset_frames": start,
+        }
         if args.get("look_id") is not None and args["look_id"] != (profile.get("look") or {}).get("look_id"):
             from . import component_looks
+
             look = component_looks.current(self).get(args["look_id"])
             if look is None:
                 raise ProjectError("component_look_not_found", "沒有這個外觀，請重新讀取。", status_code=422)
@@ -208,42 +324,78 @@ class SkillTools:
         fields = profile.get("fields") or {"texts": [], "colors": []}
         edits = {kind: dict((profile.get("edits") or {}).get(kind, {})) for kind in ("texts", "colors")}
         for kind, check_value, problem in (
-                ("texts", lambda v: isinstance(v, str) and v.strip() and len(v) <= 120, "文字不能空白，最多 120 個字。"),
-                ("colors", lambda v: isinstance(v, str) and len(v) == 7 and v[0] == "#" and all(c in "0123456789abcdefABCDEF" for c in v[1:]), "顏色格式不正確。")):
+            ("texts", lambda v: isinstance(v, str) and v.strip() and len(v) <= 120, "文字不能空白，最多 120 個字。"),
+            (
+                "colors",
+                lambda v: isinstance(v, str)
+                and len(v) == 7
+                and v[0] == "#"
+                and all(c in "0123456789abcdefABCDEF" for c in v[1:]),
+                "顏色格式不正確。",
+            ),
+        ):
             given = args.get(kind)
             if given is None:
                 continue
             designed = {f["key"]: f["value"] for f in fields[kind]}
-            if not isinstance(given, dict) or not set(given) <= set(designed) or not all(check_value(v) for v in given.values()):
-                raise ProjectError("component_field_invalid", problem if isinstance(given, dict) and set(given) <= set(designed) else "這個元件沒有這個可編輯欄位。", status_code=422)
+            if (
+                not isinstance(given, dict)
+                or not set(given) <= set(designed)
+                or not all(check_value(v) for v in given.values())
+            ):
+                raise ProjectError(
+                    "component_field_invalid",
+                    problem
+                    if isinstance(given, dict) and set(given) <= set(designed)
+                    else "這個元件沒有這個可編輯欄位。",
+                    status_code=422,
+                )
             # Only what differs from the design is kept, so an untouched field follows a redesign.
-            edits[kind] = {k: (v.strip() if kind == "texts" else v.lower()) for k, v in given.items()
-                           if (v.strip() if kind == "texts" else v.lower()) != designed[k]}
+            edits[kind] = {
+                k: (v.strip() if kind == "texts" else v.lower())
+                for k, v in given.items()
+                if (v.strip() if kind == "texts" else v.lower()) != designed[k]
+            }
         changed.pop("edits", None)
         if any(edits.values()):
             changed["edits"] = {kind: values for kind, values in edits.items() if values}
-        draft = replace(item, start_frame=shot.start_frame + start, duration_frames=duration,
-                        style_id="agent.component." + digest(changed)[:24])
+        draft = replace(
+            item,
+            start_frame=shot.start_frame + start,
+            duration_frames=duration,
+            style_id="agent.component." + digest(changed)[:24],
+        )
         try:
             custom_components.check(timeline, draft, changed)
             if changed.get("look") != profile.get("look"):
                 custom_components.check_fonts(timeline, draft, changed)
         except custom_components.CustomRenderError as error:
             if error.code == "custom_component_font_outside_look":
-                raise ProjectError(error.code, f"這個元件的設計用了「{changed['look']['name']}」外觀沒有的字型（{error.detail}），換不過去；請交給 AI 改。", status_code=422) from error
+                raise ProjectError(
+                    error.code,
+                    f"這個元件的設計用了「{changed['look']['name']}」外觀沒有的字型（{error.detail}），換不過去；請交給 AI 改。",
+                    status_code=422,
+                ) from error
             raise ProjectError(error.code, _custom_problem(error), status_code=422) from error
         return draft, changed, item
 
     def _edit_component(self, args):
         """A person changes one programme graphic: wording, place, look, typeface or timing."""
         from .production_media import atomic_json, load_text_styles, text_style_path
+
         draft, profile, item = self._component_draft(args)
         lane = args.get("lane")
         if lane is not None and (isinstance(lane, bool) or not isinstance(lane, int) or not 0 <= lane < 12):
             raise ProjectError("component_lane_invalid", "沒有這一軌。", status_code=422)
-        current = next(n for n, t in enumerate(self._component_tracks()) if any(i.item_id == item.item_id for i in t.items))
-        if (draft.text, draft.start_frame, draft.duration_frames, draft.style_id) == (item.text, item.start_frame, item.duration_frames, item.style_id) \
-                and lane in (None, current):
+        current = next(
+            n for n, t in enumerate(self._component_tracks()) if any(i.item_id == item.item_id for i in t.items)
+        )
+        if (draft.text, draft.start_frame, draft.duration_frames, draft.style_id) == (
+            item.text,
+            item.start_frame,
+            item.duration_frames,
+            item.style_id,
+        ) and lane in (None, current):
             raise ProjectError("component_unchanged", "沒有任何變動。", status_code=422)
         tracks = self._component_lanes(draft, lane)
         styles = load_text_styles(self.repository.projects, self.project_id)
@@ -254,20 +406,33 @@ class SkillTools:
     def _production_set_component_look(self, args):
         """The Agent creates or changes a look; graphics already using it follow."""
         from . import component_looks
-        return self._apply_look(component_looks.normalize({k: v for k, v in args.items() if k != "summary"}), args["summary"])
+
+        return self._apply_look(
+            component_looks.normalize({k: v for k, v in args.items() if k != "summary"}), args["summary"]
+        )
 
     def _edit_component_look(self, args):
         """A person picks other typefaces or colours for a look; its keys stay as the Agent named them."""
         from . import component_looks
+
         base = component_looks.current(self).get(args.get("look_id"))
         if base is None:
             raise ProjectError("component_look_not_found", "找不到這個外觀，請重新讀取。", status_code=404)
         fonts, colors = args.get("fonts") or {}, args.get("colors") or {}
-        if not isinstance(fonts, dict) or not isinstance(colors, dict) or not set(fonts) <= {f["key"] for f in base["fonts"]} \
-                or not set(colors) <= {c["key"] for c in base["colors"]}:
+        if (
+            not isinstance(fonts, dict)
+            or not isinstance(colors, dict)
+            or not set(fonts) <= {f["key"] for f in base["fonts"]}
+            or not set(colors) <= {c["key"] for c in base["colors"]}
+        ):
             raise ProjectError("component_look_invalid", "這個外觀沒有這個字型或顏色。", status_code=422)
-        look = component_looks.normalize({**base, "fonts": [{**f, "family": fonts.get(f["key"], f["family"])} for f in base["fonts"]],
-                                          "colors": [{**c, "value": colors.get(c["key"], c["value"])} for c in base["colors"]]})
+        look = component_looks.normalize(
+            {
+                **base,
+                "fonts": [{**f, "family": fonts.get(f["key"], f["family"])} for f in base["fonts"]],
+                "colors": [{**c, "value": colors.get(c["key"], c["value"])} for c in base["colors"]],
+            }
+        )
         if look == base:
             raise ProjectError("component_unchanged", "沒有任何變動。", status_code=422)
         return self._apply_look(look, args.get("summary") or "使用者修改外觀")
@@ -276,11 +441,17 @@ class SkillTools:
         """Save a look and redraw every graphic that uses it; refused if one would then need a typeface the look lacks."""
         from clipen.finishing.models import digest
         from clipen.rendering import custom_components
+
         from . import component_looks
         from .production_media import atomic_json, load_text_styles, text_style_path
+
         looks = component_looks.current(self)
         if look["look_id"] not in looks and len(looks) >= component_looks.MAX_LOOKS:
-            raise ProjectError("component_look_limit", f"外觀最多 {component_looks.MAX_LOOKS} 套；請沿用或修改既有的外觀。", status_code=422)
+            raise ProjectError(
+                "component_look_limit",
+                f"外觀最多 {component_looks.MAX_LOOKS} 套；請沿用或修改既有的外觀。",
+                status_code=422,
+            )
         timeline = self._timeline()
         changed, problems = {}, []
         for item, profile in component_looks.on_film(self, timeline):
@@ -296,8 +467,13 @@ class SkillTools:
                 problems.append(f"「{item.text}」（{error.detail}）")
             changed[item.item_id] = (draft, updated)
         if problems:
-            raise ProjectError("custom_component_font_outside_look", "改了之後，這些元件會用到外觀以外的字型：" + "、".join(problems)
-                               + "。保留它們用到的字型 key，或先更新這些元件。", status_code=422)
+            raise ProjectError(
+                "custom_component_font_outside_look",
+                "改了之後，這些元件會用到外觀以外的字型："
+                + "、".join(problems)
+                + "。保留它們用到的字型 key，或先更新這些元件。",
+                status_code=422,
+            )
         looks[look["look_id"]] = look
         component_looks.store(self, looks)
         public = component_looks.public(look, len(changed))
@@ -307,7 +483,10 @@ class SkillTools:
         for draft, updated in changed.values():
             styles[draft.style_id] = updated
         atomic_json(text_style_path(self.repository.projects, self.project_id), styles)
-        tracks = tuple(replace(t, items=tuple(changed[i.item_id][0] if i.item_id in changed else i for i in t.items)) for t in timeline.tracks)
+        tracks = tuple(
+            replace(t, items=tuple(changed[i.item_id][0] if i.item_id in changed else i for i in t.items))
+            for t in timeline.tracks
+        )
         return self._save(replace(timeline, tracks=tracks), summary, look=public, updated_components=sorted(changed))
 
     def _component_time(self, args, item, profile):
@@ -321,24 +500,43 @@ class SkillTools:
         moved = shot_id != profile.get("anchor_item_id")
         start = args.get("start_offset_frames", 0 if moved else item.start_frame - shot.start_frame)
         duration = args.get("duration_frames", item.duration_frames)
-        if any(isinstance(v, bool) or not isinstance(v, int) for v in (start, duration)) or not 0 <= start < shot.duration_frames \
-                or duration < 6 or shot.start_frame + start + duration > self._timeline().duration_frames:
-            raise ProjectError("component_time_out_of_bounds", "元件要從這個鏡頭裡開始、在影片結束前結束，至少顯示 0.2 秒。", status_code=422)
+        if (
+            any(isinstance(v, bool) or not isinstance(v, int) for v in (start, duration))
+            or not 0 <= start < shot.duration_frames
+            or duration < 6
+            or shot.start_frame + start + duration > self._timeline().duration_frames
+        ):
+            raise ProjectError(
+                "component_time_out_of_bounds",
+                "元件要從這個鏡頭裡開始、在影片結束前結束，至少顯示 0.2 秒。",
+                status_code=422,
+            )
         return shot, start, duration
 
     def _component_tracks(self):
-        return [t for t in self._timeline().tracks if t.track_id == "program-components" or t.track_id.startswith("program-components-")]
+        return [
+            t
+            for t in self._timeline().tracks
+            if t.track_id == "program-components" or t.track_id.startswith("program-components-")
+        ]
 
     def _component_lanes(self, item, lane=None):
         """The timeline's tracks with item placed. Graphics keep their lanes; ones that overlap in time sit on
         separate lanes, and a later lane is drawn on top. lane asks for a particular lane (0 is the lowest)."""
         timeline = self._timeline()
-        components = lambda track: track.track_id == "program-components" or track.track_id.startswith("program-components-")
+        components = lambda track: track.track_id == "program-components" or track.track_id.startswith(
+            "program-components-"
+        )
         tracks = tuple(t for t in timeline.tracks if not components(t))
         lanes = [[i for i in t.items if i.item_id != item.item_id] for t in self._component_tracks()]
-        here = next((n for n, t in enumerate(self._component_tracks()) if any(i.item_id == item.item_id for i in t.items)), None)
-        free = lambda n: n < len(lanes) and all(i.start_frame + i.duration_frames <= item.start_frame
-                                                 or item.start_frame + item.duration_frames <= i.start_frame for i in lanes[n])
+        here = next(
+            (n for n, t in enumerate(self._component_tracks()) if any(i.item_id == item.item_id for i in t.items)), None
+        )
+        free = lambda n: n < len(lanes) and all(
+            i.start_frame + i.duration_frames <= item.start_frame
+            or item.start_frame + item.duration_frames <= i.start_frame
+            for i in lanes[n]
+        )
         if lane is not None:
             if lane > len(lanes):
                 raise ProjectError("component_lane_invalid", "沒有這一軌。", status_code=422)
@@ -346,17 +544,22 @@ class SkillTools:
                 raise ProjectError("component_lane_busy", "那一軌在這段時間已經有元件了。", status_code=422)
             target = lane
         else:
-            target = here if here is not None and free(here) else next((n for n in range(len(lanes)) if free(n)), len(lanes))
+            target = (
+                here if here is not None and free(here) else next((n for n in range(len(lanes)) if free(n)), len(lanes))
+            )
         if target == len(lanes):
             lanes.append([])
         lanes[target].append(item)
         lanes = [sorted(l, key=lambda i: (i.start_frame, i.item_id)) for l in lanes if l]
-        return tracks + tuple(Track("program-components" if n == 0 else f"program-components-{n+1}", TrackKind.TITLE, tuple(l))
-                              for n, l in enumerate(lanes))
+        return tracks + tuple(
+            Track("program-components" if n == 0 else f"program-components-{n + 1}", TrackKind.TITLE, tuple(l))
+            for n, l in enumerate(lanes)
+        )
 
     def _component_editing(self):
         """What the review page needs to edit graphics: each one's settings and the run's styles."""
         from .production_media import load_text_styles
+
         skill = self._skill_value()
         styles = load_text_styles(self.repository.projects, self.project_id)
         shots = {i.item_id: i for i in self._video().items}
@@ -373,64 +576,135 @@ class SkillTools:
                     continue
                 custom = profile["component_id"] == "custom"
                 result[item.item_id] = {
-                    "component_id": profile["component_id"], "custom": custom,
+                    "component_id": profile["component_id"],
+                    "custom": custom,
                     "name": item.text if custom else names.get(profile["component_id"], profile["component_id"]),
-                    "max_characters": limits.get(profile["component_id"], 48), "x": profile.get("x"), "y": profile.get("y"),
-                    "visual_style_id": profile.get("visual_style_id"), "font_style_id": profile.get("font_style_id"),
-                    "scale": profile.get("scale", 1), "colors": profile.get("colors", {}),
-                    **({"fields": profile.get("fields") or {"texts": [], "colors": []}, "edits": profile.get("edits") or {},
-                        "look_id": (profile.get("look") or {}).get("look_id")} if custom else {}),
-                    "shot_start_frame": shot.start_frame, "shot_duration_frames": shot.duration_frames}
+                    "max_characters": limits.get(profile["component_id"], 48),
+                    "x": profile.get("x"),
+                    "y": profile.get("y"),
+                    "visual_style_id": profile.get("visual_style_id"),
+                    "font_style_id": profile.get("font_style_id"),
+                    "scale": profile.get("scale", 1),
+                    "colors": profile.get("colors", {}),
+                    **(
+                        {
+                            "fields": profile.get("fields") or {"texts": [], "colors": []},
+                            "edits": profile.get("edits") or {},
+                            "look_id": (profile.get("look") or {}).get("look_id"),
+                        }
+                        if custom
+                        else {}
+                    ),
+                    "shot_start_frame": shot.start_frame,
+                    "shot_duration_frames": shot.duration_frames,
+                }
+
         def palette(identifier):
             colours = style_presets(skill, identifier)[1]["palette"]
             return {name: "#%02x%02x%02x" % tuple(colours[name][:3]) for name in sorted(COMPONENT_COLORS)}
+
         from clipen.rendering.custom_components import FONT_CHOICES
+
         from . import component_looks
-        return {"looks": component_looks.listing(self), "font_choices": [{"family": f, "label": l} for f, l in FONT_CHOICES.items()],
-                "components": result, "visual_styles": [{"id": v["visual_style_id"], "name": v["name"], "colors": palette(v["visual_style_id"])} for v in public_styles(skill)],
-                "font_styles": [{"id": f["font_style_id"], "name": f["name"]} for f in public_font_styles(skill)]}
+
+        return {
+            "looks": component_looks.listing(self),
+            "font_choices": [{"family": f, "label": l} for f, l in FONT_CHOICES.items()],
+            "components": result,
+            "visual_styles": [
+                {"id": v["visual_style_id"], "name": v["name"], "colors": palette(v["visual_style_id"])}
+                for v in public_styles(skill)
+            ],
+            "font_styles": [{"id": f["font_style_id"], "name": f["name"]} for f in public_font_styles(skill)],
+        }
 
     def _component_issues(self):
         from PIL import Image, ImageDraw
+
         from clipen.rendering.program_components import component_bounds
         from clipen.rendering.titles import TitleCardRenderer, TitleRenderError
+
         from .production_media import load_text_styles
-        timeline=self._timeline();styles=load_text_styles(self.repository.projects,self.project_id)
-        shots={i.item_id:i for i in self._video().items}
-        elements=[i for t in timeline.tracks if (t.track_id=='program-components' or t.track_id.startswith('program-components-')) for i in t.items]
-        font=TitleCardRenderer._font_path();issues=[];boxes=[]
+
+        timeline = self._timeline()
+        styles = load_text_styles(self.repository.projects, self.project_id)
+        shots = {i.item_id: i for i in self._video().items}
+        elements = [
+            i
+            for t in timeline.tracks
+            if (t.track_id == "program-components" or t.track_id.startswith("program-components-"))
+            for i in t.items
+        ]
+        font = TitleCardRenderer._font_path()
+        issues = []
+        boxes = []
         for element in elements:
-            profile=styles.get(element.style_id,{})
-            anchor=shots.get(profile.get('anchor_item_id'))
-            if profile.get('kind')!='program_component' or anchor is None:
-                issues.append({'code':'component_anchor_missing','item_id':element.item_id});continue
-            if not anchor.start_frame<=element.start_frame<anchor.start_frame+anchor.duration_frames or element.start_frame+element.duration_frames>timeline.duration_frames:
-                issues.append({'code':'component_anchor_out_of_bounds','item_id':element.item_id});continue
+            profile = styles.get(element.style_id, {})
+            anchor = shots.get(profile.get("anchor_item_id"))
+            if profile.get("kind") != "program_component" or anchor is None:
+                issues.append({"code": "component_anchor_missing", "item_id": element.item_id})
+                continue
+            if (
+                not anchor.start_frame <= element.start_frame < anchor.start_frame + anchor.duration_frames
+                or element.start_frame + element.duration_frames > timeline.duration_frames
+            ):
+                issues.append({"code": "component_anchor_out_of_bounds", "item_id": element.item_id})
+                continue
             if font is None:
-                issues.append({'code':'preview_title_font_missing','item_id':element.item_id});continue
+                issues.append({"code": "preview_title_font_missing", "item_id": element.item_id})
+                continue
             try:
-                box,_,_=component_bounds(ImageDraw.Draw(Image.new('RGBA',(1,1))),font,timeline,element,profile)
-                boxes.append((element,box))
-            except TitleRenderError as error:issues.append({'code':error.code,'item_id':element.item_id})
+                box, _, _ = component_bounds(
+                    ImageDraw.Draw(Image.new("RGBA", (1, 1))), font, timeline, element, profile
+                )
+                boxes.append((element, box))
+            except TitleRenderError as error:
+                issues.append({"code": error.code, "item_id": element.item_id})
             # Subtitles may be rebuilt after a graphic was placed; recheck the pair here.
-            from .component_review import RESTATE_RATIO,concurrent_subtitles,restated_ratio
-            if profile.get('authority')!='user' and profile.get('component_id')!='custom' and restated_ratio(element.text.partition('\n')[0],concurrent_subtitles(timeline,element.start_frame,element.duration_frames))>=RESTATE_RATIO:
-                issues.append({'code':'component_restates_subtitle','item_id':element.item_id,'advisory':True,
-                               'message':'元件文字和同時出現的字幕大部分重複；不是刻意強調的話可以改寫。'})
-        for n,(a,left) in enumerate(boxes):
-            for b,right in boxes[n+1:]:
-                if (a.start_frame<b.start_frame+b.duration_frames and b.start_frame<a.start_frame+a.duration_frames
-                    and left[0]<right[2] and right[0]<left[2] and left[1]<right[3] and right[1]<left[3]):
-                    issues.append({'code':'program_component_collision','item_ids':[a.item_id,b.item_id]})
+            from .component_review import RESTATE_RATIO, concurrent_subtitles, restated_ratio
+
+            if (
+                profile.get("authority") != "user"
+                and profile.get("component_id") != "custom"
+                and restated_ratio(
+                    element.text.partition("\n")[0],
+                    concurrent_subtitles(timeline, element.start_frame, element.duration_frames),
+                )
+                >= RESTATE_RATIO
+            ):
+                issues.append(
+                    {
+                        "code": "component_restates_subtitle",
+                        "item_id": element.item_id,
+                        "advisory": True,
+                        "message": "元件文字和同時出現的字幕大部分重複；不是刻意強調的話可以改寫。",
+                    }
+                )
+        for n, (a, left) in enumerate(boxes):
+            for b, right in boxes[n + 1 :]:
+                if (
+                    a.start_frame < b.start_frame + b.duration_frames
+                    and b.start_frame < a.start_frame + a.duration_frames
+                    and left[0] < right[2]
+                    and right[0] < left[2]
+                    and left[1] < right[3]
+                    and right[1] < left[3]
+                ):
+                    issues.append({"code": "program_component_collision", "item_ids": [a.item_id, b.item_id]})
         return issues
 
     def _component_design_notes(self):
         from .component_review import design_notes
         from .production_media import load_text_styles
-        timeline=self._timeline()
-        elements=[i for t in timeline.tracks if (t.track_id=='program-components' or t.track_id.startswith('program-components-')) for i in t.items]
-        return design_notes(timeline,elements,load_text_styles(self.repository.projects,self.project_id))
 
+        timeline = self._timeline()
+        elements = [
+            i
+            for t in timeline.tracks
+            if (t.track_id == "program-components" or t.track_id.startswith("program-components-"))
+            for i in t.items
+        ]
+        return design_notes(timeline, elements, load_text_styles(self.repository.projects, self.project_id))
 
     def _production_add_custom_component(self, args):
         return self._write_custom_component(args, updating=False)
@@ -442,7 +716,9 @@ class SkillTools:
         """A graphic the Agent designs itself as a web page; only technical checks apply."""
         from clipen.finishing.models import digest
         from clipen.rendering import custom_components
+
         from .production_media import atomic_json, load_text_styles, text_style_path
+
         timeline = self._timeline()
         styles = load_text_styles(self.repository.projects, self.project_id)
         current = next((i for t in timeline.tracks for i in t.items if i.item_id == args["element_id"]), None)
@@ -451,33 +727,87 @@ class SkillTools:
             raise ProjectError("component_not_found", "找不到要更新的自由元件。", status_code=404)
         if not updating and current is not None:
             raise ProjectError("component_identity_conflict", "這個 element_id 已經被使用。", status_code=409)
-        settings = {**({"item_id": previous["anchor_item_id"], "start_offset_frames": previous["start_offset_frames"],
-                        "duration_frames": current.duration_frames, "name": current.text, "html": previous["html"],
-                        "evidence": previous.get("evidence", "")} if updating else {}), **args}
+        settings = {
+            **(
+                {
+                    "item_id": previous["anchor_item_id"],
+                    "start_offset_frames": previous["start_offset_frames"],
+                    "duration_frames": current.duration_frames,
+                    "name": current.text,
+                    "html": previous["html"],
+                    "evidence": previous.get("evidence", ""),
+                }
+                if updating
+                else {}
+            ),
+            **args,
+        }
         shot = next((i for i in self._video().items if i.item_id == settings["item_id"]), None)
         if shot is None:
             raise ProjectError("component_anchor_missing", "畫面元件需要有效的鏡頭錨點。", status_code=422)
-        if settings["start_offset_frames"] >= shot.duration_frames or shot.start_frame + settings["start_offset_frames"] + settings["duration_frames"] > self._timeline().duration_frames:
-            raise ProjectError("component_time_out_of_bounds", f"元件要從這個鏡頭裡開始（這個鏡頭長 {shot.duration_frames} 格），並在影片結束前結束。", status_code=422)
+        if (
+            settings["start_offset_frames"] >= shot.duration_frames
+            or shot.start_frame + settings["start_offset_frames"] + settings["duration_frames"]
+            > self._timeline().duration_frames
+        ):
+            raise ProjectError(
+                "component_time_out_of_bounds",
+                f"元件要從這個鏡頭裡開始（這個鏡頭長 {shot.duration_frames} 格），並在影片結束前結束。",
+                status_code=422,
+            )
         skill = self._skill_value()
-        profile = {"kind": "program_component", "component_id": custom_components.CUSTOM,
-                   "skill_id": skill["skill_id"], "skill_version": skill["version"], "skill_hash": skill["content_hash"],
-                   "html": settings["html"], "anchor_item_id": shot.item_id, "start_offset_frames": settings["start_offset_frames"],
-                   "evidence": settings.get("evidence", ""), "x": previous.get("x", 0) if updating else 0, "y": previous.get("y", 0) if updating else 0}
+        profile = {
+            "kind": "program_component",
+            "component_id": custom_components.CUSTOM,
+            "skill_id": skill["skill_id"],
+            "skill_version": skill["version"],
+            "skill_hash": skill["content_hash"],
+            "html": settings["html"],
+            "anchor_item_id": shot.item_id,
+            "start_offset_frames": settings["start_offset_frames"],
+            "evidence": settings.get("evidence", ""),
+            "x": previous.get("x", 0) if updating else 0,
+            "y": previous.get("y", 0) if updating else 0,
+        }
         from . import component_looks
+
         look_id = args.get("look_id") or (previous.get("look") or {}).get("look_id")
         if not look_id:
-            raise ProjectError("component_look_required", "先用 set_component_look 定下這類元件的外觀（字型與配色），再用 look_id 指定。", status_code=422)
+            raise ProjectError(
+                "component_look_required",
+                "先用 set_component_look 定下這類元件的外觀（字型與配色），再用 look_id 指定。",
+                status_code=422,
+            )
         look = component_looks.current(self).get(look_id)
         if look is None:
-            raise ProjectError("component_look_not_found", "沒有這個外觀；先用 set_component_look 建立，或從 list_program_components 的 looks 選一個。", status_code=422)
+            raise ProjectError(
+                "component_look_not_found",
+                "沒有這個外觀；先用 set_component_look 建立，或從 list_program_components 的 looks 選一個。",
+                status_code=422,
+            )
         profile["look"] = look
-        item = TextClip(args["element_id"], shot.start_frame + settings["start_offset_frames"], settings["duration_frames"], settings["name"].strip() or "自由元件", "pending")
+        item = TextClip(
+            args["element_id"],
+            shot.start_frame + settings["start_offset_frames"],
+            settings["duration_frames"],
+            settings["name"].strip() or "自由元件",
+            "pending",
+        )
         try:
             profile["fields"] = custom_components.fields(timeline, item, profile)
             # A person's word and colour changes survive a redesign wherever the new page keeps that field.
-            keep = {kind: {k: v for k, v in (previous.get("edits") or {}).get(kind, {}).items() if k in {f["key"] for f in profile["fields"][kind]}}
-                    for kind in ("texts", "colors")} if updating else {}
+            keep = (
+                {
+                    kind: {
+                        k: v
+                        for k, v in (previous.get("edits") or {}).get(kind, {}).items()
+                        if k in {f["key"] for f in profile["fields"][kind]}
+                    }
+                    for kind in ("texts", "colors")
+                }
+                if updating
+                else {}
+            )
             if any(keep.values()):
                 profile["edits"] = {kind: values for kind, values in keep.items() if values}
             item = replace(item, style_id="agent.component." + digest(profile)[:24])
@@ -488,10 +818,24 @@ class SkillTools:
         styles[item.style_id] = profile
         atomic_json(text_style_path(self.repository.projects, self.project_id), styles)
         editable = {kind: [f["label"] for f in profile["fields"][kind]] for kind in ("texts", "colors")}
-        result = self._save(replace(timeline, tracks=self._component_lanes(item)), args["summary"], element_id=item.item_id,
-                            anchor_item_id=shot.item_id, editable_by_people=editable, look_id=look_id,
-                            inspection_required="Look at both images: the resting still for legibility, faces and subtitles; the frame sheet (entry to exit, labelled by frame) for whether the motion reads and ends cleanly.",
-                            **({} if any(editable.values()) else {"notes": ["沒有標出可編輯的文字或顏色，使用者只能請你重做。用 data-clipen-text 與 --clipen-* 顏色變數標出主要文字和顏色。"]}))
+        result = self._save(
+            replace(timeline, tracks=self._component_lanes(item)),
+            args["summary"],
+            element_id=item.item_id,
+            anchor_item_id=shot.item_id,
+            editable_by_people=editable,
+            look_id=look_id,
+            inspection_required="Look at both images: the resting still for legibility, faces and subtitles; the frame sheet (entry to exit, labelled by frame) for whether the motion reads and ends cleanly.",
+            **(
+                {}
+                if any(editable.values())
+                else {
+                    "notes": [
+                        "沒有標出可編輯的文字或顏色，使用者只能請你重做。用 data-clipen-text 與 --clipen-* 顏色變數標出主要文字和顏色。"
+                    ]
+                }
+            ),
+        )
         return ToolResult(result.payload, self._custom_still(result.payload["revision"]["revision_id"], item))
 
     def _custom_still(self, revision_id, item):
@@ -499,22 +843,38 @@ class SkillTools:
         to judge legibility, and a sheet of frames from entry to exit, so it can judge the motion too."""
         import base64
         from io import BytesIO
+
         from PIL import Image, ImageDraw, ImageFont
+
         from clipen.rendering import custom_components
+
         from .visual_preview import frame
+
         timeline = self._timeline()
         fps = timeline.frame_rate.numerator / timeline.frame_rate.denominator
         last = item.duration_frames - 1
         # Dense through the entry, where most motion is, then the middle and the exit.
-        moments = sorted({0, min(last, round(fps * .1)), min(last, round(fps * .25)), min(last, round(fps * .5)),
-                          item.duration_frames // 2, max(0, last - round(fps * .3)), max(0, last - round(fps * .1)), last})
+        moments = sorted(
+            {
+                0,
+                min(last, round(fps * 0.1)),
+                min(last, round(fps * 0.25)),
+                min(last, round(fps * 0.5)),
+                item.duration_frames // 2,
+                max(0, last - round(fps * 0.3)),
+                max(0, last - round(fps * 0.1)),
+                last,
+            }
+        )
         offline = False
 
         def picture(relative):
             nonlocal offline
             if not offline:
                 try:
-                    still = frame(self.repository, self.project_id, self.run_id, revision_id, item.start_frame + relative)
+                    still = frame(
+                        self.repository, self.project_id, self.run_id, revision_id, item.start_frame + relative
+                    )
                     with Image.open(BytesIO(base64.b64decode(still["image_data_url"].split(",", 1)[1]))) as image:
                         return image.convert("RGB")
                 except ProjectError:
@@ -548,10 +908,23 @@ class SkillTools:
 
     def _production_remove_program_component(self, args):
         timeline = self._timeline()
-        if not any(i.item_id == args["element_id"] for t in timeline.tracks if (t.track_id == "program-components" or t.track_id.startswith("program-components-")) for i in t.items):
+        if not any(
+            i.item_id == args["element_id"]
+            for t in timeline.tracks
+            if (t.track_id == "program-components" or t.track_id.startswith("program-components-"))
+            for i in t.items
+        ):
             raise ProjectError("component_not_found", "找不到這個畫面元件。", status_code=404)
-        return self._save(replace(timeline, tracks=tuple(replace(t, items=tuple(i for i in t.items if i.item_id != args["element_id"]))
-                                                       for t in timeline.tracks)), args["summary"])
+        return self._save(
+            replace(
+                timeline,
+                tracks=tuple(
+                    replace(t, items=tuple(i for i in t.items if i.item_id != args["element_id"]))
+                    for t in timeline.tracks
+                ),
+            ),
+            args["summary"],
+        )
 
 
 def _custom_problem(error):
@@ -566,10 +939,13 @@ def _custom_problem(error):
         "custom_component_script_error": "頁面的程式出錯" + detail + "。",
         "custom_component_frame_timeout": "有一格超過 10 秒還沒畫完；clipenFrame 要能直接畫出指定的那一格。",
         "custom_component_renderer_missing": "這台電腦沒有可用的 Chrome，無法繪製自由元件" + detail + "。",
-        "custom_component_font_outside_look": "頁面用了外觀以外的字型" + detail + "；文字的字型要寫成 var(--look-font-鍵名)。想換字或加一套字，先用 set_component_look 改外觀。",
+        "custom_component_font_outside_look": "頁面用了外觀以外的字型"
+        + detail
+        + "；文字的字型要寫成 var(--look-font-鍵名)。想換字或加一套字，先用 set_component_look 改外觀。",
     }.get(error.code, "自由元件繪製失敗" + detail + "。")
 
 
 def load_style(tools, style_id):
     from .production_media import load_text_styles
+
     return load_text_styles(tools.repository.projects, tools.project_id)[style_id]

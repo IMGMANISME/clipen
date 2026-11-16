@@ -26,3 +26,19 @@ clipen = ["py.typed"]
 "clipen.skills" = ["builtin/*.md", "builtin/*.json", "builtin/references/*.md", "builtin/references/*.txt", "builtin/assets/*.png", "builtin/assets/*.mp4", "builtin/template-skills/*/*.md", "builtin/template-skills/*/*.json", "builtin/skills/*/*.md", "builtin/skills/*/*.json"]
 
 "clipen.rendering" = ["fonts/*.ttf", "fonts/*.txt", "fonts/*.json"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+extend-exclude = ["apps", "examples"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "W"]
+# Short lambdas and loop names like `l` read fine in this code base.
+ignore = ["E731", "E741"]
+
+[tool.ruff.lint.per-file-ignores]
+# Launchers put src on sys.path before importing Clipen.
+"clipen" = ["E402"]
+"install" = ["E402"]
+"uninstall" = ["E402"]

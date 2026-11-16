@@ -1,7 +1,4 @@
-import json
-from pathlib import Path
 import unittest
-
 
 from clipen.domain import Rational, SourceSpan
 from clipen.planning import (
@@ -90,9 +87,7 @@ class PlanningModelsTests(unittest.TestCase):
                             "candidate_id": "candidate-1",
                             "role": "hook",
                             "audio_treatment": "mixed",
-                            "effects": [
-                                {"effect": "punch_in", "intensity": "subtle"}
-                            ],
+                            "effects": [{"effect": "punch_in", "intensity": "subtle"}],
                         },
                         {
                             "candidate_id": "candidate-2",

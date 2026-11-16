@@ -1,6 +1,7 @@
 """Keep local FFmpeg and ASR subprocesses from competing for memory/compute."""
-from contextlib import contextmanager
+
 import threading
+from contextlib import contextmanager
 from typing import Callable, Iterator
 
 _SLOT = threading.Lock()

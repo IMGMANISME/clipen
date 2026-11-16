@@ -1,19 +1,14 @@
-from pathlib import Path
 import struct
 import tempfile
 import unittest
 import zlib
+from pathlib import Path
 
 from clipen.analysis.image_similarity import fingerprint_png
 
 
 def _chunk(kind, payload):
-    return (
-        struct.pack(">I", len(payload))
-        + kind
-        + payload
-        + struct.pack(">I", zlib.crc32(kind + payload) & 0xFFFFFFFF)
-    )
+    return struct.pack(">I", len(payload)) + kind + payload + struct.pack(">I", zlib.crc32(kind + payload) & 0xFFFFFFFF)
 
 
 def _png(color, *, accent=None):

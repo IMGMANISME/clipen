@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
 import mimetypes
 import os
-from pathlib import Path, PurePosixPath
 import re
 import sqlite3
+from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
 from typing import Iterator
 
 from clipen.projects import DirectoryRole, ProjectError, ProjectRepository
@@ -16,7 +16,6 @@ from clipen.projects.models import validate_project_id
 
 from .discovery import DiscoveryError, open_file_beneath
 from .models import InventoryRoot
-
 
 _VERSION_ID = re.compile(r"av_[0-9a-f]{32}\Z")
 _VIDEO_TYPES = {".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/quicktime"}
@@ -68,8 +67,7 @@ class MediaPreviewRepository:
             ).fetchall()
         path = Path(row["canonical_path"]).joinpath(*PurePosixPath(row["relative_path"]).parts)
         return path, {
-            stream["stream_index"]: {**json.loads(stream["details_json"]), "kind": stream["kind"]}
-            for stream in streams
+            stream["stream_index"]: {**json.loads(stream["details_json"]), "kind": stream["kind"]} for stream in streams
         }
 
     def open(self, project_id: str, version_id: str) -> MediaPreview:
@@ -88,35 +86,31 @@ class MediaPreviewRepository:
                     (version_id, project_id),
                 ).fetchone()
                 streams = database.execute(
-                    "SELECT stream_index,kind,details_json FROM media_streams "
-                    "WHERE version_id=? ORDER BY stream_index",
+                    "SELECT stream_index,kind,details_json FROM media_streams WHERE version_id=? ORDER BY stream_index",
                     (version_id,),
                 ).fetchall()
             if row is None:
                 raise ProjectError("media_not_found", "找不到這個素材。", status_code=404)
-            audio_stream_indices = tuple(
-                stream["stream_index"] for stream in streams if stream["kind"] == "audio"
-            )
+            audio_stream_indices = tuple(stream["stream_index"] for stream in streams if stream["kind"] == "audio")
             video_streams = [stream for stream in streams if stream["kind"] == "video"]
             primary_video_streams = tuple(
                 stream["stream_index"]
                 for stream in video_streams
                 if not json.loads(stream["details_json"]).get("attached_pic", False)
             )
-            video_stream_indices = primary_video_streams or tuple(
-                stream["stream_index"] for stream in video_streams
-            )
+            video_stream_indices = primary_video_streams or tuple(stream["stream_index"] for stream in video_streams)
             root = InventoryRoot(
-                DirectoryRole(row["role"]), row["canonical_path"], row["device"],
-                row["inode"], row["saved_at"],
+                DirectoryRole(row["role"]),
+                row["canonical_path"],
+                row["device"],
+                row["inode"],
+                row["saved_at"],
             )
             descriptor = open_file_beneath(root, row["relative_path"])
             details = os.fstat(descriptor)
             if details.st_size != row["size_bytes"] or details.st_mtime_ns != row["mtime_ns"]:
                 os.close(descriptor)
-                raise ProjectError(
-                    "media_changed", "素材已變更，請重新檢查素材。", status_code=409
-                )
+                raise ProjectError("media_changed", "素材已變更，請重新檢查素材。", status_code=409)
             suffix = PurePosixPath(row["relative_path"]).suffix.lower()
             media_type = _VIDEO_TYPES.get(suffix) or _AUDIO_TYPES.get(suffix)
             if media_type is None:
@@ -138,10 +132,6 @@ class MediaPreviewRepository:
         except ProjectError:
             raise
         except DiscoveryError as error:
-            raise ProjectError(
-                "media_offline", "目前無法讀取素材，請確認外接硬碟已連接。", status_code=409
-            ) from error
+            raise ProjectError("media_offline", "目前無法讀取素材，請確認外接硬碟已連接。", status_code=409) from error
         except (json.JSONDecodeError, OSError, sqlite3.Error, TypeError, ValueError) as error:
-            raise ProjectError(
-                "media_unavailable", "Clipen 無法安全開啟這個素材。", status_code=500
-            ) from error
+            raise ProjectError("media_unavailable", "Clipen 無法安全開啟這個素材。", status_code=500) from error

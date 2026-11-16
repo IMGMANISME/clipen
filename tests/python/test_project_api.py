@@ -1,10 +1,12 @@
 import asyncio
 import json
-from pathlib import Path
 import tempfile
 import time
 import unittest
+from pathlib import Path
 
+from clipen.analysis import PreparationRepository
+from clipen.annotations import AnnotationRepository
 from clipen.controller import (
     ControllerConfig,
     LocalSessionAuthority,
@@ -12,14 +14,12 @@ from clipen.controller import (
     ProviderStatus,
     create_app,
 )
-from clipen.analysis import PreparationRepository
-from clipen.annotations import AnnotationRepository
 from clipen.media import (
     InventoryCoordinator,
     InventoryRepository,
     InventoryState,
-    MediaProbeResult,
     MediaPreviewRepository,
+    MediaProbeResult,
     MediaStream,
 )
 from clipen.projects import DirectoryRole, NativeDirectoryPicker, ProjectWorkspace
@@ -143,10 +143,7 @@ async def request_app(
         "raw_path": route_path.encode("ascii"),
         "query_string": query.encode("ascii") if separator else b"",
         "root_path": "",
-        "headers": [
-            (key.lower().encode("ascii"), value.encode("latin-1"))
-            for key, value in combined.items()
-        ],
+        "headers": [(key.lower().encode("ascii"), value.encode("latin-1")) for key, value in combined.items()],
         "client": ("127.0.0.1", 50000),
         "server": ("127.0.0.1", 4200),
     }
@@ -165,15 +162,8 @@ async def request_app(
 
     await app(scope, receive, send)
     start = next(item for item in messages if item["type"] == "http.response.start")
-    response_body = b"".join(
-        item.get("body", b"")
-        for item in messages
-        if item["type"] == "http.response.body"
-    )
-    response_headers = {
-        key.decode("latin-1").lower(): value.decode("latin-1")
-        for key, value in start["headers"]
-    }
+    response_body = b"".join(item.get("body", b"") for item in messages if item["type"] == "http.response.body")
+    response_headers = {key.decode("latin-1").lower(): value.decode("latin-1") for key, value in start["headers"]}
     return start["status"], response_headers, response_body
 
 
@@ -228,9 +218,7 @@ class ProjectApiTests(unittest.TestCase):
         headers: dict[str, str] | None = None,
     ):
         body = b"" if payload is None else json.dumps(payload).encode("utf-8")
-        return asyncio.run(
-            request_app(self.app, method, path, headers=headers, body=body)
-        )
+        return asyncio.run(request_app(self.app, method, path, headers=headers, body=body))
 
     def _connect(self) -> tuple[str, str]:
         status, headers, _ = self._request(
@@ -243,9 +231,7 @@ class ProjectApiTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         cookie = headers["set-cookie"].split(";", 1)[0]
-        status, _, body = self._request(
-            "GET", "/api/status", headers={"cookie": cookie}
-        )
+        status, _, body = self._request("GET", "/api/status", headers={"cookie": cookie})
         self.assertEqual(status, 200)
         csrf = json.loads(body)["session"]["csrf_token"]
         return cookie, csrf
@@ -298,9 +284,7 @@ class ProjectApiTests(unittest.TestCase):
 
     def test_create_list_get_and_update_project(self) -> None:
         project = self.create_project()
-        status, _, body = self._request(
-            "GET", "/api/projects", headers={"cookie": self.cookie}
-        )
+        status, _, body = self._request("GET", "/api/projects", headers={"cookie": self.cookie})
         self.assertEqual(status, 200)
         self.assertEqual(self.json_body(body)["projects"], [project])
 
@@ -352,19 +336,27 @@ class ProjectApiTests(unittest.TestCase):
             "expected_material_revision": 0,
             "expected_transcript_revision": 0,
             "material": {
-                "people": ["小明"], "location": "淺草", "trip_day": 1,
-                "day_part": "morning", "note": "開場建立地點", "usage": "must_use",
+                "people": ["小明"],
+                "location": "淺草",
+                "trip_day": 1,
+                "day_part": "morning",
+                "note": "開場建立地點",
+                "usage": "must_use",
             },
             "transcript": None,
         }
         denied, _, _ = self._request(
-            "POST", f"/api/projects/{project['project_id']}/annotation/commands/save",
-            payload, headers={"content-type": "application/json", "cookie": self.cookie},
+            "POST",
+            f"/api/projects/{project['project_id']}/annotation/commands/save",
+            payload,
+            headers={"content-type": "application/json", "cookie": self.cookie},
         )
         self.assertEqual(denied, 403)
         saved, _, body = self._request(
-            "POST", f"/api/projects/{project['project_id']}/annotation/commands/save",
-            payload, headers=self.mutation_headers(),
+            "POST",
+            f"/api/projects/{project['project_id']}/annotation/commands/save",
+            payload,
+            headers=self.mutation_headers(),
         )
         self.assertEqual(saved, 200)
         self.assertEqual(self.json_body(body)["annotation"]["material"]["location"], "淺草")
@@ -406,7 +398,9 @@ class ProjectApiTests(unittest.TestCase):
         denied, _, _ = self._request("GET", path, headers={"range": "bytes=0-3"})
         self.assertEqual(denied, 401)
         status, headers, body = self._request(
-            "HEAD", path, headers={"cookie": self.cookie, "range": "bytes=0-3"},
+            "HEAD",
+            path,
+            headers={"cookie": self.cookie, "range": "bytes=0-3"},
         )
         self.assertEqual(status, 206)
         self.assertEqual(headers["accept-ranges"], "bytes")
@@ -417,7 +411,9 @@ class ProjectApiTests(unittest.TestCase):
         self.assertEqual(preview.video_stream_indices, (0,))
         self.assertEqual(b"".join(preview.chunks(0, 3)), b"synt")
         invalid, invalid_headers, _ = self._request(
-            "HEAD", path, headers={"cookie": self.cookie, "range": "bytes=999-1000"},
+            "HEAD",
+            path,
+            headers={"cookie": self.cookie, "range": "bytes=999-1000"},
         )
         self.assertEqual(invalid, 416)
         self.assertEqual(invalid_headers["content-range"], f"bytes */{media_stat.st_size}")
@@ -479,9 +475,7 @@ class ProjectApiTests(unittest.TestCase):
             headers=self.mutation_headers(),
         )
         self.assertEqual(mismatch[0], 422)
-        self.assertEqual(
-            self.json_body(mismatch[2])["error"]["code"], "confirmation_mismatch"
-        )
+        self.assertEqual(self.json_body(mismatch[2])["error"]["code"], "confirmation_mismatch")
 
         deleted = self._request(
             "POST",
@@ -494,12 +488,8 @@ class ProjectApiTests(unittest.TestCase):
             headers=self.mutation_headers(),
         )
         self.assertEqual(deleted[0], 200)
-        self.assertEqual(
-            self.json_body(deleted[2])["deleted_project_id"], project["project_id"]
-        )
-        status, _, body = self._request(
-            "GET", "/api/projects", headers={"cookie": self.cookie}
-        )
+        self.assertEqual(self.json_body(deleted[2])["deleted_project_id"], project["project_id"])
+        status, _, body = self._request("GET", "/api/projects", headers={"cookie": self.cookie})
         self.assertEqual(status, 200)
         self.assertEqual(self.json_body(body)["projects"], [])
 
@@ -602,8 +592,7 @@ class ProjectApiTests(unittest.TestCase):
         self.assertEqual(payload["current"], payload["latest"])
         status, _, body = self._request(
             "GET",
-            f"/api/projects/{project['project_id']}/inventories/"
-            f"{inventory['run_id']}?offset=0&limit=25",
+            f"/api/projects/{project['project_id']}/inventories/{inventory['run_id']}?offset=0&limit=25",
             headers={"cookie": self.cookie},
         )
         self.assertEqual(status, 200)
@@ -616,8 +605,7 @@ class ProjectApiTests(unittest.TestCase):
 
         invalid = self._request(
             "GET",
-            f"/api/projects/{project['project_id']}/inventories/"
-            f"{inventory['run_id']}?limit=201",
+            f"/api/projects/{project['project_id']}/inventories/{inventory['run_id']}?limit=201",
             headers={"cookie": self.cookie},
         )
         self.assertEqual(invalid[0], 422)
@@ -629,10 +617,7 @@ class ProjectApiTests(unittest.TestCase):
             "request-api-inventory-queued",
             project["revision"],
         )
-        path = (
-            f"/api/projects/{project['project_id']}/inventories/"
-            f"{queued.run_id}/commands/cancel"
-        )
+        path = f"/api/projects/{project['project_id']}/inventories/{queued.run_id}/commands/cancel"
         rejected = self._request(
             "POST",
             path,
@@ -717,15 +702,10 @@ class ProjectApiTests(unittest.TestCase):
             },
         )
 
-        results_path = (
-            f"/api/projects/{project['project_id']}/analyses/"
-            f"{run['run_id']}/results"
-        )
+        results_path = f"/api/projects/{project['project_id']}/analyses/{run['run_id']}/results"
         unauthorized, _, _ = self._request("GET", results_path)
         self.assertEqual(unauthorized, 401)
-        result_status, _, result_body = self._request(
-            "GET", results_path, headers={"cookie": self.cookie}
-        )
+        result_status, _, result_body = self._request("GET", results_path, headers={"cookie": self.cookie})
         self.assertEqual(result_status, 200)
         results = self.json_body(result_body)["results"]
         self.assertEqual(results["total"], 1)
@@ -749,8 +729,7 @@ class ProjectApiTests(unittest.TestCase):
         self.assertTrue(event_headers["content-type"].startswith("text/event-stream"))
         status, _, body = self._request(
             "POST",
-            f"/api/projects/{project['project_id']}/analyses/"
-            f"{run['run_id']}/commands/cancel",
+            f"/api/projects/{project['project_id']}/analyses/{run['run_id']}/commands/cancel",
             {},
             headers=self.mutation_headers(),
         )

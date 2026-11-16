@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation
-from fractions import Fraction
 import hashlib
 import json
 import os
@@ -16,19 +13,19 @@ import subprocess
 import tempfile
 import threading
 import time
-from typing import Mapping, Any
+from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
+from fractions import Fraction
+from typing import Any, Mapping
 
 from .discovery import DiscoveredAsset, DiscoveryError, open_file_beneath
 from .models import AssetKind, InventoryRoot, MediaStream
-
 
 _MAX_CAPTURE_BYTES = 4 * 1024 * 1024
 _MAX_STREAMS = 64
 _POLL_SECONDS = 0.05
 _CODEC = re.compile(r"[A-Za-z0-9_.-]{1,80}\Z")
-_CAPTURE_TIME = re.compile(
-    r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:?\d{2})?\Z"
-)
+_CAPTURE_TIME = re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:?\d{2})?\Z")
 _ISO6709 = re.compile(r"([+-]\d{2,3}(?:\.\d+)?)([+-]\d{3}(?:\.\d+)?)(?:[+-]\d+(?:\.\d+)?)?/?\Z")
 
 
@@ -49,10 +46,7 @@ class MediaProbeError(RuntimeError):
 
     @property
     def has_version(self) -> bool:
-        return all(
-            value is not None
-            for value in (self.fingerprint, self.size_bytes, self.mtime_ns)
-        )
+        return all(value is not None for value in (self.fingerprint, self.size_bytes, self.mtime_ns))
 
 
 @dataclass(frozen=True)
@@ -242,9 +236,7 @@ def bounded_file_fingerprint(descriptor: int, size: int) -> str:
     return digest.hexdigest()
 
 
-def _parse_probe(
-    raw: bytes, expected_kind: AssetKind
-) -> tuple[dict[str, object], tuple[MediaStream, ...]]:
+def _parse_probe(raw: bytes, expected_kind: AssetKind) -> tuple[dict[str, object], tuple[MediaStream, ...]]:
     try:
         value = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
@@ -278,16 +270,10 @@ def _parse_probe(
         for key in ("start_pts", "duration_ts"):
             candidate = raw_stream.get(key)
             if candidate is not None:
-                details[key] = str(
-                    _integer(candidate, minimum=-(2**63), maximum=2**63 - 1)
-                )
+                details[key] = str(_integer(candidate, minimum=-(2**63), maximum=2**63 - 1))
         if kind == "video":
-            details["width"] = _integer(
-                raw_stream.get("width"), minimum=1, maximum=131_072
-            )
-            details["height"] = _integer(
-                raw_stream.get("height"), minimum=1, maximum=131_072
-            )
+            details["width"] = _integer(raw_stream.get("width"), minimum=1, maximum=131_072)
+            details["height"] = _integer(raw_stream.get("height"), minimum=1, maximum=131_072)
             rotation = _rotation(raw_stream)
             if rotation is not None:
                 details["rotation"] = rotation
@@ -296,22 +282,14 @@ def _parse_probe(
                 if isinstance(candidate, str) and 1 <= len(candidate) <= 80:
                     details[key] = candidate
         else:
-            details["sample_rate"] = _integer(
-                raw_stream.get("sample_rate"), minimum=1, maximum=768_000
-            )
-            details["channels"] = _integer(
-                raw_stream.get("channels"), minimum=1, maximum=64
-            )
+            details["sample_rate"] = _integer(raw_stream.get("sample_rate"), minimum=1, maximum=768_000)
+            details["channels"] = _integer(raw_stream.get("channels"), minimum=1, maximum=64)
         streams.append(MediaStream(index, kind, codec, details))
     if not streams:
         raise MediaProbeError("unsupported")
-    if expected_kind is AssetKind.AUDIO and not any(
-        stream.kind == "audio" for stream in streams
-    ):
+    if expected_kind is AssetKind.AUDIO and not any(stream.kind == "audio" for stream in streams):
         raise MediaProbeError("unsupported")
-    if expected_kind in {AssetKind.VIDEO, AssetKind.IMAGE} and not any(
-        stream.kind == "video" for stream in streams
-    ):
+    if expected_kind in {AssetKind.VIDEO, AssetKind.IMAGE} and not any(stream.kind == "video" for stream in streams):
         raise MediaProbeError("unsupported")
     raw_format = value.get("format", {})
     if not isinstance(raw_format, dict):
@@ -353,9 +331,7 @@ def _parse_probe(
     return summary, tuple(streams)
 
 
-def _metadata_value(
-    groups: list[Mapping[str, object]], keys: tuple[str, ...], maximum: int
-) -> str | None:
+def _metadata_value(groups: list[Mapping[str, object]], keys: tuple[str, ...], maximum: int) -> str | None:
     for key in keys:
         lowered = key.casefold()
         for group in groups:
@@ -401,11 +377,7 @@ def _decimal(value: object, *, non_negative: bool) -> str:
         result = Decimal(str(value))
     except (InvalidOperation, ValueError) as error:
         raise MediaProbeError("invalid_probe_output") from error
-    if (
-        not result.is_finite()
-        or (non_negative and result < 0)
-        or abs(result) > Decimal("1e12")
-    ):
+    if not result.is_finite() or (non_negative and result < 0) or abs(result) > Decimal("1e12"):
         raise MediaProbeError("invalid_probe_output")
     return format(result.normalize(), "f")
 

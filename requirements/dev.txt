@@ -1,0 +1,2 @@
+# Tools for working on Clipen itself; the app does not need them.
+ruff==0.14.6

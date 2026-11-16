@@ -1,12 +1,12 @@
 import asyncio
 import json
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import tempfile
 import threading
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from clipen.domain import (
@@ -16,9 +16,9 @@ from clipen.domain import (
     MediaClip,
     Rational,
     SourceSpan,
+    TextClip,
     Track,
     TrackKind,
-    TextClip,
 )
 from clipen.rendering import (
     FfmpegPreviewRenderer,
@@ -42,10 +42,7 @@ async def request_app(app, method, path, *, headers=None, body=b""):
         "raw_path": route_path.encode("ascii"),
         "query_string": query.encode("ascii") if separator else b"",
         "root_path": "",
-        "headers": [
-            (key.lower().encode("ascii"), value.encode("latin-1"))
-            for key, value in combined.items()
-        ],
+        "headers": [(key.lower().encode("ascii"), value.encode("latin-1")) for key, value in combined.items()],
         "client": ("127.0.0.1", 50000),
         "server": ("127.0.0.1", 4200),
     }
@@ -64,15 +61,8 @@ async def request_app(app, method, path, *, headers=None, body=b""):
 
     await app(scope, receive, send)
     start = next(item for item in messages if item["type"] == "http.response.start")
-    response_body = b"".join(
-        item.get("body", b"")
-        for item in messages
-        if item["type"] == "http.response.body"
-    )
-    response_headers = {
-        key.decode("latin-1").lower(): value.decode("latin-1")
-        for key, value in start["headers"]
-    }
+    response_body = b"".join(item.get("body", b"") for item in messages if item["type"] == "http.response.body")
+    response_headers = {key.decode("latin-1").lower(): value.decode("latin-1") for key, value in start["headers"]}
     return start["status"], response_headers, response_body
 
 
@@ -135,9 +125,7 @@ class FakeMedia:
 
 class FakeProcess:
     def __init__(self) -> None:
-        self.stdout = iter(
-            ("out_time_ms=N/A\n", "out_time_ms=1000000\n", "progress=end\n")
-        )
+        self.stdout = iter(("out_time_ms=N/A\n", "out_time_ms=1000000\n", "progress=end\n"))
         self.terminated = False
 
     def wait(self):
@@ -178,19 +166,32 @@ class FfmpegPreviewRendererTests(unittest.TestCase):
 
     def test_hardware_failure_retries_same_timeline_with_software(self):
         with tempfile.TemporaryDirectory() as temporary:
-            output=Path(temporary)/'preview.mp4';commands=[];media=FakeMedia()
-            def popen(command,**options):
-                commands.append(command);process=FakeProcess()
-                if 'h264_videotoolbox' in command:
-                    process.wait=lambda:1
-                else:output.write_bytes(b'mp4')
+            output = Path(temporary) / "preview.mp4"
+            commands = []
+            media = FakeMedia()
+
+            def popen(command, **options):
+                commands.append(command)
+                process = FakeProcess()
+                if "h264_videotoolbox" in command:
+                    process.wait = lambda: 1
+                else:
+                    output.write_bytes(b"mp4")
                 return process
-            edit=timeline('prj_'+'e'*32)
-            FfmpegPreviewRenderer(media,popen=popen,hardware_acceleration=True).render(edit.project_id,edit,output,threading.Event(),lambda value:None)
-            self.assertEqual(len(commands),2)
-            self.assertIn('videotoolbox',commands[0]);self.assertIn('h264_videotoolbox',commands[0])
-            self.assertNotIn('videotoolbox',commands[1]);self.assertIn('libx264',commands[1])
-            self.assertEqual(commands[0][commands[0].index('-filter_complex')+1],commands[1][commands[1].index('-filter_complex')+1])
+
+            edit = timeline("prj_" + "e" * 32)
+            FfmpegPreviewRenderer(media, popen=popen, hardware_acceleration=True).render(
+                edit.project_id, edit, output, threading.Event(), lambda value: None
+            )
+            self.assertEqual(len(commands), 2)
+            self.assertIn("videotoolbox", commands[0])
+            self.assertIn("h264_videotoolbox", commands[0])
+            self.assertNotIn("videotoolbox", commands[1])
+            self.assertIn("libx264", commands[1])
+            self.assertEqual(
+                commands[0][commands[0].index("-filter_complex") + 1],
+                commands[1][commands[1].index("-filter_complex") + 1],
+            )
             self.assertTrue(all(item.closed for item in media.opened))
 
     def test_semantic_video_effects_are_rendered_and_audio_is_normalized(self) -> None:
@@ -388,9 +389,7 @@ class FfmpegPreviewRendererTests(unittest.TestCase):
             "96000",
             Rational(1, 48000),
         )
-        wrong_clip = MediaClip(
-            "video-000001", 0, 60, ClipSource(wrong_source)
-        )
+        wrong_clip = MediaClip("video-000001", 0, 60, ClipSource(wrong_source))
         edit = EditTimeline(
             original.timeline_id,
             original.project_id,
@@ -454,9 +453,7 @@ class FfmpegPreviewRendererTests(unittest.TestCase):
             (Track("video-primary", TrackKind.VIDEO, clips),),
         )
         progress = []
-        FfmpegPreviewRenderer(media, popen=popen).render(
-            project_id, edit, output, threading.Event(), progress.append
-        )
+        FfmpegPreviewRenderer(media, popen=popen).render(project_id, edit, output, threading.Event(), progress.append)
         self.assertEqual(len(commands), 3)
         self.assertIn("-filter_complex", commands[0][0])
         self.assertEqual(len(commands[0][1]["pass_fds"]), 8)
@@ -524,10 +521,27 @@ class FfmpegPreviewRendererTests(unittest.TestCase):
         output = root / "preview.mp4"
         subprocess.run(
             [
-                "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-                "-f", "lavfi", "-i", "testsrc=size=320x180:rate=30",
-                "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
-                "-t", "2", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc=size=320x180:rate=30",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=440:sample_rate=48000",
+                "-t",
+                "2",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-c:a",
+                "aac",
                 str(source),
             ],
             check=True,
@@ -535,7 +549,9 @@ class FfmpegPreviewRendererTests(unittest.TestCase):
 
         version_id = "av_" + "9" * 32
         video = MediaClip(
-            "video-000001", 0, 60,
+            "video-000001",
+            0,
+            60,
             ClipSource(SourceSpan(version_id, 0, "0", "180000", Rational(1, 90000))),
         )
         edit = EditTimeline(
@@ -568,18 +584,26 @@ class FfmpegPreviewRendererTests(unittest.TestCase):
                     },
                 )()
 
-        FfmpegPreviewRenderer(LocalMedia()).render(
-            edit.project_id, edit, output, threading.Event(), lambda value: None
+        FfmpegPreviewRenderer(LocalMedia()).render(edit.project_id, edit, output, threading.Event(), lambda value: None)
+        probe = json.loads(
+            subprocess.run(
+                [
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-show_entries",
+                    "stream=codec_type",
+                    "-show_entries",
+                    "format=duration",
+                    "-of",
+                    "json",
+                    str(output),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout
         )
-        probe = json.loads(subprocess.run(
-            [
-                "ffprobe", "-v", "error", "-show_entries", "stream=codec_type",
-                "-show_entries", "format=duration", "-of", "json", str(output),
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout)
         self.assertEqual({stream["codec_type"] for stream in probe["streams"]}, {"video", "audio"})
         self.assertAlmostEqual(float(probe["format"]["duration"]), 2, delta=0.15)
 
@@ -588,17 +612,25 @@ class FinishedFilmApiTests(unittest.TestCase):
     def test_finished_film_is_private_and_range_capable(self) -> None:
         from clipen.controller import ControllerConfig, LocalSessionAuthority, ProviderState, ProviderStatus, create_app
         from clipen.projects import ProjectWorkspace
+
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "index.html").write_text("Clipen", encoding="utf-8")
             media = root / "film.mp4"
             media.write_bytes(b"0123456789")
-            app = create_app(ControllerConfig(root), ProviderStatus("Codex", ProviderState.READY, "AI 已連接"),
-                             LocalSessionAuthority(), ProjectWorkspace(root / "projects"))
+            app = create_app(
+                ControllerConfig(root),
+                ProviderStatus("Codex", ProviderState.READY, "AI 已連接"),
+                LocalSessionAuthority(),
+                ProjectWorkspace(root / "projects"),
+            )
 
             def request(method, path, headers=None):
                 return asyncio.run(request_app(app, method, path, headers=headers))
-            _, headers, _ = request("POST", "/api/session/connect", {"origin": "http://localhost:4200", "sec-fetch-site": "same-origin"})
+
+            _, headers, _ = request(
+                "POST", "/api/session/connect", {"origin": "http://localhost:4200", "sec-fetch-site": "same-origin"}
+            )
             cookie = headers["set-cookie"].split(";", 1)[0]
             path = f"/api/projects/{'prj_' + '1' * 32}/preview/{'render_' + '2' * 32}/media"
             self.assertEqual(request("GET", path)[0], 401)

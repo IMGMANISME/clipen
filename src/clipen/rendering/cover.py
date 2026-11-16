@@ -3,17 +3,16 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import secrets
 import shutil
 import subprocess
+from pathlib import Path
 
 from clipen.media import MediaPreviewRepository
 from clipen.projects import ProjectError, ProjectRepository
 from clipen.projects.models import validate_project_id
 
 from .storage import PreviewRenderRepository
-
 
 # Far enough in to skip a black fade-in, then the very first frame for clips shorter than that.
 _STILL_OFFSETS = (3.0, 0.0)
@@ -104,9 +103,23 @@ class ProjectCoverRepository:
 
     def _cut(self, media: Path, offset: float, output: Path) -> bool:
         command = (
-            self.executable, "-nostdin", "-hide_banner", "-loglevel", "error",
-            "-ss", f"{offset:.3f}", "-i", str(media),
-            "-frames:v", "1", "-vf", "scale=640:-2", "-q:v", "4", "-y", str(output),
+            self.executable,
+            "-nostdin",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-ss",
+            f"{offset:.3f}",
+            "-i",
+            str(media),
+            "-frames:v",
+            "1",
+            "-vf",
+            "scale=640:-2",
+            "-q:v",
+            "4",
+            "-y",
+            str(output),
         )
         try:
             completed = subprocess.run(

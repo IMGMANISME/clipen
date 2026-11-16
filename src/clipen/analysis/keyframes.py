@@ -8,8 +8,8 @@ or copy code from the unlicensed reference repository.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import math
+from dataclasses import dataclass
 from typing import Iterable
 
 
@@ -65,11 +65,7 @@ class AdaptiveKeyframeSelector:
             or end_pts <= start_pts
         ):
             raise ValueError("keyframe source span is invalid")
-        if (
-            isinstance(budget, bool)
-            or not isinstance(budget, int)
-            or not 1 <= budget <= self.MAXIMUM_BUDGET
-        ):
+        if isinstance(budget, bool) or not isinstance(budget, int) or not 1 <= budget <= self.MAXIMUM_BUDGET:
             raise ValueError("keyframe budget is invalid")
 
         deduplicated: dict[int, KeyframeCandidate] = {}
@@ -116,10 +112,7 @@ class AdaptiveKeyframeSelector:
         if end_pts <= start_pts or isinstance(count, bool) or not 1 <= count <= 256:
             raise ValueError("uniform keyframe request is invalid")
         duration = end_pts - start_pts
-        points = {
-            start_pts + duration * (index * 2 + 1) // (count * 2)
-            for index in range(count)
-        }
+        points = {start_pts + duration * (index * 2 + 1) // (count * 2) for index in range(count)}
         return tuple(KeyframeCandidate(point, 0.0, "uniform") for point in sorted(points))
 
     def _choose(
@@ -138,9 +131,7 @@ class AdaptiveKeyframeSelector:
             return (max(candidates, key=lambda item: (item.score, -abs(item.pts - center), -item.pts)),)
 
         top = sorted(candidates, key=lambda item: (-item.score, abs(item.pts - center), item.pts))[:quota]
-        advantage = sum(item.score for item in top) / quota - sum(
-            item.score for item in candidates
-        ) / len(candidates)
+        advantage = sum(item.score for item in top) / quota - sum(item.score for item in candidates) / len(candidates)
         if (allow_relevance_focus and advantage >= self.split_threshold) or depth >= self.maximum_depth:
             return tuple(top)
 
@@ -158,9 +149,7 @@ class AdaptiveKeyframeSelector:
         if len(right) < right_quota:
             left_quota += right_quota - len(right)
             right_quota = len(right)
-        return self._choose(
-            left, left_quota, lower, midpoint, depth + 1, allow_relevance_focus
-        ) + self._choose(
+        return self._choose(left, left_quota, lower, midpoint, depth + 1, allow_relevance_focus) + self._choose(
             right, right_quota, midpoint, upper, depth + 1, allow_relevance_focus
         )
 
@@ -168,4 +157,3 @@ class AdaptiveKeyframeSelector:
     def _priority(candidate: KeyframeCandidate) -> tuple[float, int]:
         source_priority = {"uniform": 0, "codec": 1, "semantic": 2}
         return float(candidate.score), source_priority[candidate.source]
-

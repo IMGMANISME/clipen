@@ -1,12 +1,10 @@
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 
-from clipen.annotations import AnnotationRepository
 from clipen.analysis import PreparationRepository
-from clipen.domain import Rational, SourceSpan
-from clipen.planning import PlanningCandidate, PlanningContext, TranscriptReliability
+from clipen.annotations import AnnotationRepository
 from clipen.projects import ProjectError, ProjectRepository
 
 
@@ -42,10 +40,17 @@ class AnnotationRepositoryTests(unittest.TestCase):
             )
             database.execute(
                 "INSERT INTO asset_versions VALUES(?,?,1,1,?,'ready',?,'2026-10-14T00:00:00Z')",
-                (self.version_id, asset_id, "f" * 64, json.dumps({
-                    "capture_time": "2026-07-20T09:30:00+09:00",
-                    "location": "GPS 35.676200, 139.650300",
-                })),
+                (
+                    self.version_id,
+                    asset_id,
+                    "f" * 64,
+                    json.dumps(
+                        {
+                            "capture_time": "2026-07-20T09:30:00+09:00",
+                            "location": "GPS 35.676200, 139.650300",
+                        }
+                    ),
+                ),
             )
             second_asset = "asset_" + "9" * 32
             second_version = "av_" + "8" * 32
@@ -55,9 +60,16 @@ class AnnotationRepositoryTests(unittest.TestCase):
             )
             database.execute(
                 "INSERT INTO asset_versions VALUES(?,?,1,1,?,'ready',?,'2026-10-14T00:00:00Z')",
-                (second_version, second_asset, "9" * 64, json.dumps({
-                    "capture_time": "2026-07-21T14:15:00+09:00",
-                })),
+                (
+                    second_version,
+                    second_asset,
+                    "9" * 64,
+                    json.dumps(
+                        {
+                            "capture_time": "2026-07-21T14:15:00+09:00",
+                        }
+                    ),
+                ),
             )
             database.execute(
                 "INSERT INTO inventory_items VALUES(?,?,?,?,?,?,NULL)",
@@ -74,9 +86,17 @@ class AnnotationRepositoryTests(unittest.TestCase):
                 "input_fingerprint,recipe_json,state,phase,total_count,transcribed_count,created_at,started_at,completed_at) "
                 "VALUES(?,?,?,?,?,?,?,?,?,'{}','succeeded','completed',1,1,?,?,?)",
                 (
-                    run_id, project_id, "request-annotation-preparation", 1, inventory_id,
-                    "scope_" + "1" * 32, "op_" + "2" * 32, "att_" + "3" * 32,
-                    "4" * 64, "2026-10-14T00:01:00Z", "2026-10-14T00:01:00Z",
+                    run_id,
+                    project_id,
+                    "request-annotation-preparation",
+                    1,
+                    inventory_id,
+                    "scope_" + "1" * 32,
+                    "op_" + "2" * 32,
+                    "att_" + "3" * 32,
+                    "4" * 64,
+                    "2026-10-14T00:01:00Z",
+                    "2026-10-14T00:01:00Z",
                     "2026-10-14T00:03:00Z",
                 ),
             )
@@ -193,9 +213,7 @@ class AnnotationRepositoryTests(unittest.TestCase):
         self.assertTrue(removed["transcript"]["discarded"])
         self.assertFalse(removed["transcript"]["confirmed"])
 
-        results = PreparationRepository(self.projects).result_items(
-            self.project.project_id, self.run_id
-        )
+        results = PreparationRepository(self.projects).result_items(self.project.project_id, self.run_id)
         self.assertTrue(results["items"][0]["transcript_discarded"])
         self.assertIsNone(results["items"][0]["preview_text"])
         with self.projects.connect(self.project.project_id) as database:
@@ -236,9 +254,7 @@ class AnnotationRepositoryTests(unittest.TestCase):
                 "WHERE run_id=? AND version_id=? AND stream_index=1",
                 (replacement_revision, self.run_id, self.version_id),
             )
-        after_reanalysis = self.annotations.get(
-            self.project.project_id, self.version_id, 1
-        )
+        after_reanalysis = self.annotations.get(self.project.project_id, self.version_id, 1)
         self.assertTrue(after_reanalysis["transcript"]["discarded"])
         self.assertTrue(after_reanalysis["transcript"]["stale"])
 
@@ -281,22 +297,16 @@ class AnnotationRepositoryTests(unittest.TestCase):
                 "corrections": [],
             },
         )
-        updated = analyses.result_items(
-            self.project.project_id, self.run_id, trip_day=2, review_state="reviewed"
-        )
+        updated = analyses.result_items(self.project.project_id, self.run_id, trip_day=2, review_state="reviewed")
         self.assertEqual(updated["total"], 1)
         self.assertEqual(updated["items"][0]["user_state"], "priority")
         self.assertEqual(updated["items"][0]["trip_day"], 2)
         self.assertEqual(
-            analyses.result_items(
-                self.project.project_id, self.run_id, trip_day=1
-            )["total"],
+            analyses.result_items(self.project.project_id, self.run_id, trip_day=1)["total"],
             0,
         )
         self.assertEqual(
-            analyses.result_items(
-                self.project.project_id, self.run_id, review_state="pending"
-            )["total"],
+            analyses.result_items(self.project.project_id, self.run_id, review_state="pending")["total"],
             0,
         )
 

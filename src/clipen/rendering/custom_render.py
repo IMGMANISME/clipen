@@ -7,14 +7,20 @@ no network: every request is refused except Clipen's own bundled fonts, served
 from ``https://clipen.local/fonts/``. Time is Clipen's to set, so the same frame
 always draws the same picture.
 """
-import json
-from importlib.resources import files
-import os
-from pathlib import Path
-import sys
 
-FONT_ORIGIN = 'https://clipen.local/fonts/'
-FONTS = {entry['file'] for entry in json.loads(files('clipen.rendering').joinpath('fonts', 'manifest.json').read_text(encoding='utf-8')).values()}
+import json
+import os
+import sys
+from importlib.resources import files
+from pathlib import Path
+
+FONT_ORIGIN = "https://clipen.local/fonts/"
+FONTS = {
+    entry["file"]
+    for entry in json.loads(
+        files("clipen.rendering").joinpath("fonts", "manifest.json").read_text(encoding="utf-8")
+    ).values()
+}
 
 # Runs before the page's own scripts: a fixed clock and random sequence.
 _PRELUDE = """
@@ -111,87 +117,102 @@ async ([frame, fps]) => {
 """
 
 
-def fail(code, detail=''):
-    sys.stderr.write(json.dumps({'code': code, 'detail': detail[:400]}, ensure_ascii=False))
+def fail(code, detail=""):
+    sys.stderr.write(json.dumps({"code": code, "detail": detail[:400]}, ensure_ascii=False))
     sys.exit(2)
 
 
 def _browser(playwright):
     errors = []
-    for options in ({'channel': 'chrome'}, {}):
+    for options in ({"channel": "chrome"}, {}):
         try:
-            return playwright.chromium.launch(headless=True, args=['--disable-gpu', '--no-first-run'], **options)
+            return playwright.chromium.launch(headless=True, args=["--disable-gpu", "--no-first-run"], **options)
         except Exception as error:  # Chrome may be missing; try the bundled build next.
             errors.append(str(error).splitlines()[0])
-    fail('custom_component_renderer_missing', ' / '.join(errors))
+    fail("custom_component_renderer_missing", " / ".join(errors))
 
 
-PAGE = 'https://clipen.local/component.html'
+PAGE = "https://clipen.local/component.html"
 
 
 def _route(route, html):
     url = route.request.url
     if url == PAGE:
-        return route.fulfill(status=200, body=html, headers={'content-type': 'text/html; charset=utf-8'})
-    if url.startswith(FONT_ORIGIN) and url[len(FONT_ORIGIN):] in FONTS:
-        path = Path(str(files('clipen.rendering').joinpath('fonts', url[len(FONT_ORIGIN):])))
-        return route.fulfill(status=200, body=path.read_bytes(), headers={'content-type': 'font/ttf', 'access-control-allow-origin': '*'})
+        return route.fulfill(status=200, body=html, headers={"content-type": "text/html; charset=utf-8"})
+    if url.startswith(FONT_ORIGIN) and url[len(FONT_ORIGIN) :] in FONTS:
+        path = Path(str(files("clipen.rendering").joinpath("fonts", url[len(FONT_ORIGIN) :])))
+        return route.fulfill(
+            status=200, body=path.read_bytes(), headers={"content-type": "font/ttf", "access-control-allow-origin": "*"}
+        )
     return route.abort()
 
 
 def render(job):
     from playwright.sync_api import Error, TimeoutError, sync_playwright
-    out = Path(job['out'])
-    width, height, fps = int(job['width']), int(job['height']), float(job['fps'])
-    info = {'width': width, 'height': height, 'fps': fps, 'durationFrames': int(job['duration'])}
+
+    out = Path(job["out"])
+    width, height, fps = int(job["width"]), int(job["height"]), float(job["fps"])
+    info = {"width": width, "height": height, "fps": fps, "durationFrames": int(job["duration"])}
     with sync_playwright() as playwright:
         browser = _browser(playwright)
         try:
             # A fresh context is a fresh, throw-away profile: nothing of the user's Chrome is visible.
-            context = browser.new_context(viewport={'width': width, 'height': height}, device_scale_factor=1,
-                                          java_script_enabled=True, offline=False, service_workers='block')
-            context.route('**/*', lambda route: _route(route, job['html']))
+            context = browser.new_context(
+                viewport={"width": width, "height": height},
+                device_scale_factor=1,
+                java_script_enabled=True,
+                offline=False,
+                service_workers="block",
+            )
+            context.route("**/*", lambda route: _route(route, job["html"]))
             page = context.new_page()
-            page.set_default_timeout(float(job.get('frame_timeout', 10)) * 1000)
+            page.set_default_timeout(float(job.get("frame_timeout", 10)) * 1000)
             problems = []
-            page.on('pageerror', lambda error: problems.append(str(error)))
-            page.add_init_script(_PRELUDE.replace('__INFO__', json.dumps(info)).replace('__EDITS__', json.dumps(job.get('edits') or {}, ensure_ascii=False))
-                                .replace('__LOOK__', json.dumps(job.get('look') or '', ensure_ascii=False)))
+            page.on("pageerror", lambda error: problems.append(str(error)))
+            page.add_init_script(
+                _PRELUDE.replace("__INFO__", json.dumps(info))
+                .replace("__EDITS__", json.dumps(job.get("edits") or {}, ensure_ascii=False))
+                .replace("__LOOK__", json.dumps(job.get("look") or "", ensure_ascii=False))
+            )
             try:
-                page.goto(PAGE, wait_until='load')
-                page.evaluate('document.fonts.ready.then(() => true)')
+                page.goto(PAGE, wait_until="load")
+                page.evaluate("document.fonts.ready.then(() => true)")
                 # A picture the sealed page could not fetch is hidden instead of drawn as a broken icon.
-                page.evaluate("document.querySelectorAll('img').forEach((i) => { if (!i.complete || !i.naturalWidth) i.style.visibility = 'hidden' })")
+                page.evaluate(
+                    "document.querySelectorAll('img').forEach((i) => { if (!i.complete || !i.naturalWidth) i.style.visibility = 'hidden' })"
+                )
             except TimeoutError:
-                fail('custom_component_load_timeout')
+                fail("custom_component_load_timeout")
             except Error as error:
-                fail('custom_component_load_failed', str(error))
-            if job.get('describe'):
-                (out / 'fields.json').write_text(json.dumps(page.evaluate(_FIELDS), ensure_ascii=False), encoding='utf-8')
-            for frame in job['frames']:
+                fail("custom_component_load_failed", str(error))
+            if job.get("describe"):
+                (out / "fields.json").write_text(
+                    json.dumps(page.evaluate(_FIELDS), ensure_ascii=False), encoding="utf-8"
+                )
+            for frame in job["frames"]:
                 try:
                     page.evaluate(_SEEK, [int(frame), fps])
                     if problems:
-                        fail('custom_component_script_error', problems[0])
-                    data = page.screenshot(omit_background=True, type='png', animations='allow')
+                        fail("custom_component_script_error", problems[0])
+                    data = page.screenshot(omit_background=True, type="png", animations="allow")
                 except TimeoutError:
-                    fail('custom_component_frame_timeout', f'frame {frame}')
+                    fail("custom_component_frame_timeout", f"frame {frame}")
                 except Error as error:
-                    fail('custom_component_script_error', problems[0] if problems else str(error))
-                target = out / f'f{int(frame):05d}.png'
-                temporary = target.with_suffix('.part')
+                    fail("custom_component_script_error", problems[0] if problems else str(error))
+                target = out / f"f{int(frame):05d}.png"
+                temporary = target.with_suffix(".part")
                 temporary.write_bytes(data)
                 os.replace(temporary, target)
         finally:
             browser.close()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     try:
         render(json.load(sys.stdin))
     except SystemExit:
         raise
     except ImportError as error:
-        fail('custom_component_renderer_missing', str(error))
+        fail("custom_component_renderer_missing", str(error))
     except Exception as error:
-        fail('custom_component_render_failed', f'{type(error).__name__}: {error}')
+        fail("custom_component_render_failed", f"{type(error).__name__}: {error}")

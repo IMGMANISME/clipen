@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from enum import Enum
 import hashlib
 import json
+from dataclasses import dataclass
+from enum import Enum
 
 from clipen.domain import SourceSpan
 from clipen.domain.validation import require_identifier
-
 
 _MAX_CANDIDATES = 256
 _MAX_CONTEXT_BYTES = 128 * 1024
@@ -22,12 +21,7 @@ class TranscriptReliability(str, Enum):
 
 
 def _bounded_text(value: object, field: str, maximum: int, *, empty: bool = False) -> None:
-    if (
-        not isinstance(value, str)
-        or "\x00" in value
-        or len(value) > maximum
-        or (not empty and not value.strip())
-    ):
+    if not isinstance(value, str) or "\x00" in value or len(value) > maximum or (not empty and not value.strip()):
         raise ValueError(f"{field} is invalid")
 
 
@@ -53,10 +47,7 @@ class PlanningCandidate:
             raise ValueError("candidate transcript reliability is invalid")
         if self.transcript_excerpt is not None:
             _bounded_text(self.transcript_excerpt, "candidate transcript excerpt", 500)
-        if (
-            self.transcript_reliability is not TranscriptReliability.TRUSTED
-            and self.transcript_excerpt is not None
-        ):
+        if self.transcript_reliability is not TranscriptReliability.TRUSTED and self.transcript_excerpt is not None:
             raise ValueError("untrusted transcript text cannot enter provider context")
 
     def to_provider(self) -> dict[str, object]:
@@ -201,11 +192,7 @@ class PlanningContext:
         candidates = value["candidates"]
         notes = value["reference_notes"]
         limitations = value["limitations"]
-        if (
-            not isinstance(candidates, list)
-            or not isinstance(notes, list)
-            or not isinstance(limitations, list)
-        ):
+        if not isinstance(candidates, list) or not isinstance(notes, list) or not isinstance(limitations, list):
             raise ValueError("stored planning context collections are invalid")
         for field in (
             "project_id",

@@ -3,18 +3,17 @@
 from __future__ import annotations
 
 import base64
+import json
+import sys
 from copy import deepcopy
 from io import BytesIO
-import json
 from pathlib import Path
-import sys
 from typing import BinaryIO, Mapping
 
 from clipen.editing import EditAgentTools, ToolResult
-from clipen.projects import ProjectError
 from clipen.editing.production_catalog import AGENT_TOOLS
 from clipen.editing.tool_receipts import TIMELINE_MUTATIONS
-
+from clipen.projects import ProjectError
 
 _MAX_MESSAGE_BYTES = 1024 * 1024
 _MAX_IMAGE_BYTES = 96 * 1024
@@ -50,7 +49,7 @@ _TOOLS = (
         {
             "query": {"type": "string", "maxLength": 200},
             "limit": {"type": "integer", "minimum": 1, "maximum": 50},
-            "offset": {"type":"integer","minimum":0,"maximum":100000},
+            "offset": {"type": "integer", "minimum": 0, "maximum": 100000},
         },
     ),
     _tool(
@@ -97,7 +96,12 @@ _TOOLS = (
                 "maxItems": 180,
             },
             "summary": {"type": "string", "maxLength": 500},
-            "reprise_reason": {"type":"string","minLength":1,"maxLength":500,"description":"Explicit editorial reason for intentionally repeating a source range as a cold open/callback. Without this, duplicate source ranges are rejected."},
+            "reprise_reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500,
+                "description": "Explicit editorial reason for intentionally repeating a source range as a cold open/callback. Without this, duplicate source ranges are rejected.",
+            },
         },
         ("clips", "summary"),
     ),
@@ -147,31 +151,73 @@ _TOOLS = (
         "and not_done. Anything your tools can do is done before finishing, never left in not_done. not_done and a "
         "partly/not_done note need reason needs_you (detail: what the person must decide or supply) or cannot "
         "(detail: which tool limit stops it). Do not list limits that hold every time, such as not hearing audio.",
-        {"summary": {"type": "string", "maxLength": 1000},
-         "changes": {"type": "array", "minItems": 1, "maxItems": 20, "items": {"type": "object", "properties": {
-             "what": {"type": "string", "maxLength": 200}, "why": {"type": "string", "maxLength": 300}}, "required": ["what", "why"], "additionalProperties": False}},
-         "notes": {"type": "array", "maxItems": 40, "items": {"type": "object", "properties": {
-             "reference_id": {"type": "string", "maxLength": 160}, "outcome": {"enum": ["done", "partly", "not_done", "kept"]},
-             "explanation": {"type": "string", "maxLength": 300}, "reason": {"enum": ["needs_you", "cannot"]}},
-             "required": ["reference_id", "outcome", "explanation"], "additionalProperties": False}},
-         "not_done": {"type": "array", "maxItems": 10, "items": {"type": "object", "properties": {
-             "what": {"type": "string", "maxLength": 200}, "reason": {"enum": ["needs_you", "cannot"]},
-             "detail": {"type": "string", "maxLength": 300}}, "required": ["what", "reason", "detail"], "additionalProperties": False}}},
+        {
+            "summary": {"type": "string", "maxLength": 1000},
+            "changes": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 20,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "what": {"type": "string", "maxLength": 200},
+                        "why": {"type": "string", "maxLength": 300},
+                    },
+                    "required": ["what", "why"],
+                    "additionalProperties": False,
+                },
+            },
+            "notes": {
+                "type": "array",
+                "maxItems": 40,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "reference_id": {"type": "string", "maxLength": 160},
+                        "outcome": {"enum": ["done", "partly", "not_done", "kept"]},
+                        "explanation": {"type": "string", "maxLength": 300},
+                        "reason": {"enum": ["needs_you", "cannot"]},
+                    },
+                    "required": ["reference_id", "outcome", "explanation"],
+                    "additionalProperties": False,
+                },
+            },
+            "not_done": {
+                "type": "array",
+                "maxItems": 10,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "what": {"type": "string", "maxLength": 200},
+                        "reason": {"enum": ["needs_you", "cannot"]},
+                        "detail": {"type": "string", "maxLength": 300},
+                    },
+                    "required": ["what", "reason", "detail"],
+                    "additionalProperties": False,
+                },
+            },
+        },
         ("summary", "changes"),
     ),
 ) + AGENT_TOOLS
-_TOOL_NAMES = frozenset(entry['name'] for entry in _TOOLS)
+_TOOL_NAMES = frozenset(entry["name"] for entry in _TOOLS)
 
 # The same optional compare-and-swap guard applies to every independent tool.
 # Tools strip it before domain argument validation; actual revision writes also
 # check inside the SQLite transaction.
 for _entry in _TOOLS:
-    if _entry['name'] in TIMELINE_MUTATIONS:
-        _entry['inputSchema']['properties']['expected_revision_id'] = {
-            'type':'string', 'pattern':'^editrev_[0-9a-f]{32}$',
-            'description':'Current revision guard. A stale value fails without overwriting newer edits.'}
-        _entry['inputSchema']['properties']['mutation_id'] = {'type':'string','minLength':1,'maxLength':160,
-            'description':'Unique operation key; reuse with identical arguments only when retrying the same operation.'}
+    if _entry["name"] in TIMELINE_MUTATIONS:
+        _entry["inputSchema"]["properties"]["expected_revision_id"] = {
+            "type": "string",
+            "pattern": "^editrev_[0-9a-f]{32}$",
+            "description": "Current revision guard. A stale value fails without overwriting newer edits.",
+        }
+        _entry["inputSchema"]["properties"]["mutation_id"] = {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "description": "Unique operation key; reuse with identical arguments only when retrying the same operation.",
+        }
 
 
 class EditingMcpServer:
@@ -210,13 +256,15 @@ class EditingMcpServer:
         if method == "ping":
             return self._result(identifier, {})
         if method == "tools/list":
-            entries=deepcopy(list(_TOOLS))
+            entries = deepcopy(list(_TOOLS))
             for entry in entries:
-                if entry['name'] in TIMELINE_MUTATIONS:
+                if entry["name"] in TIMELINE_MUTATIONS:
                     # Rebind instead of extending: tools may share one required
                     # list, and duplicates make the schema invalid for strict providers.
-                    required=entry['inputSchema'].get('required',[])
-                    entry['inputSchema']['required']=required+[k for k in ('expected_revision_id','mutation_id') if k not in required]
+                    required = entry["inputSchema"].get("required", [])
+                    entry["inputSchema"]["required"] = required + [
+                        k for k in ("expected_revision_id", "mutation_id") if k not in required
+                    ]
             return self._result(identifier, {"tools": entries})
         if method == "tools/call":
             return self._call_tool(identifier, params)
@@ -267,9 +315,7 @@ class EditingMcpServer:
 
     @staticmethod
     def _content(result: ToolResult) -> dict[str, object]:
-        content: list[dict[str, object]] = [
-            {"type": "text", "text": json.dumps(result.payload, ensure_ascii=False)}
-        ]
+        content: list[dict[str, object]] = [{"type": "text", "text": json.dumps(result.payload, ensure_ascii=False)}]
         for path in result.images:
             encoded = _bounded_image(path)
             if encoded is None:
@@ -345,9 +391,6 @@ def run_stdio(
             except (UnicodeDecodeError, json.JSONDecodeError):
                 response = server._error(None, -32700, "Parse error")
         if response is not None:
-            output_stream.write(
-                json.dumps(response, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-                + b"\n"
-            )
+            output_stream.write(json.dumps(response, ensure_ascii=False, separators=(",", ":")).encode("utf-8") + b"\n")
             output_stream.flush()
     return 0

@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import hashlib
 import json
-from pathlib import Path
 import re
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Mapping
 
 from clipen.domain import EditTimeline
 from clipen.projects import ProjectError
-
 
 RUN_ID_PATTERN = re.compile(r"editrun_[0-9a-f]{32}\Z")
 REVISION_ID_PATTERN = re.compile(r"editrev_[0-9a-f]{32}\Z")
@@ -38,12 +37,7 @@ def bounded_text(
     *,
     empty: bool = False,
 ) -> str:
-    if (
-        not isinstance(value, str)
-        or "\x00" in value
-        or len(value) > maximum
-        or (not empty and not value.strip())
-    ):
+    if not isinstance(value, str) or "\x00" in value or len(value) > maximum or (not empty and not value.strip()):
         raise ProjectError("agent_input_invalid", f"{label}內容無效。", status_code=422)
     return value.strip()
 
@@ -78,8 +72,7 @@ class AgentRun:
         if self.usage is not None:
             usage = {
                 **self.usage,
-                "total_tokens": self.usage["input_tokens"]
-                + self.usage["output_tokens"],
+                "total_tokens": self.usage["input_tokens"] + self.usage["output_tokens"],
             }
         return {
             "run_id": self.run_id,

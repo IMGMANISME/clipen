@@ -7,9 +7,7 @@ completion, usage and failures.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import os
-from pathlib import Path
 import shutil
 import signal
 import subprocess
@@ -17,8 +15,10 @@ import sys
 import tempfile
 import threading
 import time
-from typing import Mapping
 import uuid
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Mapping
 
 from clipen.editing.agent import AgentRun, EditAgentRepository
 from clipen.editing.production_catalog import AGENT_NAMES
@@ -36,7 +36,6 @@ from .errors import (
     ProviderUnavailable,
     ProviderUsageLimitError,
 )
-
 
 # JSON events include the bounded MCP thumbnails returned to the model, and
 # Claude's stream repeats each tool result (images included) a second time. A
@@ -292,7 +291,7 @@ def mcp_server_arguments(
         run_id,
     ]
     if local_runtime:
-        args += ['--data-root',str(local_runtime[0]),'--asr-requirements',str(local_runtime[1])]
+        args += ["--data-root", str(local_runtime[0]), "--asr-requirements", str(local_runtime[1])]
     return args
 
 
@@ -313,8 +312,12 @@ def keep_awake(pid: int) -> subprocess.Popen[bytes] | None:
     if sys.platform != "darwin" or not os.access(_CAFFEINATE, os.X_OK):
         return None
     try:
-        return subprocess.Popen([_CAFFEINATE, "-i", "-s", "-w", str(pid)], stdin=subprocess.DEVNULL,
-                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return subprocess.Popen(
+            [_CAFFEINATE, "-i", "-s", "-w", str(pid)],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
     except OSError:
         return None
 
@@ -361,9 +364,7 @@ class BoundedEditingAgent:
     def provider_environment(self, source: Mapping[str, str] | None) -> dict[str, str]:
         raise NotImplementedError
 
-    def command(
-        self, project_id: str, run_id: str, workspace: Path, output_path: Path
-    ) -> tuple[str, ...]:
+    def command(self, project_id: str, run_id: str, workspace: Path, output_path: Path) -> tuple[str, ...]:
         raise NotImplementedError
 
     def events_and_usage(self, stdout: bytes) -> tuple[tuple[str, ...], ProviderUsage | None]:
@@ -385,7 +386,7 @@ class BoundedEditingAgent:
     ) -> EditingResult:
         session = self.repository.production_session(project_id, run_id)
         if timeout_seconds is None:
-            target = session['intent'].get('target_duration_seconds', 60) if session else 60
+            target = session["intent"].get("target_duration_seconds", 60) if session else 60
             # Include discovery, local evidence, rendering and revision review.
             # The legacy 20-minute wall clock killed actively progressing films.
             timeout_seconds = min(14400, max(3600, target * 12 + 1200)) if target > 75 else 1200
@@ -425,7 +426,8 @@ class BoundedEditingAgent:
                 blockers = self.repository.delivery_blockers(project_id, run_id)
                 if blockers:
                     raise ProviderDeliveryBlocked(
-                        f"{self.display_name} stopped with failing delivery checks: {', '.join(blockers)}")
+                        f"{self.display_name} stopped with failing delivery checks: {', '.join(blockers)}"
+                    )
                 raise ProviderStoppedEarly(f"{self.display_name} exited without finishing the Clipen edit")
             final = self.repository.record_provider_outcome(
                 project_id,
@@ -460,7 +462,7 @@ class BoundedEditingAgent:
         deadline = time.monotonic() + timeout_seconds
         name = self.display_name
         with tempfile.TemporaryFile() as prompt:
-            prompt.write(getattr(self, '_prompt', _PROMPT).encode("utf-8"))
+            prompt.write(getattr(self, "_prompt", _PROMPT).encode("utf-8"))
             prompt.seek(0)
             with events.open("xb") as stdout, diagnostics.open("xb") as stderr:
                 process = subprocess.Popen(
@@ -543,13 +545,13 @@ class BoundedEditingAgent:
     @staticmethod
     def _error_code(error: Exception) -> str:
         if isinstance(error, ProviderUsageLimitError):
-            return 'provider_usage_limit'
+            return "provider_usage_limit"
         if isinstance(error, ProviderAuthenticationError):
-            return 'provider_authentication_required'
+            return "provider_authentication_required"
         if isinstance(error, ProviderNetworkError):
-            return 'provider_network_error'
+            return "provider_network_error"
         if isinstance(error, ProviderPermissionError):
-            return 'provider_permission_error'
+            return "provider_permission_error"
         if isinstance(error, ProviderCancelled):
             return "provider_cancelled"
         if isinstance(error, ProviderTimedOut):

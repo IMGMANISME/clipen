@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
-from fractions import Fraction
 import json
 import math
+from dataclasses import replace
+from fractions import Fraction
 from pathlib import Path
 from typing import Callable, Mapping
 
@@ -30,10 +30,10 @@ from .agent_models import (
     bounded_text,
 )
 from .agent_repository import EditAgentRepository
-from .production_tools import ProductionTools
-from .production_catalog import EXTRA_NAMES
-from .skill_tools import SkillTools, SourceContext
 from .evidence_jobs import EvidenceTools
+from .production_catalog import EXTRA_NAMES
+from .production_tools import ProductionTools
+from .skill_tools import SkillTools, SourceContext
 
 
 class EditAgentTools(SkillTools, EvidenceTools, ProductionTools):
@@ -74,37 +74,63 @@ class EditAgentTools(SkillTools, EvidenceTools, ProductionTools):
             handlers["edit_component"] = self._edit_component
             handlers["set_component_text"] = self._edit_component
             handlers["edit_component_look"] = self._edit_component_look
-        handler = (lambda args: self.production_call(name,args)) if name in EXTRA_NAMES else handlers.get(name)
+        handler = (lambda args: self.production_call(name, args)) if name in EXTRA_NAMES else handlers.get(name)
         if handler is None:
             raise ProjectError("tool_not_allowed", "這個工具未獲 Clipen 授權。", status_code=404)
         if not isinstance(arguments, Mapping):
             raise ProjectError("agent_input_invalid", "工具參數必須是物件。", status_code=422)
         arguments = dict(arguments)
-        self._expected_revision_id = arguments.pop('expected_revision_id', None)
-        mutation_id = arguments.pop('mutation_id', None) if name!='read_mutation_receipt' else None
+        self._expected_revision_id = arguments.pop("expected_revision_id", None)
+        mutation_id = arguments.pop("mutation_id", None) if name != "read_mutation_receipt" else None
         from .tool_receipts import TIMELINE_MUTATIONS, begin_receipt, finish_receipt
+
         if name in TIMELINE_MUTATIONS and (self._expected_revision_id is None or mutation_id is None):
-            raise ProjectError('mutation_guard_required','修改前請提供目前 expected_revision_id 與本次 mutation_id。',status_code=422)
+            raise ProjectError(
+                "mutation_guard_required", "修改前請提供目前 expected_revision_id 與本次 mutation_id。", status_code=422
+            )
         if mutation_id is not None:
             if name not in TIMELINE_MUTATIONS:
-                raise ProjectError('agent_input_invalid','這個讀取／工作工具不接受 mutation_id。',status_code=422)
-            replay=begin_receipt(self,name,arguments,self._expected_revision_id,mutation_id)
-            if replay is not None:return replay
-        elif self._expected_revision_id is not None and self._expected_revision_id != self.repository.current_revision(self.project_id,self.run_id).revision_id:
-            raise ProjectError('revision_conflict','作品版本已更新，請先讀取目前版本。',status_code=409)
+                raise ProjectError("agent_input_invalid", "這個讀取／工作工具不接受 mutation_id。", status_code=422)
+            replay = begin_receipt(self, name, arguments, self._expected_revision_id, mutation_id)
+            if replay is not None:
+                return replay
+        elif (
+            self._expected_revision_id is not None
+            and self._expected_revision_id != self.repository.current_revision(self.project_id, self.run_id).revision_id
+        ):
+            raise ProjectError("revision_conflict", "作品版本已更新，請先讀取目前版本。", status_code=409)
         try:
-            if not getattr(self, "_user_edit", False):self.repository.consume_tool_call(self.project_id, self.run_id, name)
+            if not getattr(self, "_user_edit", False):
+                self.repository.consume_tool_call(self.project_id, self.run_id, name)
             result = handler(arguments)
         except Exception as error:
-            if mutation_id is not None:finish_receipt(self,mutation_id,error=error)
+            if mutation_id is not None:
+                finish_receipt(self, mutation_id, error=error)
             with self.repository.projects.connect(self.project_id) as db:
-                self.repository._append_event(db,self.run_id,'tool_failed',{'tool':name,'arguments':dict(arguments),'error_code':getattr(error,'code','tool_failed')},utc_now())
+                self.repository._append_event(
+                    db,
+                    self.run_id,
+                    "tool_failed",
+                    {"tool": name, "arguments": dict(arguments), "error_code": getattr(error, "code", "tool_failed")},
+                    utc_now(),
+                )
             raise
-        if mutation_id is not None:finish_receipt(self,mutation_id,result=result)
+        if mutation_id is not None:
+            finish_receipt(self, mutation_id, result=result)
         with self.repository.projects.connect(self.project_id) as db:
-            self.repository._append_event(db,self.run_id,'tool_completed',{'tool':name,'arguments':dict(arguments),'authority':'user' if getattr(self,'_user_edit',False) else 'model'},utc_now())
+            self.repository._append_event(
+                db,
+                self.run_id,
+                "tool_completed",
+                {
+                    "tool": name,
+                    "arguments": dict(arguments),
+                    "authority": "user" if getattr(self, "_user_edit", False) else "model",
+                },
+                utc_now(),
+            )
         return ToolResult(
-            {**result.payload, "budget": self.repository.get(self.project_id,self.run_id).to_public()["budget"]},
+            {**result.payload, "budget": self.repository.get(self.project_id, self.run_id).to_public()["budget"]},
             result.images,
         )
 
@@ -114,12 +140,18 @@ class EditAgentTools(SkillTools, EvidenceTools, ProductionTools):
     def _get_edit_status(self, arguments: Mapping[str, object]) -> ToolResult:
         self._require_keys(arguments, set())
         session = self._session_value()
-        return ToolResult({**self.repository.get(self.project_id, self.run_id).to_public(),
-            "mode": "skill_production", "intent": session["intent"], "skill": self._skill_summary(),
-            "creative_direction": self.repository.creative_direction(self.project_id, self.run_id),
-            "source_count": len(session["sources"]),
-            "evidence_coverage": "Unknown until inspected; no prior analysis or plan required.",
-            "next_step": "Read read_production_skill(resource='SKILL.md'), then explore sources and decide your workflow."})
+        return ToolResult(
+            {
+                **self.repository.get(self.project_id, self.run_id).to_public(),
+                "mode": "skill_production",
+                "intent": session["intent"],
+                "skill": self._skill_summary(),
+                "creative_direction": self.repository.creative_direction(self.project_id, self.run_id),
+                "source_count": len(session["sources"]),
+                "evidence_coverage": "Unknown until inspected; no prior analysis or plan required.",
+                "next_step": "Read read_production_skill(resource='SKILL.md'), then explore sources and decide your workflow.",
+            }
+        )
 
     def _search_media(self, arguments: Mapping[str, object]) -> ToolResult:
         self._require_keys(arguments, set(), optional={"query", "limit", "offset"})
@@ -128,30 +160,31 @@ class EditAgentTools(SkillTools, EvidenceTools, ProductionTools):
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 50:
             raise ProjectError("agent_input_invalid", "搜尋筆數必須介於 1 到 50。", status_code=422)
         candidates = self._context_value().candidates + self._custom_candidates()
-        offset = arguments.get('offset',0)
-        if isinstance(offset,bool) or not isinstance(offset,int) or not 0 <= offset <= 100000:
-            raise ProjectError('agent_input_invalid','分頁位置無效。',status_code=422)
+        offset = arguments.get("offset", 0)
+        if isinstance(offset, bool) or not isinstance(offset, int) or not 0 <= offset <= 100000:
+            raise ProjectError("agent_input_invalid", "分頁位置無效。", status_code=422)
         if query:
             candidates = tuple(
                 item
                 for item in candidates
-                if query in " ".join(
+                if query
+                in " ".join(
                     filter(None, (item.display_name, item.evidence_summary, item.transcript_excerpt))
                 ).casefold()
             )
         return ToolResult(
             {
-                "candidates": [item.to_provider() for item in candidates[offset:offset+limit]],
-                "returned": len(candidates[offset:offset+limit]),
-                "has_more": len(candidates) > offset+limit,
-                "next_offset": offset+limit if len(candidates)>offset+limit else None,
+                "candidates": [item.to_provider() for item in candidates[offset : offset + limit]],
+                "returned": len(candidates[offset : offset + limit]),
+                "has_more": len(candidates) > offset + limit,
+                "next_offset": offset + limit if len(candidates) > offset + limit else None,
                 "limitations": list(self._context_value().limitations),
             }
         )
 
     def _inspect_clip(self, arguments: Mapping[str, object]) -> ToolResult:
         self._require_keys(arguments, {"candidate_id"})
-        if self._inspection_count >= self.repository.get(self.project_id,self.run_id).max_tool_calls:
+        if self._inspection_count >= self.repository.get(self.project_id, self.run_id).max_tool_calls:
             raise ProjectError(
                 "inspection_budget_exhausted",
                 "本次素材檢視已達工具預算上限。",
@@ -190,38 +223,69 @@ class EditAgentTools(SkillTools, EvidenceTools, ProductionTools):
         filtered = track_kind is not None or any(v is not None for v in bounds)
         if filtered:
             timeline["tracks"] = [
-                {**track, "items": [item for item in track["items"]
-                                    if item["start_frame"] < end and start < item["start_frame"] + item["duration_frames"]]}
-                for track in timeline["tracks"] if track_kind is None or track["kind"] == track_kind]
+                {
+                    **track,
+                    "items": [
+                        item
+                        for item in track["items"]
+                        if item["start_frame"] < end and start < item["start_frame"] + item["duration_frames"]
+                    ],
+                }
+                for track in timeline["tracks"]
+                if track_kind is None or track["kind"] == track_kind
+            ]
             payload["window"] = {"track": track_kind, "from_frame": start, "to_frame": end}
         if len(json.dumps(payload, ensure_ascii=False)) <= self._SEQUENCE_CHARACTERS:
             return ToolResult(payload)
         # Too large for one read: return an outline and how to read it in parts.
         seconds = timeline["duration_frames"] / fps
-        outline = [{"track_id": track["track_id"], "kind": track["kind"], "item_count": len(track["items"]),
-                    "items": [{"item_id": item["item_id"], "start_frame": item["start_frame"],
-                               "duration_frames": item["duration_frames"],
-                               **({"text": item["text"][:40]} if "text" in item else {})} for item in track["items"]][:200]}
-                   for track in timeline["tracks"]]
-        span = max(10, round(seconds * self._SEQUENCE_CHARACTERS / max(1, len(json.dumps(payload, ensure_ascii=False))) / 2))
+        outline = [
+            {
+                "track_id": track["track_id"],
+                "kind": track["kind"],
+                "item_count": len(track["items"]),
+                "items": [
+                    {
+                        "item_id": item["item_id"],
+                        "start_frame": item["start_frame"],
+                        "duration_frames": item["duration_frames"],
+                        **({"text": item["text"][:40]} if "text" in item else {}),
+                    }
+                    for item in track["items"]
+                ][:200],
+            }
+            for track in timeline["tracks"]
+        ]
+        span = max(
+            10, round(seconds * self._SEQUENCE_CHARACTERS / max(1, len(json.dumps(payload, ensure_ascii=False))) / 2)
+        )
         payload["timeline"] = {key: value for key, value in timeline.items() if key != "tracks"}
         payload["outline"] = outline
-        payload["read_in_parts"] = (f"The full timeline is too large for one read. Call inspect_sequence with track "
-                                    f"(video, title or audio) and/or from_seconds/to_seconds; windows of about {span} "
-                                    f"seconds fit. The outline lists every item with its timing.")
+        payload["read_in_parts"] = (
+            f"The full timeline is too large for one read. Call inspect_sequence with track "
+            f"(video, title or audio) and/or from_seconds/to_seconds; windows of about {span} "
+            f"seconds fit. The outline lists every item with its timing."
+        )
         if len(json.dumps(payload, ensure_ascii=False)) > self._SEQUENCE_CHARACTERS:
             for track in outline:
-                track["items"] = [{"item_id": i["item_id"], "start_frame": i["start_frame"], "duration_frames": i["duration_frames"]}
-                                  for i in track["items"]]
+                track["items"] = [
+                    {"item_id": i["item_id"], "start_frame": i["start_frame"], "duration_frames": i["duration_frames"]}
+                    for i in track["items"]
+                ]
         return ToolResult(payload)
 
     def _replace_sequence(self, arguments: Mapping[str, object]) -> ToolResult:
-        self._require_keys(arguments, {"clips", "summary"},optional={'reprise_reason'})
-        if self._session_value()['intent'].get('latest_revision_request') and self._timeline().duration_frames > 0:
-            raise ProjectError('incremental_revision_required','這是既有影片的修訂，請使用裁切、替換單一片段、重排或元件工具保留其他內容，不可清空重建整條時間軸。',status_code=409)
+        self._require_keys(arguments, {"clips", "summary"}, optional={"reprise_reason"})
+        if self._session_value()["intent"].get("latest_revision_request") and self._timeline().duration_frames > 0:
+            raise ProjectError(
+                "incremental_revision_required",
+                "這是既有影片的修訂，請使用裁切、替換單一片段、重排或元件工具保留其他內容，不可清空重建整條時間軸。",
+                status_code=409,
+            )
         selections = arguments["clips"]
         from .production_limits import limits_for
-        limits=limits_for(self)
+
+        limits = limits_for(self)
         if not isinstance(selections, list) or not 1 <= len(selections) <= limits.clips:
             raise ProjectError(
                 "agent_input_invalid",
@@ -230,12 +294,11 @@ class EditAgentTools(SkillTools, EvidenceTools, ProductionTools):
             )
         parsed = [self._trimmed_candidate(value) for value in selections]
         identities = [identity for _, _, identity in parsed]
-        reprise=arguments.get('reprise_reason')
-        if reprise is not None:reprise=bounded_text(reprise,'預告／回扣用途',500)
+        reprise = arguments.get("reprise_reason")
+        if reprise is not None:
+            reprise = bounded_text(reprise, "預告／回扣用途", 500)
         if len(identities) != len(set(identities)) and not reprise:
-            raise ProjectError(
-                "agent_input_invalid", "不能重複使用完全相同的來源範圍。", status_code=422
-            )
+            raise ProjectError("agent_input_invalid", "不能重複使用完全相同的來源範圍。", status_code=422)
         candidates = [candidate for candidate, _, _ in parsed]
         if any(item.media_kind != "video" for item in candidates):
             raise ProjectError("agent_input_invalid", "主畫面只能使用影片候選片段。", status_code=422)
@@ -325,37 +388,74 @@ class EditAgentTools(SkillTools, EvidenceTools, ProductionTools):
 
     def _undo_revision(self, arguments: Mapping[str, object]) -> ToolResult:
         self._require_keys(arguments, set())
-        return ToolResult({"revision": self.repository.undo(self.project_id, self.run_id,expected_revision_id=self._expected_revision_id).to_public()})
+        return ToolResult(
+            {
+                "revision": self.repository.undo(
+                    self.project_id, self.run_id, expected_revision_id=self._expected_revision_id
+                ).to_public()
+            }
+        )
 
     def _finish_edit(self, arguments: Mapping[str, object]) -> ToolResult:
         self._require_keys(arguments, {"summary"}, optional={"changes", "notes", "not_done"})
-        issues=self._production_validate_sequence({}).payload['issues']
+        issues = self._production_validate_sequence({}).payload["issues"]
         if issues:
-            raise ProjectError('agent_sequence_invalid','時間軸或交付條件尚未通過，請先呼叫 validate_sequence 查看實際範圍與待修項目。',status_code=422)
+            raise ProjectError(
+                "agent_sequence_invalid",
+                "時間軸或交付條件尚未通過，請先呼叫 validate_sequence 查看實際範圍與待修項目。",
+                status_code=422,
+            )
         # Production bounds, including minimum delivery duration, are reported by validate_sequence.
         from .production_preview import finish_review_status
-        review=finish_review_status(self)
-        if not review['reviewed_revision']:
-            raise ProjectError('agent_preview_review_required','請先逐鏡檢視目前預覽及文字，使用 review_cut 記錄判斷並修正未解決問題；validate_sequence 會列出缺少的取樣。',status_code=409)
+
+        review = finish_review_status(self)
+        if not review["reviewed_revision"]:
+            raise ProjectError(
+                "agent_preview_review_required",
+                "請先逐鏡檢視目前預覽及文字，使用 review_cut 記錄判斷並修正未解決問題；validate_sequence 會列出缺少的取樣。",
+                status_code=409,
+            )
         from .change_report import challenge, check_report, unfinished
-        report = check_report(arguments, self._session_value()['intent'])
+
+        report = check_report(arguments, self._session_value()["intent"])
         if unfinished(report) and not self._challenged():
             raise challenge(report)
-        exported=self._production_export_edit({}).payload
-        return ToolResult({**self.repository.finish(self.project_id, self.run_id, arguments["summary"],expected_revision_id=self._expected_revision_id,report=report).to_public(),'review':review,'export':exported})
+        exported = self._production_export_edit({}).payload
+        return ToolResult(
+            {
+                **self.repository.finish(
+                    self.project_id,
+                    self.run_id,
+                    arguments["summary"],
+                    expected_revision_id=self._expected_revision_id,
+                    report=report,
+                ).to_public(),
+                "review": review,
+                "export": exported,
+            }
+        )
 
     def _challenged(self) -> bool:
         """Whether finish_edit already asked, during this request, to finish what the report left undone."""
         from .change_report import UNFINISHED
+
         with self.repository.projects.connect(self.project_id) as db:
-            start = db.execute("SELECT COALESCE(MAX(sequence),-1) FROM edit_agent_events WHERE run_id=? AND event_type='refinement_requested'", (self.run_id,)).fetchone()[0]
-            rows = db.execute("SELECT payload_json FROM edit_agent_events WHERE run_id=? AND event_type='tool_failed' AND sequence>?", (self.run_id, start)).fetchall()
-        return any(json.loads(r['payload_json']).get('error_code') == UNFINISHED for r in rows)
+            start = db.execute(
+                "SELECT COALESCE(MAX(sequence),-1) FROM edit_agent_events WHERE run_id=? AND event_type='refinement_requested'",
+                (self.run_id,),
+            ).fetchone()[0]
+            rows = db.execute(
+                "SELECT payload_json FROM edit_agent_events WHERE run_id=? AND event_type='tool_failed' AND sequence>?",
+                (self.run_id, start),
+            ).fetchall()
+        return any(json.loads(r["payload_json"]).get("error_code") == UNFINISHED for r in rows)
 
     def _candidate(self, value: object) -> PlanningCandidate:
         if not isinstance(value, str):
             raise ProjectError("agent_input_invalid", "候選片段識別資訊無效。", status_code=422)
-        candidate = self._context_value().candidate_map().get(value) or next((c for c in self._custom_candidates() if c.candidate_id==value),None)
+        candidate = self._context_value().candidate_map().get(value) or next(
+            (c for c in self._custom_candidates() if c.candidate_id == value), None
+        )
         if candidate is None:
             raise ProjectError("candidate_not_found", "找不到指定的候選片段。", status_code=404)
         return candidate
@@ -389,11 +489,7 @@ class EditAgentTools(SkillTools, EvidenceTools, ProductionTools):
             )
         for key, value in parameters.items():
             minimum, maximum = allowed[key]
-            if (
-                isinstance(value, bool)
-                or not isinstance(value, (int, float))
-                or not minimum <= float(value) <= maximum
-            ):
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not minimum <= float(value) <= maximum:
                 raise ProjectError(
                     "agent_input_invalid",
                     "效果參數超出安全範圍。",
@@ -412,17 +508,13 @@ class EditAgentTools(SkillTools, EvidenceTools, ProductionTools):
         }
         return defaults[effect_id]
 
-    def _trimmed_candidate(
-        self, value: object
-    ) -> tuple[PlanningCandidate, SourceSpan, tuple[str, int, int]]:
+    def _trimmed_candidate(self, value: object) -> tuple[PlanningCandidate, SourceSpan, tuple[str, int, int]]:
         if not isinstance(value, Mapping) or set(value) != {
             "candidate_id",
             "start_offset_seconds",
             "duration_seconds",
         }:
-            raise ProjectError(
-                "agent_input_invalid", "精剪鏡頭內容無效。", status_code=422
-            )
+            raise ProjectError("agent_input_invalid", "精剪鏡頭內容無效。", status_code=422)
         candidate = self._candidate(value["candidate_id"])
         start = self._finite_fraction(value["start_offset_seconds"], "鏡頭入點")
         duration = self._finite_fraction(value["duration_seconds"], "鏡頭長度")
@@ -455,19 +547,11 @@ class EditAgentTools(SkillTools, EvidenceTools, ProductionTools):
 
     @staticmethod
     def _finite_fraction(value: object, label: str) -> Fraction:
-        if (
-            isinstance(value, bool)
-            or not isinstance(value, (int, float))
-            or not math.isfinite(float(value))
-        ):
-            raise ProjectError(
-                "agent_input_invalid", f"{label}必須是有限數字。", status_code=422
-            )
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+            raise ProjectError("agent_input_invalid", f"{label}必須是有限數字。", status_code=422)
         return Fraction(str(value))
 
-    def _candidate_images(
-        self, candidate: PlanningCandidate
-    ) -> tuple[tuple[Path, ...], list[dict[str, object]]]:
+    def _candidate_images(self, candidate: PlanningCandidate) -> tuple[tuple[Path, ...], list[dict[str, object]]]:
         with self.repository.projects.connect(self.project_id) as database:
             rows = database.execute(
                 "SELECT results.result_json FROM evidence_results results "
@@ -491,9 +575,7 @@ class EditAgentTools(SkillTools, EvidenceTools, ProductionTools):
             except (json.JSONDecodeError, TypeError, ValueError):
                 continue
         inside = [
-            item
-            for item in artifacts
-            if int(candidate.source.start_pts) <= item[2] <= int(candidate.source.end_pts)
+            item for item in artifacts if int(candidate.source.start_pts) <= item[2] <= int(candidate.source.end_pts)
         ]
         # A nearby frame from another candidate can look plausible while pointing
         # the model at an invalid offset. Returning no image is safer than mixing
@@ -506,8 +588,7 @@ class EditAgentTools(SkillTools, EvidenceTools, ProductionTools):
             try:
                 paths.append(self.artifacts.path(self.artifacts.get(self.project_id, artifact_id)))
                 offset = Fraction(
-                    (pts - int(candidate.source.start_pts))
-                    * candidate.source.time_base.numerator,
+                    (pts - int(candidate.source.start_pts)) * candidate.source.time_base.numerator,
                     candidate.source.time_base.denominator,
                 )
                 samples.append(

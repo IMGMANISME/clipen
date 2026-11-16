@@ -25,6 +25,7 @@ def main() -> int:
     setup = None
     if arguments.data_root and arguments.asr_requirements:
         from clipen.analysis.setup import ASRSetupManager
+
         setup = ASRSetupManager(Path(arguments.data_root), Path(arguments.asr_requirements))
         tools.local_data_root = Path(arguments.data_root)
         tools.transcriber_binding = setup.runtime_binding
@@ -33,7 +34,8 @@ def main() -> int:
         return run_stdio(EditingMcpServer(tools))
     finally:
         tools.close_production()
-        if setup:setup.close()
+        if setup:
+            setup.close()
 
 
 if __name__ == "__main__":

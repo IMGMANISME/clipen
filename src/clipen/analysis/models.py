@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from enum import Enum
 import json
 import re
+from dataclasses import dataclass
+from enum import Enum
 from typing import Mapping
 
-from clipen.domain.media_time import Rational, SourceSpan
+from clipen.domain.media_time import Rational as Rational  # re-exported for the analysis modules
+from clipen.domain.media_time import SourceSpan
 from clipen.projects.models import validate_project_id
-
 
 _ARTIFACT_ID = re.compile(r"art_[0-9a-f]{32}\Z")
 _PREPARATION_ID = re.compile(r"prep_[0-9a-f]{32}\Z")
@@ -124,9 +124,7 @@ class PreparationRun:
             raise ValueError("preparation input identity is invalid")
         if not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", self.phase):
             raise ValueError("preparation phase is invalid")
-        if self.error_code is not None and not re.fullmatch(
-            r"[a-z][a-z0-9_]{0,63}", self.error_code
-        ):
+        if self.error_code is not None and not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", self.error_code):
             raise ValueError("preparation error code is invalid")
         terminal = self.state in {
             PreparationState.SUCCEEDED,
