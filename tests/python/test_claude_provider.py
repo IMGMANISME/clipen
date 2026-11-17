@@ -11,7 +11,7 @@ from unittest import mock
 from unittest.mock import patch
 
 from clipen import cli
-from clipen.provider_registry import PROVIDERS, editing_agent_factory, get_provider, implemented_providers
+from clipen.provider_registry import PROVIDERS, editing_agent_factory, get_provider
 from clipen.providers import (
     ProviderAuthenticationError,
     ProviderProtocolError,
@@ -46,23 +46,18 @@ SUCCESS = {
 
 
 class ProviderRegistryTests(unittest.TestCase):
-    def test_codex_and_claude_edit_while_local_is_reserved(self):
-        self.assertEqual(implemented_providers(), ("codex", "claude"))
+    def test_codex_and_claude_are_the_providers(self):
+        self.assertEqual(tuple(PROVIDERS), ("codex", "claude"))
         self.assertIs(editing_agent_factory("codex"), CodexEditingAgent)
         self.assertIs(editing_agent_factory("claude"), ClaudeEditingAgent)
-        self.assertFalse(PROVIDERS["local"].implemented)
         with self.assertRaises(ValueError):
-            editing_agent_factory("local")
-        with self.assertRaises(ValueError):
-            get_provider("gemini")
+            get_provider("local")
         from clipen.provider_registry import exec_adapter_factory
         from clipen.providers.claude import ClaudeExecAdapter
         from clipen.providers.codex import CodexExecAdapter
 
         self.assertIs(exec_adapter_factory("codex"), CodexExecAdapter)
         self.assertIs(exec_adapter_factory("claude"), ClaudeExecAdapter)
-        with self.assertRaises(ValueError):
-            exec_adapter_factory("local")
 
     def test_cli_routes_each_provider_to_its_own_probe(self):
         calls = []
@@ -296,7 +291,7 @@ class ProviderSelectionTests(unittest.TestCase):
             run = f.repository.get(*key)
             self.assertEqual((run.state, run.error_code), ("failed", "provider_mismatch"))
             with self.assertRaises(ValueError):
-                EditAgentCoordinator(f.repository, f.root, provider_id="local")
+                EditAgentCoordinator(f.repository, f.root, provider_id="gemini")
         finally:
             f.tearDown()
 

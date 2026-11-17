@@ -136,9 +136,9 @@ class EditAgentRepository:
                 "production": production,
             }
         )
-        from clipen.provider_registry import implemented_providers
+        from clipen.provider_registry import PROVIDERS
 
-        if provider not in implemented_providers():
+        if provider not in PROVIDERS:
             raise ValueError("provider is invalid")
         run_id = make_id("editrun_", [project_id, request])
         now = utc_now()

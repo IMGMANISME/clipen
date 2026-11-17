@@ -22,14 +22,10 @@ class ProviderDescriptor:
     display_name: str
     # "module:attribute" so selecting a provider never imports the others.
     # The editing agent drives AI production over the Clipen MCP tools.
-    editing_agent: str | None
+    editing_agent: str
     # The exec adapter runs one schema-bound attempt (plan generation,
     # thumbnail observation, two-pass finishing).
-    exec_adapter: str | None
-
-    @property
-    def implemented(self) -> bool:
-        return self.editing_agent is not None and self.exec_adapter is not None
+    exec_adapter: str
 
 
 PROVIDERS: dict[str, ProviderDescriptor] = {
@@ -45,9 +41,6 @@ PROVIDERS: dict[str, ProviderDescriptor] = {
         "clipen.providers.claude_editing:ClaudeEditingAgent",
         "clipen.providers.claude:ClaudeExecAdapter",
     ),
-    # Reserved: a local model needs its own agent loop over the Clipen MCP
-    # tools and a schema-bound runner before it can be selected.
-    "local": ProviderDescriptor("local", "本機模型", None, None),
 }
 
 
@@ -58,20 +51,14 @@ def get_provider(provider_id: str) -> ProviderDescriptor:
         raise ValueError(f"unknown provider: {provider_id}") from None
 
 
-def implemented_providers() -> tuple[str, ...]:
-    return tuple(key for key, value in PROVIDERS.items() if value.implemented)
-
-
-def _load(reference: str | None, provider_id: str, role: str):
-    if reference is None:
-        raise ValueError(f"provider {provider_id} has no {role} yet")
+def _load(reference: str):
     module, attribute = reference.split(":")
     return getattr(import_module(module), attribute)
 
 
 def editing_agent_factory(provider_id: str):
-    return _load(get_provider(provider_id).editing_agent, provider_id, "editing agent")
+    return _load(get_provider(provider_id).editing_agent)
 
 
 def exec_adapter_factory(provider_id: str):
-    return _load(get_provider(provider_id).exec_adapter, provider_id, "exec adapter")
+    return _load(get_provider(provider_id).exec_adapter)

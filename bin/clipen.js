@@ -23,7 +23,7 @@ const PYTHON = {
   bytes: 25035343,
 }
 // What the program needs at run time; the rest of the package (this launcher) stays in npx's cache.
-const PROGRAM = ['src', 'apps/web/dist', 'requirements', 'pyproject.toml', 'clipen', 'install', 'uninstall', 'README.md', 'LICENSE']
+const PROGRAM = ['src', 'apps/web/dist', 'requirements', 'pyproject.toml', 'clipen', 'README.md', 'LICENSE']
 const FONTS = 'src/clipen/rendering/fonts'
 
 function dataRoot() {
