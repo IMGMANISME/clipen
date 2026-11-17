@@ -70,16 +70,7 @@ clipen claude                   # 或 clipen codex
 
 作品存在資料夾裡的 `.clipen` 子目錄，毛片留在原本的位置。
 
-## 開發
-
-```bash
-./clipen install                            # 從原始碼安裝
-PYTHONPATH=src:tests/python .venv/bin/python -m unittest discover -s tests/python
-cd apps/web && npm run lint && npm test
-npm run release -- patch                    # 準備新版本
-```
-
-後端在 [`src/clipen`](src/clipen)（Python），工作台介面在 [`apps/web`](apps/web)（React + Vite），`npx` 安裝器在 [`bin/clipen.js`](bin/clipen.js)。系統設計見 [產品架構](ARCHITECTURE.md)。
+## 回饋
 
 歡迎留下[問題或建議](https://github.com/IMGMANISME/clipen/issues)，請勿附上私人素材、帳號憑證或本機完整路徑。
 
