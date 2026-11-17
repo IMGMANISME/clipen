@@ -1,5 +1,6 @@
 """Local media inventory domain and persistence."""
 
+from .discovery import DiscoveredAsset, DiscoveryError, MediaDiscovery
 from .models import (
     AssetCandidate,
     AssetKind,
@@ -13,8 +14,7 @@ from .models import (
     MediaStream,
     ProbeStatus,
 )
-from .storage import InventoryRepository
-from .discovery import DiscoveredAsset, DiscoveryError, MediaDiscovery
+from .preview import MediaPreview, MediaPreviewRepository
 from .probe import (
     FFprobeAdapter,
     MediaProbeError,
@@ -22,7 +22,7 @@ from .probe import (
     bounded_file_fingerprint,
 )
 from .service import InventoryCoordinator
-from .preview import MediaPreview, MediaPreviewRepository
+from .storage import InventoryRepository
 
 __all__ = [
     "AssetCandidate",

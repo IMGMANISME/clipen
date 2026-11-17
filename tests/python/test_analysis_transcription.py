@@ -1,20 +1,18 @@
 import json
-import os
-from pathlib import Path
 import stat
 import tempfile
 import threading
 import unittest
-from unittest import mock
 import wave
+from pathlib import Path
 
 from clipen.analysis import (
     LocalModelSnapshot,
     PreparedAudio,
-    TranscriptSegment,
-    TranscriptWord,
     TranscriptionError,
     TranscriptionResult,
+    TranscriptSegment,
+    TranscriptWord,
     hash_model_directory,
 )
 from clipen.analysis.transcription import _PersistentASRWorkerAdapter
@@ -63,8 +61,7 @@ class TranscriptionAdapterTests(unittest.TestCase):
             "import json, sys, time\n"
             "if '--probe' in sys.argv:\n"
             "    print(json.dumps({'mlx_whisper': 'test-1.0'}))\n"
-            "    raise SystemExit(0)\n"
-            + f"payload = {encoded!r}\n"
+            "    raise SystemExit(0)\n" + f"payload = {encoded!r}\n"
             "if '--serve' in sys.argv:\n"
             "    print(json.dumps({'type': 'ready', 'mlx_whisper': 'test-1.0'}), flush=True)\n"
             "    for line in sys.stdin:\n"
@@ -201,9 +198,7 @@ class TranscriptionAdapterTests(unittest.TestCase):
                 "probability": 0.01,
             },
         )
-        adapter = _adapter(
-            self.fake_runtime(payload), self.snapshot, timeout_seconds=2
-        )
+        adapter = _adapter(self.fake_runtime(payload), self.snapshot, timeout_seconds=2)
         output = self.root / "result.json"
         output.touch(mode=0o600)
 
@@ -217,9 +212,7 @@ class TranscriptionAdapterTests(unittest.TestCase):
         payload["text"] = "字幕 by 索蘭婭"
         payload["segments"][0]["text"] = "字幕 by 索蘭婭"
         payload["segments"][0]["no_speech_probability"] = 0.78
-        adapter = _adapter(
-            self.fake_runtime(payload), self.snapshot, timeout_seconds=2
-        )
+        adapter = _adapter(self.fake_runtime(payload), self.snapshot, timeout_seconds=2)
         output = self.root / "result.json"
         output.touch(mode=0o600)
 
@@ -231,9 +224,7 @@ class TranscriptionAdapterTests(unittest.TestCase):
         payload["segments"][0]["text"] = "!!!!!!!!!!!!!!!!!!!!!!!!"
         for word in payload["segments"][0]["words"]:
             word["probability"] = 0.001
-        adapter = _adapter(
-            self.fake_runtime(payload), self.snapshot, timeout_seconds=2
-        )
+        adapter = _adapter(self.fake_runtime(payload), self.snapshot, timeout_seconds=2)
         output = self.root / "result.json"
         output.touch(mode=0o600)
 
@@ -251,9 +242,7 @@ class TranscriptionAdapterTests(unittest.TestCase):
                 word["start"] = index + 0.1
                 word["end"] = index + 0.9
             payload["segments"].append(segment)
-        adapter = _adapter(
-            self.fake_runtime(payload), self.snapshot, timeout_seconds=2
-        )
+        adapter = _adapter(self.fake_runtime(payload), self.snapshot, timeout_seconds=2)
         output = self.root / "result.json"
         output.touch(mode=0o600)
 
@@ -266,9 +255,7 @@ class TranscriptionAdapterTests(unittest.TestCase):
         payload = self.valid_payload()
         payload["segments"][0]["text"] = "--- !!!"
         payload["segments"][0]["words"] = []
-        adapter = _adapter(
-            self.fake_runtime(payload), self.snapshot, timeout_seconds=2
-        )
+        adapter = _adapter(self.fake_runtime(payload), self.snapshot, timeout_seconds=2)
         output = self.root / "result.json"
         output.touch(mode=0o600)
 
@@ -278,9 +265,7 @@ class TranscriptionAdapterTests(unittest.TestCase):
         payload = self.valid_payload()
         payload["segments"][0]["end"] = 10.02
         payload["segments"][0]["words"][-1]["end"] = 10.02
-        adapter = _adapter(
-            self.fake_runtime(payload), self.snapshot, timeout_seconds=2
-        )
+        adapter = _adapter(self.fake_runtime(payload), self.snapshot, timeout_seconds=2)
         output = self.root / "result.json"
         output.touch(mode=0o600)
 
@@ -291,9 +276,7 @@ class TranscriptionAdapterTests(unittest.TestCase):
     def test_rejects_timestamp_outside_audio_and_removes_result(self) -> None:
         payload = self.valid_payload()
         payload["segments"][0]["end"] = 20
-        adapter = _adapter(
-            self.fake_runtime(payload), self.snapshot, timeout_seconds=2
-        )
+        adapter = _adapter(self.fake_runtime(payload), self.snapshot, timeout_seconds=2)
         output = self.root / "result.json"
         output.touch(mode=0o600)
         with self.assertRaises(TranscriptionError) as context:
@@ -312,9 +295,7 @@ class TranscriptionAdapterTests(unittest.TestCase):
         self.assertEqual(context.exception.code, "asr_model_changed")
 
     def test_model_change_after_probe_invalidates_cached_verification(self) -> None:
-        adapter = _adapter(
-            self.fake_runtime(self.valid_payload()), self.snapshot, timeout_seconds=2
-        )
+        adapter = _adapter(self.fake_runtime(self.valid_payload()), self.snapshot, timeout_seconds=2)
         self.assertEqual(adapter.probe(), "test-1.0")
         (self.model / "weights.npz").write_bytes(b"changed after probe")
         output = self.root / "result.json"
@@ -347,6 +328,7 @@ class TranscriptionAdapterTests(unittest.TestCase):
         with self.assertRaises(TranscriptionError) as context:
             hash_model_directory(self.model)
         self.assertEqual(context.exception.code, "asr_model_unsafe")
+
 
 if __name__ == "__main__":
     unittest.main()

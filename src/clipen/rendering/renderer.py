@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from decimal import Decimal
 import os
-from pathlib import Path
 import subprocess
 import tempfile
 import threading
+from decimal import Decimal
+from pathlib import Path
 from typing import Callable
 
 from clipen.domain import EditTimeline, EffectRequest, MediaClip, Track, TrackKind
@@ -44,17 +44,24 @@ class FfmpegPreviewRenderer:
         # Master output feeds another editor: ProRes and PCM instead of a compact preview.
         self.master = master
 
-    def render(self,project_id,timeline,output,cancel,progress):
-        layers=any(e.effect_id=='audio.layers' for t in timeline.tracks for i in t.items if isinstance(i,MediaClip) for e in i.effects)
+    def render(self, project_id, timeline, output, cancel, progress):
+        layers = any(
+            e.effect_id == "audio.layers"
+            for t in timeline.tracks
+            for i in t.items
+            if isinstance(i, MediaClip)
+            for e in i.effects
+        )
         if not layers:
-            return self._render_base(project_id,timeline,output,cancel,progress)
+            return self._render_base(project_id, timeline, output, cancel, progress)
         from clipen.editing.production_media import mix_audio_layers
-        output.parent.mkdir(mode=0o700,parents=True,exist_ok=True)
-        with tempfile.TemporaryDirectory(prefix='.agent-mix-',dir=output.parent) as temp:
-            base=Path(temp)/'camera.mp4'
-            self._render_base(project_id,timeline,base,cancel,lambda p:progress(p*.85))
-            mix_audio_layers(self.media,project_id,timeline,base,output,cancel)
-            progress(1.)
+
+        output.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix=".agent-mix-", dir=output.parent) as temp:
+            base = Path(temp) / "camera.mp4"
+            self._render_base(project_id, timeline, base, cancel, lambda p: progress(p * 0.85))
+            mix_audio_layers(self.media, project_id, timeline, base, output, cancel)
+            progress(1.0)
 
     def _render_base(
         self,
@@ -64,31 +71,42 @@ class FfmpegPreviewRenderer:
         cancel: threading.Event,
         progress: Callable[[float], None],
     ) -> None:
-        title_track = next(
-            (track for track in timeline.tracks if track.kind is TrackKind.TITLE), None
-        )
         if not any(t.items for t in timeline.tracks if t.kind is TrackKind.TITLE):
             self._render_media(project_id, timeline, output, cancel, progress)
             return
         output.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         try:
-            with tempfile.TemporaryDirectory(
-                prefix=".clipen-title-", dir=output.parent
-            ) as temporary:
+            with tempfile.TemporaryDirectory(prefix=".clipen-title-", dir=output.parent) as temporary:
                 directory = Path(temporary)
                 media_output = self._media_without_titles(
                     project_id, timeline, directory, cancel, lambda value: progress(value * 0.82)
                 )
                 # A reused cut leaves only the text layer, so that layer is the whole of the progress.
-                share = 0. if media_output.parent != directory else 0.82
+                share = 0.0 if media_output.parent != directory else 0.82
                 layer = lambda value: progress(share + value * (1 - share))
                 from clipen.editing.production_media import load_text_styles
-                styles=load_text_styles(getattr(self.media,'projects',None),project_id)
-                if sum(len(t.items) for t in timeline.tracks if t.kind is TrackKind.TITLE)>32 or any(styles.get(i.style_id,{}).get('kind') in {'program_subtitle','program_component'} for t in timeline.tracks if t.kind is TrackKind.TITLE for i in t.items):
+
+                styles = load_text_styles(getattr(self.media, "projects", None), project_id)
+                if sum(len(t.items) for t in timeline.tracks if t.kind is TrackKind.TITLE) > 32 or any(
+                    styles.get(i.style_id, {}).get("kind") in {"program_subtitle", "program_component"}
+                    for t in timeline.tracks
+                    if t.kind is TrackKind.TITLE
+                    for i in t.items
+                ):
                     from .titles import compose_dense_titles
-                    compose_dense_titles(self.executable,media_output,timeline,directory,output,cancel,styles,
-                                         progress=layer,hardware=self.hardware_acceleration and not self.master)
-                    progress(1.)
+
+                    compose_dense_titles(
+                        self.executable,
+                        media_output,
+                        timeline,
+                        directory,
+                        output,
+                        cancel,
+                        styles,
+                        progress=layer,
+                        hardware=self.hardware_acceleration and not self.master,
+                    )
+                    progress(1.0)
                     return
                 titles = TitleCardRenderer(styles).render(timeline, directory)
                 FfmpegTitleCompositor(self.executable, popen=self._popen).compose(
@@ -114,13 +132,19 @@ class FfmpegPreviewRenderer:
             output = directory / "media.mp4"
             self._render_media(project_id, timeline, output, cancel, progress)
             return output
-        import json
         import hashlib
+        import json
         from dataclasses import replace
-        picture = replace(timeline, tracks=tuple(t for t in timeline.tracks if t.kind is not TrackKind.TITLE), markers=()).to_payload()
+
+        picture = replace(
+            timeline, tracks=tuple(t for t in timeline.tracks if t.kind is not TrackKind.TITLE), markers=()
+        ).to_payload()
         picture.pop("timeline_id", None)
-        key = hashlib.sha256(json.dumps({"version": 1, "picture": picture, "master": self.master},
-                                        sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:32]
+        key = hashlib.sha256(
+            json.dumps(
+                {"version": 1, "picture": picture, "master": self.master}, sort_keys=True, ensure_ascii=False
+            ).encode()
+        ).hexdigest()[:32]
         folder = projects.root / project_id / "previews" / "media-cache"
         cached = folder / f"{key}.mp4"
         if cached.is_file():
@@ -132,10 +156,11 @@ class FfmpegPreviewRenderer:
             folder.mkdir(mode=0o700, parents=True, exist_ok=True)
             partial = folder / f".{key}.part"
             import shutil
+
             shutil.copyfile(output, partial)
             os.replace(partial, cached)
             kept = sorted(folder.glob("*.mp4"), key=lambda path: path.stat().st_mtime, reverse=True)
-            for stale in kept[self._MEDIA_CACHE_KEEP:]:
+            for stale in kept[self._MEDIA_CACHE_KEEP :]:
                 stale.unlink(missing_ok=True)
         except OSError:
             pass  # A cache that cannot be written only means the next edit renders in full.
@@ -143,14 +168,18 @@ class FfmpegPreviewRenderer:
 
     def _render_media(self, project_id, timeline, output, cancel, progress, *, preserve_audio_gain=False):
         try:
-            return self._render_media_once(project_id, timeline, output, cancel, progress, preserve_audio_gain=preserve_audio_gain)
+            return self._render_media_once(
+                project_id, timeline, output, cancel, progress, preserve_audio_gain=preserve_audio_gain
+            )
         except PreviewRenderError as error:
-            if not self.hardware_acceleration or error.code != 'ffmpeg_render_failed' or cancel.is_set():
+            if not self.hardware_acceleration or error.code != "ffmpeg_render_failed" or cancel.is_set():
                 raise
             # Unsupported input/encoder on this machine: retry with the original
             # software path, retaining all filters, source ranges and timing.
             self.hardware_acceleration = False
-            return self._render_media_once(project_id, timeline, output, cancel, progress, preserve_audio_gain=preserve_audio_gain)
+            return self._render_media_once(
+                project_id, timeline, output, cancel, progress, preserve_audio_gain=preserve_audio_gain
+            )
 
     def _render_media_once(
         self,
@@ -159,28 +188,33 @@ class FfmpegPreviewRenderer:
         output: Path,
         cancel: threading.Event,
         progress: Callable[[float], None],
-        *, preserve_audio_gain: bool = False,
+        *,
+        preserve_audio_gain: bool = False,
     ) -> None:
         if os.name == "nt":
             raise PreviewRenderError("preview_platform_unsupported")
-        video = next(
-            (track for track in timeline.tracks if track.kind is TrackKind.VIDEO), None
-        )
-        audio = next(
-            (track for track in timeline.tracks if track.kind is TrackKind.AUDIO and track.items), None
-        )
+        video = next((track for track in timeline.tracks if track.kind is TrackKind.VIDEO), None)
+        audio = next((track for track in timeline.tracks if track.kind is TrackKind.AUDIO and track.items), None)
         if video is None or not video.items:
             raise PreviewRenderError("preview_video_required")
         if cancel.is_set():
             raise PreviewRenderError("cancelled")
         output.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        controlled_audio = preserve_audio_gain or timeline.production_session_id is not None or any(
-            effect.effect_id in {'audio.source', 'audio.layers'}
-            for track in timeline.tracks for item in track.items
-            if isinstance(item, MediaClip) for effect in item.effects
+        controlled_audio = (
+            preserve_audio_gain
+            or timeline.production_session_id is not None
+            or any(
+                effect.effect_id in {"audio.source", "audio.layers"}
+                for track in timeline.tracks
+                for item in track.items
+                if isinstance(item, MediaClip)
+                for effect in item.effects
+            )
         )
         if audio is None and len(video.items) > self._BATCH_SIZE:
-            self._render_batched(project_id, timeline, video, output, cancel, progress, preserve_audio_gain=controlled_audio)
+            self._render_batched(
+                project_id, timeline, video, output, cancel, progress, preserve_audio_gain=controlled_audio
+            )
             return
 
         opened = []
@@ -199,11 +233,9 @@ class FfmpegPreviewRenderer:
             audio_labels: list[str] = []
             video_inputs = []
 
-            for clip_index,item in enumerate(video.items):
+            for clip_index, item in enumerate(video.items):
                 assert isinstance(item, MediaClip)
-                input_index, duration, source = self._add_input(
-                    command, opened, project_id, item
-                )
+                input_index, duration, source = self._add_input(command, opened, project_id, item)
                 video_inputs.append((input_index, duration, source, item))
                 stream = self._stream_index(
                     item.source.span.stream_index,
@@ -220,31 +252,30 @@ class FfmpegPreviewRenderer:
                     f"fps={timeline.frame_rate.numerator}/"
                     f"{timeline.frame_rate.denominator}[{base_label}]"
                 )
-                current_label = self._retime_video(
-                    filters, base_label, item, float(duration), len(video_labels)
-                )
+                current_label = self._retime_video(filters, base_label, item, float(duration), len(video_labels))
                 effect_filters = self._video_effect_filters(item, timeline)
                 chain = f"[{current_label}]"
                 if effect_filters:
                     chain += effect_filters.removeprefix(",") + ","
                 from .production_effects import grade_filters, mosaic_filters, transition_filters
-                chain += 'null'+grade_filters(item)+",format=yuv420p"
-                styled_label=f'vstyled{clip_index}'
+
+                chain += "null" + grade_filters(item) + ",format=yuv420p"
+                styled_label = f"vstyled{clip_index}"
                 filters.append(f"{chain}[{styled_label}]")
-                masked=mosaic_filters(filters,styled_label,item,timeline,clip_index)
-                following=video.items[clip_index+1] if clip_index+1<len(video.items) else None
+                masked = mosaic_filters(filters, styled_label, item, timeline, clip_index)
+                following = video.items[clip_index + 1] if clip_index + 1 < len(video.items) else None
                 # Source PTS and fps rounding can otherwise add a frame at a
                 # cut and show the previous shot behind the next caption.
-                frame_pad=Decimal(2)*timeline.frame_rate.denominator/timeline.frame_rate.numerator
-                filters.append(f"[{masked}]null{transition_filters(item,following,timeline)},tpad=stop_mode=clone:stop_duration={frame_pad},trim=end_frame={item.duration_frames},setpts=N*{timeline.frame_rate.denominator}/({timeline.frame_rate.numerator}*TB)[{label}]")
+                frame_pad = Decimal(2) * timeline.frame_rate.denominator / timeline.frame_rate.numerator
+                filters.append(
+                    f"[{masked}]null{transition_filters(item, following, timeline)},tpad=stop_mode=clone:stop_duration={frame_pad},trim=end_frame={item.duration_frames},setpts=N*{timeline.frame_rate.denominator}/({timeline.frame_rate.numerator}*TB)[{label}]"
+                )
                 video_labels.append(f"[{label}]")
 
             if audio is not None:
                 for item in audio.items:
                     assert isinstance(item, MediaClip)
-                    input_index, duration, source = self._add_input(
-                        command, opened, project_id, item
-                    )
+                    input_index, duration, source = self._add_input(command, opened, project_id, item)
                     stream = self._stream_index(
                         item.source.span.stream_index,
                         source.audio_stream_indices,
@@ -254,7 +285,7 @@ class FfmpegPreviewRenderer:
                     filters.append(
                         f"[{input_index}:{stream}]atrim=duration={duration},"
                         "asetpts=PTS-STARTPTS,aresample=48000,"
-                        f"aformat=sample_rates=48000:channel_layouts=stereo,apad,atrim=duration={Decimal(item.duration_frames)*timeline.frame_rate.denominator/timeline.frame_rate.numerator}[{label}]"
+                        f"aformat=sample_rates=48000:channel_layouts=stereo,apad,atrim=duration={Decimal(item.duration_frames) * timeline.frame_rate.denominator / timeline.frame_rate.numerator}[{label}]"
                     )
                     audio_labels.append(f"[{label}]")
             else:
@@ -275,32 +306,27 @@ class FfmpegPreviewRenderer:
                             filters, base_label, item, float(duration), len(audio_labels)
                         )
                         from .production_effects import camera_audio_filters
-                        filters.append(f"[{current_label}]anull{camera_audio_filters(item)},apad,atrim=duration={Decimal(item.duration_frames)*timeline.frame_rate.denominator/timeline.frame_rate.numerator},asetpts=PTS-STARTPTS[{label}]")
+
+                        filters.append(
+                            f"[{current_label}]anull{camera_audio_filters(item)},apad,atrim=duration={Decimal(item.duration_frames) * timeline.frame_rate.denominator / timeline.frame_rate.numerator},asetpts=PTS-STARTPTS[{label}]"
+                        )
                     else:
                         filters.append(
                             "anullsrc=r=48000:cl=stereo,"
-                            f"atrim=duration={Decimal(item.duration_frames)*timeline.frame_rate.denominator/timeline.frame_rate.numerator:.6f}[{label}]"
+                            f"atrim=duration={Decimal(item.duration_frames) * timeline.frame_rate.denominator / timeline.frame_rate.numerator:.6f}[{label}]"
                         )
                     audio_labels.append(f"[{label}]")
 
-            filters.append(
-                f"{''.join(video_labels)}concat=n={len(video_labels)}:v=1:a=0[vout]"
-            )
+            filters.append(f"{''.join(video_labels)}concat=n={len(video_labels)}:v=1:a=0[vout]")
             timeline_duration = self._timeline_seconds(timeline)
             if audio_labels:
-                filters.append(
-                    f"{''.join(audio_labels)}concat=n={len(audio_labels)}:v=0:a=1[asequence]"
-                )
+                filters.append(f"{''.join(audio_labels)}concat=n={len(audio_labels)}:v=0:a=1[asequence]")
                 # Programme camera sound is a stem: automatic loudness makeup
                 # here would undo explicit attenuation before the music mix.
-                finishing = 'alimiter=limit=0.841395:level=0' if controlled_audio else 'loudnorm=I=-16:LRA=11:TP=-1.5'
-                filters.append(
-                    f"[asequence]apad,atrim=duration={timeline_duration},{finishing}[aout]"
-                )
+                finishing = "alimiter=limit=0.841395:level=0" if controlled_audio else "loudnorm=I=-16:LRA=11:TP=-1.5"
+                filters.append(f"[asequence]apad,atrim=duration={timeline_duration},{finishing}[aout]")
             else:
-                filters.append(
-                    f"anullsrc=r=48000:cl=stereo,atrim=duration={timeline_duration}[aout]"
-                )
+                filters.append(f"anullsrc=r=48000:cl=stereo,atrim=duration={timeline_duration}[aout]")
 
             command.extend(
                 [
@@ -333,17 +359,27 @@ class FfmpegPreviewRenderer:
                 ]
             )
             if self.master:
-                position = command.index('libx264') - 1
-                end = command.index('+faststart') + 1
-                command[position:end] = ['-c:v', 'prores_ks', '-profile:v', '3', '-pix_fmt', 'yuv422p10le',
-                                         '-c:a', 'pcm_s16le', '-ar', '48000']
+                position = command.index("libx264") - 1
+                end = command.index("+faststart") + 1
+                command[position:end] = [
+                    "-c:v",
+                    "prores_ks",
+                    "-profile:v",
+                    "3",
+                    "-pix_fmt",
+                    "yuv422p10le",
+                    "-c:a",
+                    "pcm_s16le",
+                    "-ar",
+                    "48000",
+                ]
             elif self.hardware_acceleration:
-                position = command.index('libx264')
-                command[position] = 'h264_videotoolbox'
-                for option in ('-preset', '-crf'):
+                position = command.index("libx264")
+                command[position] = "h264_videotoolbox"
+                for option in ("-preset", "-crf"):
                     index = command.index(option)
-                    del command[index:index + 2]
-                command[-1:-1] = ['-b:v', '8000k']
+                    del command[index : index + 2]
+                command[-1:-1] = ["-b:v", "8000k"]
             with tempfile.TemporaryFile() as errors:
                 try:
                     process = self._popen(
@@ -396,14 +432,13 @@ class FfmpegPreviewRenderer:
             raise PreviewRenderError(error.code) from error
         opened.append(source)
         start = self._seconds(item.source.span.start_pts, item.source.span.time_base)
-        duration = self._seconds(
-            str(item.source.span.duration_pts), item.source.span.time_base
-        )
+        duration = self._seconds(str(item.source.span.duration_pts), item.source.span.time_base)
         if self.hardware_acceleration:
-            command.extend(['-hwaccel', 'videotoolbox'])
+            command.extend(["-hwaccel", "videotoolbox"])
         command.extend(
             [
-                "-seek_timestamp", "1",
+                "-seek_timestamp",
+                "1",
                 "-ss",
                 start,
                 "-t",
@@ -424,32 +459,31 @@ class FfmpegPreviewRenderer:
         output: Path,
         cancel: threading.Event,
         progress: Callable[[float], None],
-        *, preserve_audio_gain: bool = False,
+        *,
+        preserve_audio_gain: bool = False,
     ) -> None:
         total_frames = sum(item.duration_frames for item in video.items)
         completed_frames = 0
-        with tempfile.TemporaryDirectory(
-            prefix=".clipen-preview-", dir=output.parent
-        ) as temporary:
+        with tempfile.TemporaryDirectory(prefix=".clipen-preview-", dir=output.parent) as temporary:
             directory = Path(temporary)
             segments = []
             segment_durations = []
-            for batch_index, offset in enumerate(
-                range(0, len(video.items), self._BATCH_SIZE)
-            ):
+            for batch_index, offset in enumerate(range(0, len(video.items), self._BATCH_SIZE)):
                 if cancel.is_set():
                     raise PreviewRenderError("cancelled")
                 source_items = video.items[offset : offset + self._BATCH_SIZE]
                 cursor = 0
                 normalized_items = []
-                for local_index,item in enumerate(source_items):
+                for local_index, item in enumerate(source_items):
                     assert isinstance(item, MediaClip)
-                    effects=item.effects
-                    position=offset+local_index
-                    if local_index==len(source_items)-1 and position+1<len(video.items):
-                        incoming=next((e for e in video.items[position+1].effects if e.effect_id=='video.transition'),None)
+                    effects = item.effects
+                    position = offset + local_index
+                    if local_index == len(source_items) - 1 and position + 1 < len(video.items):
+                        incoming = next(
+                            (e for e in video.items[position + 1].effects if e.effect_id == "video.transition"), None
+                        )
                         if incoming:
-                            effects+=(EffectRequest('video.transition_out',incoming.parameters),)
+                            effects += (EffectRequest("video.transition_out", incoming.parameters),)
                     normalized_items.append(
                         MediaClip(
                             item.item_id,
@@ -494,7 +528,10 @@ class FfmpegPreviewRenderer:
         progress(1.0)
 
     def _concat_segments(
-        self, segments: list[Path], output: Path, cancel: threading.Event,
+        self,
+        segments: list[Path],
+        output: Path,
+        cancel: threading.Event,
         durations=None,
     ) -> None:
         manifest = segments[0].parent / "segments.txt"
@@ -502,7 +539,10 @@ class FfmpegPreviewRenderer:
             # AAC encoder padding may make a segment's container longer than
             # its video. Letting concat infer that duration inserts a timestamp
             # gap at each batch, changing avg_frame_rate despite correct frames.
-            "".join(f"file '{segment.name}'\n"+(f'duration {durations[n]}\n' if durations is not None else '') for n,segment in enumerate(segments)),
+            "".join(
+                f"file '{segment.name}'\n" + (f"duration {durations[n]}\n" if durations is not None else "")
+                for n, segment in enumerate(segments)
+            ),
             encoding="utf-8",
         )
         command = [
@@ -585,8 +625,7 @@ class FfmpegPreviewRenderer:
                 x = min(1.0, max(0.0, float(parameters.get("x", 0.5))))
                 y = min(1.0, max(0.0, float(parameters.get("y", 0.5))))
                 filters += (
-                    ",scale=iw*1.08:ih*1.08,"
-                    f"crop={timeline.width}:{timeline.height}:(iw-ow)*{x:.4f}:(ih-oh)*{y:.4f}"
+                    f",scale=iw*1.08:ih*1.08,crop={timeline.width}:{timeline.height}:(iw-ow)*{x:.4f}:(ih-oh)*{y:.4f}"
                 )
         return filters
 
@@ -604,13 +643,10 @@ class FfmpegPreviewRenderer:
             return source_label
         outside_rate, center_rate = profile
         first_end, center_end = duration * 0.4, duration * 0.6
-        filters.append(
-            f"[{source_label}]split=3[vr{index}a][vr{index}b][vr{index}c]"
-        )
+        filters.append(f"[{source_label}]split=3[vr{index}a][vr{index}b][vr{index}c]")
         filters.extend(
             (
-                f"[vr{index}a]trim=start=0:end={first_end:.6f},"
-                f"setpts=(PTS-STARTPTS)/{outside_rate:.6f}[vr{index}ao]",
+                f"[vr{index}a]trim=start=0:end={first_end:.6f},setpts=(PTS-STARTPTS)/{outside_rate:.6f}[vr{index}ao]",
                 f"[vr{index}b]trim=start={first_end:.6f}:end={center_end:.6f},"
                 f"setpts=(PTS-STARTPTS)/{center_rate:.6f}[vr{index}bo]",
                 f"[vr{index}c]trim=start={center_end:.6f}:end={duration:.6f},"
@@ -636,13 +672,10 @@ class FfmpegPreviewRenderer:
         first_end, center_end = duration * 0.4, duration * 0.6
         outside_tempo = cls._atempo(outside_rate)
         center_tempo = cls._atempo(center_rate)
-        filters.append(
-            f"[{source_label}]asplit=3[ar{index}a][ar{index}b][ar{index}c]"
-        )
+        filters.append(f"[{source_label}]asplit=3[ar{index}a][ar{index}b][ar{index}c]")
         filters.extend(
             (
-                f"[ar{index}a]atrim=start=0:end={first_end:.6f},"
-                f"asetpts=PTS-STARTPTS,{outside_tempo}[ar{index}ao]",
+                f"[ar{index}a]atrim=start=0:end={first_end:.6f},asetpts=PTS-STARTPTS,{outside_tempo}[ar{index}ao]",
                 f"[ar{index}b]atrim=start={first_end:.6f}:end={center_end:.6f},"
                 f"asetpts=PTS-STARTPTS,{center_tempo}[ar{index}bo]",
                 f"[ar{index}c]atrim=start={center_end:.6f}:end={duration:.6f},"
@@ -700,9 +733,5 @@ class FfmpegPreviewRenderer:
 
     @staticmethod
     def _seconds(pts: str, time_base) -> str:
-        value = (
-            Decimal(pts)
-            * Decimal(time_base.numerator)
-            / Decimal(time_base.denominator)
-        )
+        value = Decimal(pts) * Decimal(time_base.numerator) / Decimal(time_base.denominator)
         return format(value.quantize(Decimal("0.000001")), "f")

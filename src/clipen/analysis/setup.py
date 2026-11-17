@@ -2,13 +2,9 @@
 
 from __future__ import annotations
 
-from collections import deque
-from dataclasses import dataclass
-from enum import Enum
 import hashlib
 import json
 import os
-from pathlib import Path
 import platform
 import re
 import secrets
@@ -18,10 +14,14 @@ import stat
 import subprocess
 import threading
 import time
+import venv
+from collections import deque
+from dataclasses import dataclass
+from enum import Enum
+from pathlib import Path
 from typing import Callable
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
-import venv
 
 from clipen.asr_release import (
     ASR_SOFTWARE_LICENSE,
@@ -43,7 +43,6 @@ from clipen.asr_release import (
 )
 
 from .transcription import LocalModelSnapshot, Qwen3ASRAdapter
-
 
 _MAX_DOWNLOAD_BYTES = 4 * 1024**3
 _INSTALL_FREE_SPACE_MARGIN = 512 * 1024**2
@@ -160,11 +159,7 @@ class ASRSetupManager:
         self._model_revision = model_revision
         self._model_files = model_files
         if model_downloads is None:
-            if (
-                model_repository == MODEL_REPOSITORY
-                and model_revision == MODEL_REVISION
-                and model_files == MODEL_FILES
-            ):
+            if model_repository == MODEL_REPOSITORY and model_revision == MODEL_REVISION and model_files == MODEL_FILES:
                 model_downloads = MODEL_DOWNLOADS
             else:
                 model_downloads = tuple(
@@ -179,8 +174,7 @@ class ASRSetupManager:
         if (
             len(model_downloads) != len(model_files)
             or len({item[0] for item in model_downloads}) != len(model_downloads)
-            or {item[0] for item in model_downloads}
-            != {item[0] for item in model_files}
+            or {item[0] for item in model_downloads} != {item[0] for item in model_files}
             or any(
                 not url.startswith("https://") or size < 1 or len(digest) != 64
                 for _filename, url, size, digest in model_downloads
@@ -295,7 +289,6 @@ class ASRSetupManager:
     def adapter_factory(self) -> Callable[[], Qwen3ASRAdapter] | None:
         binding = self.runtime_binding()
         return None if binding is None else binding[0]
-
 
     def runtime_binding(
         self,
@@ -447,9 +440,7 @@ class ASRSetupManager:
                 detail_total_bytes=max(0, detail_total_bytes),
             )
 
-    def _install_runtime(
-        self, destination: Path, requirements: Path, cancel: threading.Event
-    ) -> None:
+    def _install_runtime(self, destination: Path, requirements: Path, cancel: threading.Event) -> None:
         try:
             venv.EnvBuilder(with_pip=True, clear=False, symlinks=False).create(destination)
         except Exception as error:
@@ -621,16 +612,13 @@ class ASRSetupManager:
                         raise ASRSetupError("asr_download_too_large")
                     digest.update(block)
                     output.write(block)
-                    base, model_total = getattr(
-                        self, "_active_model_download", (0, expected_size)
-                    )
+                    base, model_total = getattr(self, "_active_model_download", (0, expected_size))
                     if getattr(self, "_active_download_phase", "model") == "runtime":
                         self._set_progress(
                             "downloading_runtime",
                             "正在下載固定版本的語音辨識程式…",
                             1,
-                            progress_percent=40
-                            + int(min(base + total, model_total) / max(1, model_total) * 2),
+                            progress_percent=40 + int(min(base + total, model_total) / max(1, model_total) * 2),
                             detail_completed_bytes=base + total,
                             detail_total_bytes=model_total,
                         )
@@ -877,9 +865,7 @@ class ASRSetupManager:
                 self._remove_tree(candidate, missing_ok=True)
             except ASRSetupError as error:
                 with self._lock:
-                    self._diagnostic_lines = (
-                        f"superseded ASR cleanup failed: {release_id}: {error.code}",
-                    )
+                    self._diagnostic_lines = (f"superseded ASR cleanup failed: {release_id}: {error.code}",)
 
     def _cleanup_staging(self) -> None:
         for candidate in self.root.iterdir():

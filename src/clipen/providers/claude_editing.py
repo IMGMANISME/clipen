@@ -21,7 +21,6 @@ from .editing_agent import _MAX_CAPTURE_BYTES, _MCP_TOOLS, BoundedEditingAgent, 
 from .errors import ProviderProtocolError
 from .recovery import ProviderUsage
 
-
 MCP_SERVER = "clipen"
 
 
@@ -46,8 +45,11 @@ class ClaudeEditingAgent(BoundedEditingAgent):
         workspace: Path,
         output_path: Path,
     ) -> tuple[str, ...]:
-        server = {"type": "stdio", "command": str(self.python),
-                  "args": mcp_server_arguments(self.projects_root, project_id, run_id, self.local_runtime)}
+        server = {
+            "type": "stdio",
+            "command": str(self.python),
+            "args": mcp_server_arguments(self.projects_root, project_id, run_id, self.local_runtime),
+        }
         return (
             str(self.binary),
             "--print",
@@ -82,15 +84,19 @@ class ClaudeEditingAgent(BoundedEditingAgent):
     def record_account(self, stdout: bytes) -> None:
         # Claude Code has no quota query; keep what this attempt reported.
         from .account import record_claude_account
+
         try:
-            record_claude_account(self.attempt_root, _stream_events(stdout, _MAX_CAPTURE_BYTES),
-                                  claude_preferences(self.environment)[0])
+            record_claude_account(
+                self.attempt_root, _stream_events(stdout, _MAX_CAPTURE_BYTES), claude_preferences(self.environment)[0]
+            )
         except (OSError, ProviderProtocolError):
             pass
 
     def closing_message(self, stdout: bytes, final_message: Path) -> str | None:
         # Claude reports its last message in the stream's result event.
-        result = next((e for e in reversed(_stream_events(stdout, _MAX_CAPTURE_BYTES)) if e.get("type") == "result"), None)
+        result = next(
+            (e for e in reversed(_stream_events(stdout, _MAX_CAPTURE_BYTES)) if e.get("type") == "result"), None
+        )
         value = None if result is None else result.get("result")
         return value if isinstance(value, str) else None
 
@@ -103,7 +109,8 @@ class ClaudeEditingAgent(BoundedEditingAgent):
         if init is not None:
             servers = init.get("mcp_servers")
             connected = isinstance(servers, list) and any(
-                isinstance(s, dict) and s.get("name") == MCP_SERVER and s.get("status") == "connected" for s in servers)
+                isinstance(s, dict) and s.get("name") == MCP_SERVER and s.get("status") == "connected" for s in servers
+            )
             if not connected:
                 raise ProviderProtocolError("Claude could not connect to the Clipen MCP server")
         raise_for_failed_result(events, diagnostic)

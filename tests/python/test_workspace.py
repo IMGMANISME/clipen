@@ -1,6 +1,6 @@
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from clipen.projects import ProjectRepository
@@ -40,9 +40,7 @@ class WorkspaceTests(unittest.TestCase):
                 )
 
             self.assertTrue(workspace.projects_root.is_dir())
-            self.assertTrue(
-                (workspace.projects_root / project.project_id / "project.sqlite3").is_file()
-            )
+            self.assertTrue((workspace.projects_root / project.project_id / "project.sqlite3").is_file())
 
     def test_inspection_accepts_empty_workspace_and_valid_projects(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

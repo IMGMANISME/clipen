@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation, ROUND_CEILING, ROUND_FLOOR
 import hashlib
 import json
 import os
-from pathlib import Path
 import queue
 import re
 import signal
@@ -17,10 +14,12 @@ import tempfile
 import threading
 import time
 import unicodedata
+from dataclasses import dataclass
+from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal, InvalidOperation
+from pathlib import Path
 
 from .audio import PreparedAudio
 from .resources import local_analysis_slot
-
 
 _MODEL_ID = re.compile(r"[a-z][a-z0-9_.-]{0,127}\Z")
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
@@ -49,18 +48,11 @@ class LocalModelSnapshot:
     def __post_init__(self) -> None:
         if _MODEL_ID.fullmatch(self.model_id) is None:
             raise ValueError("ASR model ID is invalid")
-        if not self.revision or len(self.revision) > 128 or any(
-            ord(character) < 32 for character in self.revision
-        ):
+        if not self.revision or len(self.revision) > 128 or any(ord(character) < 32 for character in self.revision):
             raise ValueError("ASR model revision is invalid")
         if _SHA256.fullmatch(self.manifest_sha256) is None:
             raise ValueError("ASR model manifest digest is invalid")
-        if any(
-            not filename
-            or Path(filename).name != filename
-            or size < 1
-            for filename, size in self.expected_files
-        ):
+        if any(not filename or Path(filename).name != filename or size < 1 for filename, size in self.expected_files):
             raise ValueError("ASR model file contract is invalid")
 
 
@@ -113,11 +105,7 @@ class TranscriptSegment:
 
     @property
     def word_confidence(self) -> str | None:
-        probabilities = [
-            Decimal(word.probability)
-            for word in self.words
-            if word.probability is not None
-        ]
+        probabilities = [Decimal(word.probability) for word in self.words if word.probability is not None]
         if not probabilities:
             return None
         return _canonical_probability(sum(probabilities) / len(probabilities))
@@ -160,9 +148,7 @@ class TranscriptionResult:
             # results always carry a phrase-level confidence value.
             return any(segment.text.strip() == "[音訊不清楚]" for segment in self.segments)
         mean = sum(probabilities) / len(probabilities)
-        low_ratio = sum(
-            probability < Decimal("0.5") for probability in probabilities
-        ) / len(probabilities)
+        low_ratio = sum(probability < Decimal("0.5") for probability in probabilities) / len(probabilities)
         return mean < Decimal("0.65") or low_ratio > 0.3
 
     def to_storage(self) -> dict[str, object]:
@@ -322,20 +308,21 @@ class _PersistentASRWorkerAdapter:
         output_path = _verify_empty_output(output)
         model_path = self._verify_model()
         try:
-            request = json.dumps(
-                {
-                    "audio": str(audio_path),
-                    "initial_prompt": initial_prompt,
-                    "language": language,
-                    "output": str(output_path),
-                },
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-            ).encode("utf-8") + b"\n"
-            with self._worker_lock, local_analysis_slot(
-                cancel, lambda: TranscriptionError("cancelled")
-            ):
+            request = (
+                json.dumps(
+                    {
+                        "audio": str(audio_path),
+                        "initial_prompt": initial_prompt,
+                        "language": language,
+                        "output": str(output_path),
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+                + b"\n"
+            )
+            with self._worker_lock, local_analysis_slot(cancel, lambda: TranscriptionError("cancelled")):
                 process = self._ensure_server(model_path, cancel)
                 try:
                     assert process.stdin is not None
@@ -348,9 +335,7 @@ class _PersistentASRWorkerAdapter:
                 if response.get("type") != "result" or response.get("ok") is not True:
                     code = response.get("code")
                     self._stop_server()
-                    raise TranscriptionError(
-                        code if code in {"asr_failed", "asr_request_invalid"} else "asr_failed"
-                    )
+                    raise TranscriptionError(code if code in {"asr_failed", "asr_request_invalid"} else "asr_failed")
             return _parse_result(output_path, audio.frame_count, audio.sample_rate)
         except Exception:
             output_path.unlink(missing_ok=True)
@@ -360,9 +345,7 @@ class _PersistentASRWorkerAdapter:
         with self._worker_lock:
             self._stop_server()
 
-    def _ensure_server(
-        self, model_path: Path, cancel: threading.Event | None
-    ) -> subprocess.Popen[bytes]:
+    def _ensure_server(self, model_path: Path, cancel: threading.Event | None) -> subprocess.Popen[bytes]:
         if self._process is not None and self._process.poll() is None:
             return self._process
         self._stop_server()
@@ -392,11 +375,7 @@ class _PersistentASRWorkerAdapter:
         ).start()
         ready = self._wait_for_response(process, cancel)
         version = ready.get(self._readiness_key)
-        if (
-            ready.get("type") != "ready"
-            or not isinstance(version, str)
-            or not 1 <= len(version) <= 80
-        ):
+        if ready.get("type") != "ready" or not isinstance(version, str) or not 1 <= len(version) <= 80:
             self._stop_server()
             raise TranscriptionError("asr_runtime_unsupported")
         return process
@@ -512,7 +491,11 @@ class _PersistentASRWorkerAdapter:
         observed_output: Path | None = None,
     ) -> tuple[bytes, bytes, int]:
         environment = self._environment()
-        with local_analysis_slot(cancel, lambda: TranscriptionError("cancelled")), tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
+        with (
+            local_analysis_slot(cancel, lambda: TranscriptionError("cancelled")),
+            tempfile.TemporaryFile() as stdout_file,
+            tempfile.TemporaryFile() as stderr_file,
+        ):
             deadline = time.monotonic() + self.timeout_seconds
             try:
                 process = subprocess.Popen(
@@ -646,11 +629,7 @@ def _model_directory_signature(path: Path) -> str:
         relative = candidate.relative_to(resolved).as_posix()
         digest.update(relative.encode("utf-8"))
         digest.update(b"\0")
-        digest.update(
-            f"{info.st_dev}:{info.st_ino}:{info.st_size}:{info.st_mtime_ns}".encode(
-                "ascii"
-            )
-        )
+        digest.update(f"{info.st_dev}:{info.st_ino}:{info.st_size}:{info.st_mtime_ns}".encode("ascii"))
         digest.update(b"\0")
     if files < 1:
         raise TranscriptionError("asr_model_unavailable")
@@ -669,9 +648,7 @@ def _verify_model(model: LocalModelSnapshot) -> Path:
     return path.resolve(strict=True)
 
 
-def _verify_expected_model_files(
-    path: Path, expected_files: tuple[tuple[str, int], ...]
-) -> Path:
+def _verify_expected_model_files(path: Path, expected_files: tuple[tuple[str, int], ...]) -> Path:
     if path.is_symlink() or not path.is_dir():
         raise TranscriptionError("asr_model_unavailable")
     resolved = path.resolve(strict=True)
@@ -774,12 +751,8 @@ def _parse_result(path: Path, frame_count: int, sample_rate: int) -> Transcripti
                     )
                 )
                 previous_word_end = word_end
-            no_speech_probability = _optional_probability(
-                raw["no_speech_probability"]
-            )
-            if _low_quality_segment(
-                raw["text"], no_speech_probability, probabilities
-            ):
+            no_speech_probability = _optional_probability(raw["no_speech_probability"])
+            if _low_quality_segment(raw["text"], no_speech_probability, probabilities):
                 continue
             segments.append(
                 TranscriptSegment(
@@ -791,9 +764,7 @@ def _parse_result(path: Path, frame_count: int, sample_rate: int) -> Transcripti
                 )
             )
         segments = _drop_repetition_loops(segments)
-        accepted_text = "\n".join(
-            segment.text.strip() for segment in segments if segment.text.strip()
-        )
+        accepted_text = "\n".join(segment.text.strip() for segment in segments if segment.text.strip())
         return TranscriptionResult(language, accepted_text, tuple(segments))
     except (KeyError, TypeError, ValueError, InvalidOperation) as error:
         raise TranscriptionError("asr_result_invalid") from error
@@ -830,19 +801,12 @@ def _low_quality_segment(
         return True
     if not any(unicodedata.category(character)[0] in {"L", "N"} for character in compact):
         return True
-    if (
-        no_speech_probability is not None
-        and Decimal(no_speech_probability) >= Decimal("0.6")
-    ):
+    if no_speech_probability is not None and Decimal(no_speech_probability) >= Decimal("0.6"):
         return True
     if word_probabilities:
         mean = sum(word_probabilities) / len(word_probabilities)
-        low_ratio = sum(
-            probability < Decimal("0.5") for probability in word_probabilities
-        ) / len(word_probabilities)
-        if mean < Decimal("0.2") or (
-            mean < Decimal("0.35") and low_ratio >= 0.75
-        ):
+        low_ratio = sum(probability < Decimal("0.5") for probability in word_probabilities) / len(word_probabilities)
+        if mean < Decimal("0.2") or (mean < Decimal("0.35") and low_ratio >= 0.75):
             return True
     if len(compact) >= 12 and len(set(compact)) / len(compact) < 0.15:
         return True
@@ -860,9 +824,7 @@ def _drop_repetition_loops(
     consecutive = 0
     for segment in segments:
         normalized = "".join(
-            character.casefold()
-            for character in segment.text
-            if unicodedata.category(character)[0] in {"L", "N"}
+            character.casefold() for character in segment.text if unicodedata.category(character)[0] in {"L", "N"}
         )
         if not normalized:
             continue
@@ -899,11 +861,7 @@ def _decimal(value: object, *, minimum: Decimal, maximum: Decimal) -> Decimal:
 
 
 def _validate_text(value: object, maximum_bytes: int, label: str) -> None:
-    if (
-        not isinstance(value, str)
-        or "\x00" in value
-        or len(value.encode("utf-8")) > maximum_bytes
-    ):
+    if not isinstance(value, str) or "\x00" in value or len(value.encode("utf-8")) > maximum_bytes:
         raise ValueError(f"{label} text is invalid")
 
 

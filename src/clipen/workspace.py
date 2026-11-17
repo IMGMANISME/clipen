@@ -2,19 +2,18 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime, timezone
 import json
 import os
-from pathlib import Path
 import re
 import sqlite3
 import stat
 import uuid
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
 
 from .filesystem import restrict_permissions
 from .projects.storage import PROJECT_SCHEMA_VERSION
-
 
 _WORKSPACE_SCHEMA = 1
 _PROJECT_DIRECTORY = re.compile(r"prj_[0-9a-f]{32}\Z")
@@ -100,10 +99,7 @@ def prepare_workspace(current_directory: Path) -> WorkspacePaths:
         if not isinstance(value, dict) or value.get("schema") != _WORKSPACE_SCHEMA:
             raise WorkspaceError("這個工作區需要其他版本的 Clipen。")
         workspace_id = value.get("workspace_id")
-        if (
-            not isinstance(workspace_id, str)
-            or re.fullmatch(r"wsp_[0-9a-f]{32}", workspace_id) is None
-        ):
+        if not isinstance(workspace_id, str) or re.fullmatch(r"wsp_[0-9a-f]{32}", workspace_id) is None:
             raise WorkspaceError("Clipen 工作區識別檔已損壞。")
         created = False
     else:
@@ -112,9 +108,7 @@ def prepare_workspace(current_directory: Path) -> WorkspacePaths:
         except OSError as error:
             raise WorkspaceError("Clipen 無法檢查目前目錄的工作區。") from error
         if existing_entries:
-            raise WorkspaceError(
-                "目前目錄已有無法識別的 .clipen 資料，Clipen 沒有修改它。"
-            )
+            raise WorkspaceError("目前目錄已有無法識別的 .clipen 資料，Clipen 沒有修改它。")
         created = True
         workspace_id = "wsp_" + uuid.uuid4().hex
         _atomic_json(
@@ -152,30 +146,19 @@ def inspect_workspace_projects(workspace: WorkspacePaths) -> WorkspaceInspection
 
     project_count = 0
     for entry in entries:
-        if (
-            entry.name.startswith("prj_")
-            and _PROJECT_DIRECTORY.fullmatch(entry.name) is None
-        ):
-            raise WorkspaceError(
-                f"偵測到無法識別的作品資料夾：{entry.name}。Clipen 沒有修改它。"
-            )
+        if entry.name.startswith("prj_") and _PROJECT_DIRECTORY.fullmatch(entry.name) is None:
+            raise WorkspaceError(f"偵測到無法識別的作品資料夾：{entry.name}。Clipen 沒有修改它。")
         if _PROJECT_DIRECTORY.fullmatch(entry.name) is None:
             continue
         if entry.is_symlink() or not entry.is_dir() or os.path.ismount(entry):
-            raise WorkspaceError(
-                f"作品 {entry.name} 的資料夾不安全，Clipen 沒有修改它。"
-            )
+            raise WorkspaceError(f"作品 {entry.name} 的資料夾不安全，Clipen 沒有修改它。")
         database = entry / "project.sqlite3"
         try:
             info = database.lstat()
         except OSError as error:
-            raise WorkspaceError(
-                f"作品 {entry.name} 缺少可讀取的資料庫。"
-            ) from error
+            raise WorkspaceError(f"作品 {entry.name} 缺少可讀取的資料庫。") from error
         if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
-            raise WorkspaceError(
-                f"作品 {entry.name} 的資料庫不安全，Clipen 沒有修改它。"
-            )
+            raise WorkspaceError(f"作品 {entry.name} 的資料庫不安全，Clipen 沒有修改它。")
 
         try:
             uri = f"{database.resolve(strict=True).as_uri()}?mode=ro"
@@ -184,27 +167,15 @@ def inspect_workspace_projects(workspace: WorkspacePaths) -> WorkspaceInspection
                 connection.execute("PRAGMA query_only = ON")
                 check = connection.execute("PRAGMA quick_check").fetchone()
                 version = connection.execute("PRAGMA user_version").fetchone()
-                row = connection.execute(
-                    "SELECT project_id FROM project LIMIT 1"
-                ).fetchone()
+                row = connection.execute("SELECT project_id FROM project LIMIT 1").fetchone()
             finally:
                 connection.close()
         except (OSError, sqlite3.Error) as error:
-            raise WorkspaceError(
-                f"作品 {entry.name} 的資料庫已損壞或無法讀取。"
-            ) from error
+            raise WorkspaceError(f"作品 {entry.name} 的資料庫已損壞或無法讀取。") from error
         if check is None or check[0] != "ok" or row is None or row[0] != entry.name:
-            raise WorkspaceError(
-                f"作品 {entry.name} 的資料內容不完整，Clipen 沒有修改它。"
-            )
-        if (
-            version is None
-            or not isinstance(version[0], int)
-            or not 1 <= version[0] <= PROJECT_SCHEMA_VERSION
-        ):
-            raise WorkspaceError(
-                f"作品 {entry.name} 需要其他版本的 Clipen。"
-            )
+            raise WorkspaceError(f"作品 {entry.name} 的資料內容不完整，Clipen 沒有修改它。")
+        if version is None or not isinstance(version[0], int) or not 1 <= version[0] <= PROJECT_SCHEMA_VERSION:
+            raise WorkspaceError(f"作品 {entry.name} 需要其他版本的 Clipen。")
         project_count += 1
 
     return WorkspaceInspection(project_count)

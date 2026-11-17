@@ -2,20 +2,25 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
-from dataclasses import replace
-from datetime import datetime, timezone
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
 import sqlite3
 import uuid
-from typing import Iterator, Mapping, Any
+from contextlib import contextmanager
+from dataclasses import replace
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Iterator, Mapping
 
 from clipen.filesystem import restrict_permissions
 
+from .agent_schema import EDIT_AGENT_SCHEMA, PRODUCTION_SESSION_SCHEMA
+from .annotation_schema import ANNOTATION_SCHEMA
+from .deletion import ProjectDeletion
+from .evidence_schema import EVIDENCE_SCHEMA, OBSERVATION_SCHEMA
+from .finishing_schema import FINISHING_RUNS_SCHEMA, FINISHING_SCHEMA
 from .models import (
     DirectoryReference,
     DirectoryRole,
@@ -27,15 +32,9 @@ from .models import (
     validate_request_id,
     validate_revision,
 )
-from .evidence_schema import EVIDENCE_SCHEMA, OBSERVATION_SCHEMA
-from .validation_schema import VALIDATION_WORKFLOW_SCHEMA
-from .timeline_schema import TIMELINE_SCHEMA
 from .preview_schema import PREVIEW_SCHEMA
-from .finishing_schema import FINISHING_SCHEMA, FINISHING_RUNS_SCHEMA
-from .annotation_schema import ANNOTATION_SCHEMA
-from .agent_schema import EDIT_AGENT_SCHEMA, PRODUCTION_SESSION_SCHEMA
-from .deletion import ProjectDeletion
-
+from .timeline_schema import TIMELINE_SCHEMA
+from .validation_schema import VALIDATION_WORKFLOW_SCHEMA
 
 PROJECT_SCHEMA_VERSION = 19
 # Tables of the retired confirmed-plan flow, children before parents. Version 19
@@ -301,15 +300,13 @@ class ProjectRepository:
         normalized_request = validate_request_id(request_id)
         normalized_name = validate_name(name)
         command_hash = command_digest({"name": normalized_name})
-        project_id = "prj_" + hashlib.sha256(
-            f"clipen:create-project:v1:{normalized_request}".encode("utf-8")
-        ).hexdigest()[:32]
+        project_id = (
+            "prj_" + hashlib.sha256(f"clipen:create-project:v1:{normalized_request}".encode("utf-8")).hexdigest()[:32]
+        )
         project_dir = self._project_dir(project_id)
 
         if project_dir.exists():
-            replay = self.replay_receipt(
-                project_id, normalized_request, "create_project", command_hash
-            )
+            replay = self.replay_receipt(project_id, normalized_request, "create_project", command_hash)
             if replay is None:
                 raise ProjectError(
                     "request_conflict",
@@ -332,9 +329,7 @@ class ProjectRepository:
                 staging.rename(project_dir)
             except FileExistsError:
                 self._remove_staging(staging)
-                replay = self.replay_receipt(
-                    project_id, normalized_request, "create_project", command_hash
-                )
+                replay = self.replay_receipt(project_id, normalized_request, "create_project", command_hash)
                 if replay is None:
                     raise ProjectError(
                         "request_conflict",
@@ -353,28 +348,24 @@ class ProjectRepository:
         try:
             entries = tuple(self.root.iterdir())
         except OSError as error:
-            raise ProjectError(
-                "storage_unavailable", "Clipen 無法讀取作品列表。", status_code=500
-            ) from error
+            raise ProjectError("storage_unavailable", "Clipen 無法讀取作品列表。", status_code=500) from error
         for entry in entries:
             if _PROJECT_DIRECTORY.fullmatch(entry.name) is None:
                 continue
             if entry.is_symlink() or not entry.is_dir():
-                raise ProjectError(
-                    "storage_unsafe", "Clipen 偵測到不安全的作品資料。", status_code=500
-                )
-            project=self.get_project(entry.name)
+                raise ProjectError("storage_unsafe", "Clipen 偵測到不安全的作品資料。", status_code=500)
+            project = self.get_project(entry.name)
             # Activity is derived so editing never changes the metadata revision
             # or invalidates the user's source grants and inventory.
             with self.connect(entry.name) as db:
-                activity=db.execute("""SELECT MAX(at) FROM (
+                activity = db.execute("""SELECT MAX(at) FROM (
                     SELECT MAX(created_at) AS at FROM edit_agent_events
                     UNION ALL SELECT MAX(created_at) FROM edit_agent_revisions
                     UNION ALL SELECT MAX(created_at) FROM operation_events
                     UNION ALL SELECT MAX(created_at) FROM inventory_runs
                     UNION ALL SELECT MAX(completed_at) FROM preview_renders
                 )""").fetchone()[0]
-            projects.append(replace(project,last_activity_at=max(project.updated_at,activity or project.updated_at)))
+            projects.append(replace(project, last_activity_at=max(project.updated_at, activity or project.updated_at)))
         projects.sort(key=lambda project: project.last_activity_at or project.updated_at, reverse=True)
         return tuple(projects)
 
@@ -383,9 +374,7 @@ class ProjectRepository:
         with self.connect(project_id) as connection:
             snapshot = self._read_snapshot(connection)
         if snapshot.project_id != project_id:
-            raise ProjectError(
-                "storage_corrupt", "Clipen 無法讀取作品資料。", status_code=500
-            )
+            raise ProjectError("storage_corrupt", "Clipen 無法讀取作品資料。", status_code=500)
         return snapshot
 
     def replay_receipt(
@@ -399,8 +388,7 @@ class ProjectRepository:
         validate_request_id(request_id)
         with self.connect(project_id) as connection:
             row = connection.execute(
-                "SELECT command_type, request_hash, response_json FROM command_receipts "
-                "WHERE request_id = ?",
+                "SELECT command_type, request_hash, response_json FROM command_receipts WHERE request_id = ?",
                 (request_id,),
             ).fetchone()
         if row is None:
@@ -417,9 +405,7 @@ class ProjectRepository:
                 raise ValueError("receipt response must be an object")
             return ProjectSnapshot.from_storage(payload)
         except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
-            raise ProjectError(
-                "storage_corrupt", "Clipen 無法讀取作品操作紀錄。", status_code=500
-            ) from error
+            raise ProjectError("storage_corrupt", "Clipen 無法讀取作品操作紀錄。", status_code=500) from error
 
     def update_details(
         self,
@@ -445,8 +431,7 @@ class ProjectRepository:
             command_digest(command),
             revision,
             lambda connection, now: connection.execute(
-                "UPDATE project SET name = ?, brief = ?, revision = revision + 1, "
-                "updated_at = ? WHERE project_id = ?",
+                "UPDATE project SET name = ?, brief = ?, revision = revision + 1, updated_at = ? WHERE project_id = ?",
                 (normalized_name, normalized_brief, now, project_id),
             ),
         )
@@ -497,14 +482,10 @@ class ProjectRepository:
     ) -> ProjectSnapshot:
         normalized_request = validate_request_id(request_id)
         revision = validate_revision(expected_revision)
-        command_hash = command_digest(
-            {"expected_revision": revision, "role": role.value}
-        )
+        command_hash = command_digest({"expected_revision": revision, "role": role.value})
 
         def mutation(connection: sqlite3.Connection, _: str) -> None:
-            connection.execute(
-                "DELETE FROM project_directories WHERE role = ?", (role.value,)
-            )
+            connection.execute("DELETE FROM project_directories WHERE role = ?", (role.value,))
             connection.execute("DELETE FROM current_inventory")
 
         return self._mutate(
@@ -546,15 +527,11 @@ class ProjectRepository:
             try:
                 connection.execute("BEGIN IMMEDIATE")
                 receipt = connection.execute(
-                    "SELECT command_type, request_hash, response_json FROM command_receipts "
-                    "WHERE request_id = ?",
+                    "SELECT command_type, request_hash, response_json FROM command_receipts WHERE request_id = ?",
                     (request_id,),
                 ).fetchone()
                 if receipt is not None:
-                    if (
-                        receipt["command_type"] != command_type
-                        or receipt["request_hash"] != request_hash
-                    ):
+                    if receipt["command_type"] != command_type or receipt["request_hash"] != request_hash:
                         raise ProjectError(
                             "request_reused",
                             "這次操作的識別資訊已用於不同內容。",
@@ -579,14 +556,11 @@ class ProjectRepository:
                 mutation(connection, now)
                 if command_type != "update_details":
                     connection.execute(
-                        "UPDATE project SET revision = revision + 1, updated_at = ? "
-                        "WHERE project_id = ?",
+                        "UPDATE project SET revision = revision + 1, updated_at = ? WHERE project_id = ?",
                         (now, project_id),
                     )
                 snapshot = self._read_snapshot(connection)
-                response_json = json.dumps(
-                    snapshot.to_storage(), ensure_ascii=False, separators=(",", ":")
-                )
+                response_json = json.dumps(snapshot.to_storage(), ensure_ascii=False, separators=(",", ":"))
                 connection.execute(
                     "INSERT INTO command_receipts "
                     "(request_id, command_type, request_hash, response_json, created_at) "
@@ -600,14 +574,10 @@ class ProjectRepository:
                 raise
             except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
                 connection.rollback()
-                raise ProjectError(
-                    "storage_corrupt", "Clipen 無法讀取作品資料。", status_code=500
-                ) from error
+                raise ProjectError("storage_corrupt", "Clipen 無法讀取作品資料。", status_code=500) from error
             except sqlite3.Error as error:
                 connection.rollback()
-                raise ProjectError(
-                    "storage_failed", "Clipen 無法保存作品。", status_code=500
-                ) from error
+                raise ProjectError("storage_failed", "Clipen 無法保存作品。", status_code=500) from error
 
     def _initialize_project(
         self,
@@ -680,9 +650,7 @@ class ProjectRepository:
                 (
                     request_id,
                     command_hash,
-                    json.dumps(
-                        snapshot.to_storage(), ensure_ascii=False, separators=(",", ":")
-                    ),
+                    json.dumps(snapshot.to_storage(), ensure_ascii=False, separators=(",", ":")),
                     now,
                 ),
             )
@@ -702,9 +670,7 @@ class ProjectRepository:
             raise ProjectError("project_not_found", "找不到這個作品。", status_code=404)
         database = project_dir / "project.sqlite3"
         if database.is_symlink() or not database.is_file():
-            raise ProjectError(
-                "storage_corrupt", "Clipen 無法讀取作品資料。", status_code=500
-            )
+            raise ProjectError("storage_corrupt", "Clipen 無法讀取作品資料。", status_code=500)
         try:
             connection = sqlite3.connect(database, timeout=5, isolation_level=None)
             connection.row_factory = sqlite3.Row
@@ -723,11 +689,7 @@ class ProjectRepository:
                 self._migrate_v4_to_v5(connection)
                 version = 5
             if version == 5:
-                connection.executescript(
-                    "BEGIN IMMEDIATE;\n"
-                    + EVIDENCE_SCHEMA
-                    + "\nPRAGMA user_version = 6;\nCOMMIT;"
-                )
+                connection.executescript("BEGIN IMMEDIATE;\n" + EVIDENCE_SCHEMA + "\nPRAGMA user_version = 6;\nCOMMIT;")
                 version = 6
             if version == 6:
                 self._migrate_v6_to_v7(connection)
@@ -777,9 +739,7 @@ class ProjectRepository:
                 )
             yield connection
         except sqlite3.Error as error:
-            raise ProjectError(
-                "storage_corrupt", "Clipen 無法讀取作品資料。", status_code=500
-            ) from error
+            raise ProjectError("storage_corrupt", "Clipen 無法讀取作品資料。", status_code=500) from error
         finally:
             if "connection" in locals():
                 connection.close()
@@ -795,8 +755,7 @@ class ProjectRepository:
         try:
             prior_violations = {tuple(row) for row in connection.execute("PRAGMA foreign_key_check")}
             connection.executescript(
-                "BEGIN IMMEDIATE;\n" + create
-                + "INSERT INTO edit_agent_runs_v18 SELECT * FROM edit_agent_runs;\n"
+                "BEGIN IMMEDIATE;\n" + create + "INSERT INTO edit_agent_runs_v18 SELECT * FROM edit_agent_runs;\n"
                 "DROP TABLE edit_agent_runs;\n"
                 "ALTER TABLE edit_agent_runs_v18 RENAME TO edit_agent_runs;\n"
                 "CREATE INDEX edit_agent_runs_project_created ON edit_agent_runs(project_id,created_at DESC);\n"
@@ -823,15 +782,12 @@ class ProjectRepository:
         """
 
         present = [
-            table for table in RETIRED_PLANNING_TABLES
-            if connection.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)
-            ).fetchone() is not None
+            table
+            for table in RETIRED_PLANNING_TABLES
+            if connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone()
+            is not None
         ]
-        archive = {
-            table: [dict(row) for row in connection.execute(f"SELECT * FROM {table}")]
-            for table in present
-        }
+        archive = {table: [dict(row) for row in connection.execute(f"SELECT * FROM {table}")] for table in present}
         if any(archive.values()):
             target = project_dir / RETIRED_PLANNING_ARCHIVE
             if target.is_symlink():
@@ -860,11 +816,7 @@ class ProjectRepository:
     @staticmethod
     def _migrate_v1_to_v2(connection: sqlite3.Connection) -> None:
         try:
-            connection.executescript(
-                "BEGIN IMMEDIATE;\n"
-                + _INVENTORY_SCHEMA
-                + "\nPRAGMA user_version = 2;\nCOMMIT;"
-            )
+            connection.executescript("BEGIN IMMEDIATE;\n" + _INVENTORY_SCHEMA + "\nPRAGMA user_version = 2;\nCOMMIT;")
         except sqlite3.Error:
             connection.rollback()
             raise
@@ -874,26 +826,17 @@ class ProjectRepository:
         """Finish an interrupted observation migration without deleting data."""
 
         existing = connection.execute(
-            "SELECT sql FROM sqlite_master WHERE type = 'table' "
-            "AND name = 'evidence_observations'"
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'evidence_observations'"
         ).fetchone()
         migration_sql = OBSERVATION_SCHEMA
         if existing is not None:
             observed_sql = existing["sql"]
             expected = " ".join(OBSERVATION_SCHEMA.rstrip(";\n ").split())
-            observed = (
-                " ".join(observed_sql.rstrip(";\n ").split())
-                if isinstance(observed_sql, str)
-                else ""
-            )
+            observed = " ".join(observed_sql.rstrip(";\n ").split()) if isinstance(observed_sql, str) else ""
             if observed != expected:
                 raise sqlite3.DatabaseError("unexpected evidence observation schema")
             migration_sql = ""
-        connection.executescript(
-            "BEGIN IMMEDIATE;\n"
-            + migration_sql
-            + "\nPRAGMA user_version = 7;\nCOMMIT;"
-        )
+        connection.executescript("BEGIN IMMEDIATE;\n" + migration_sql + "\nPRAGMA user_version = 7;\nCOMMIT;")
 
     @staticmethod
     def _migrate_v7_to_v8(connection: sqlite3.Connection) -> None:
@@ -923,8 +866,7 @@ class ProjectRepository:
         observed = {
             row["name"]
             for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table' "
-                "AND name IN (?, ?, ?)",
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN (?, ?, ?)",
                 tuple(expected_columns),
             )
         }
@@ -932,28 +874,16 @@ class ProjectRepository:
             raise sqlite3.DatabaseError("incomplete validation workflow schema")
         if observed:
             for table, expected in expected_columns.items():
-                columns = tuple(
-                    row["name"]
-                    for row in connection.execute(f"PRAGMA table_info({table})")
-                )
+                columns = tuple(row["name"] for row in connection.execute(f"PRAGMA table_info({table})"))
                 if columns != expected:
                     raise sqlite3.DatabaseError("unexpected validation workflow schema")
-            indexes = {
-                row["name"]
-                for row in connection.execute(
-                    "SELECT name FROM sqlite_master WHERE type = 'index'"
-                )
-            }
+            indexes = {row["name"] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'index'")}
             if "timeline_validation_reports_project_created" not in indexes:
                 raise sqlite3.DatabaseError("incomplete validation workflow indexes")
             migration_sql = ""
         else:
             migration_sql = VALIDATION_WORKFLOW_SCHEMA
-        connection.executescript(
-            "BEGIN IMMEDIATE;\n"
-            + migration_sql
-            + "\nPRAGMA user_version = 8;\nCOMMIT;"
-        )
+        connection.executescript("BEGIN IMMEDIATE;\n" + migration_sql + "\nPRAGMA user_version = 8;\nCOMMIT;")
 
     @staticmethod
     def _migrate_v8_to_v9(connection: sqlite3.Connection) -> None:
@@ -967,21 +897,30 @@ class ProjectRepository:
 
         expected_columns = {
             "edit_timelines": (
-                "timeline_id", "project_id", "plan_id", "plan_revision",
-                "plan_content_hash", "output_preset", "frame_rate",
-                "payload_digest", "payload_json", "created_at",
+                "timeline_id",
+                "project_id",
+                "plan_id",
+                "plan_revision",
+                "plan_content_hash",
+                "output_preset",
+                "frame_rate",
+                "payload_digest",
+                "payload_json",
+                "created_at",
             ),
             "current_timeline": ("slot", "timeline_id"),
             "timeline_command_receipts": (
-                "request_id", "command_type", "request_hash", "timeline_id",
+                "request_id",
+                "command_type",
+                "request_hash",
+                "timeline_id",
                 "created_at",
             ),
         }
         observed = {
             row["name"]
             for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table' "
-                "AND name IN (?, ?, ?)",
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN (?, ?, ?)",
                 tuple(expected_columns),
             )
         }
@@ -989,28 +928,16 @@ class ProjectRepository:
             raise sqlite3.DatabaseError("incomplete timeline schema")
         if observed:
             for table, expected in expected_columns.items():
-                columns = tuple(
-                    row["name"]
-                    for row in connection.execute(f"PRAGMA table_info({table})")
-                )
+                columns = tuple(row["name"] for row in connection.execute(f"PRAGMA table_info({table})"))
                 if columns != expected:
                     raise sqlite3.DatabaseError("unexpected timeline schema")
-            indexes = {
-                row["name"]
-                for row in connection.execute(
-                    "SELECT name FROM sqlite_master WHERE type = 'index'"
-                )
-            }
+            indexes = {row["name"] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'index'")}
             if "edit_timelines_project_created" not in indexes:
                 raise sqlite3.DatabaseError("incomplete timeline indexes")
             migration_sql = ""
         else:
             migration_sql = TIMELINE_SCHEMA
-        connection.executescript(
-            "BEGIN IMMEDIATE;\n"
-            + migration_sql
-            + "\nPRAGMA user_version = 10;\nCOMMIT;"
-        )
+        connection.executescript("BEGIN IMMEDIATE;\n" + migration_sql + "\nPRAGMA user_version = 10;\nCOMMIT;")
 
     @staticmethod
     def _migrate_v10_to_v11(connection: sqlite3.Connection) -> None:
@@ -1018,23 +945,37 @@ class ProjectRepository:
 
         expected_columns = {
             "material_annotations": (
-                "version_id", "revision", "people_json", "location", "trip_day",
-                "day_part", "note", "usage", "updated_at",
+                "version_id",
+                "revision",
+                "people_json",
+                "location",
+                "trip_day",
+                "day_part",
+                "note",
+                "usage",
+                "updated_at",
             ),
             "transcript_annotations": (
-                "version_id", "stream_index", "source_revision_id", "revision",
-                "confirmed", "corrections_json", "updated_at",
+                "version_id",
+                "stream_index",
+                "source_revision_id",
+                "revision",
+                "confirmed",
+                "corrections_json",
+                "updated_at",
             ),
             "annotation_command_receipts": (
-                "request_id", "command_type", "request_hash", "response_json",
+                "request_id",
+                "command_type",
+                "request_hash",
+                "response_json",
                 "created_at",
             ),
         }
         observed = {
             row["name"]
             for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table' "
-                "AND name IN (?, ?, ?)",
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN (?, ?, ?)",
                 tuple(expected_columns),
             )
         }
@@ -1042,58 +983,76 @@ class ProjectRepository:
             raise sqlite3.DatabaseError("incomplete annotation schema")
         if observed:
             for table, expected in expected_columns.items():
-                columns = tuple(
-                    row["name"]
-                    for row in connection.execute(f"PRAGMA table_info({table})")
-                )
+                columns = tuple(row["name"] for row in connection.execute(f"PRAGMA table_info({table})"))
                 allowed = {expected}
                 if table == "transcript_annotations":
-                    allowed.add((
-                        "version_id", "stream_index", "source_revision_id", "revision",
-                        "confirmed", "discarded", "corrections_json", "updated_at",
-                    ))
-                    allowed.add((
-                        "version_id", "stream_index", "source_revision_id", "revision",
-                        "confirmed", "corrections_json", "updated_at", "discarded",
-                    ))
+                    allowed.add(
+                        (
+                            "version_id",
+                            "stream_index",
+                            "source_revision_id",
+                            "revision",
+                            "confirmed",
+                            "discarded",
+                            "corrections_json",
+                            "updated_at",
+                        )
+                    )
+                    allowed.add(
+                        (
+                            "version_id",
+                            "stream_index",
+                            "source_revision_id",
+                            "revision",
+                            "confirmed",
+                            "corrections_json",
+                            "updated_at",
+                            "discarded",
+                        )
+                    )
                 if columns not in allowed:
                     raise sqlite3.DatabaseError("unexpected annotation schema")
-            indexes = {
-                row["name"]
-                for row in connection.execute(
-                    "SELECT name FROM sqlite_master WHERE type = 'index'"
-                )
-            }
+            indexes = {row["name"] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'index'")}
             if "material_annotations_updated" not in indexes:
                 raise sqlite3.DatabaseError("incomplete annotation indexes")
             migration_sql = ""
         else:
             migration_sql = ANNOTATION_SCHEMA
-        connection.executescript(
-            "BEGIN IMMEDIATE;\n"
-            + migration_sql
-            + "\nPRAGMA user_version = 11;\nCOMMIT;"
-        )
+        connection.executescript("BEGIN IMMEDIATE;\n" + migration_sql + "\nPRAGMA user_version = 11;\nCOMMIT;")
 
     @staticmethod
     def _migrate_v11_to_v12(connection: sqlite3.Connection) -> None:
         """Add reversible transcript removal without deleting ASR evidence."""
 
-        columns = tuple(
-            row["name"]
-            for row in connection.execute("PRAGMA table_info(transcript_annotations)")
-        )
+        columns = tuple(row["name"] for row in connection.execute("PRAGMA table_info(transcript_annotations)"))
         previous = (
-            "version_id", "stream_index", "source_revision_id", "revision",
-            "confirmed", "corrections_json", "updated_at",
+            "version_id",
+            "stream_index",
+            "source_revision_id",
+            "revision",
+            "confirmed",
+            "corrections_json",
+            "updated_at",
         )
         current = (
-            "version_id", "stream_index", "source_revision_id", "revision",
-            "confirmed", "discarded", "corrections_json", "updated_at",
+            "version_id",
+            "stream_index",
+            "source_revision_id",
+            "revision",
+            "confirmed",
+            "discarded",
+            "corrections_json",
+            "updated_at",
         )
         migrated = (
-            "version_id", "stream_index", "source_revision_id", "revision",
-            "confirmed", "corrections_json", "updated_at", "discarded",
+            "version_id",
+            "stream_index",
+            "source_revision_id",
+            "revision",
+            "confirmed",
+            "corrections_json",
+            "updated_at",
+            "discarded",
         )
         if columns == previous:
             migration_sql = (
@@ -1104,11 +1063,7 @@ class ProjectRepository:
             migration_sql = ""
         else:
             raise sqlite3.DatabaseError("unexpected transcript annotation schema")
-        connection.executescript(
-            "BEGIN IMMEDIATE;\n"
-            + migration_sql
-            + "\nPRAGMA user_version = 12;\nCOMMIT;"
-        )
+        connection.executescript("BEGIN IMMEDIATE;\n" + migration_sql + "\nPRAGMA user_version = 12;\nCOMMIT;")
 
     @staticmethod
     def _migrate_v12_to_v13(connection: sqlite3.Connection) -> None:
@@ -1124,9 +1079,7 @@ class ProjectRepository:
         if observed and observed != {"preview_renders", "current_preview_render"}:
             raise sqlite3.DatabaseError("incomplete preview render schema")
         connection.executescript(
-            "BEGIN IMMEDIATE;\n"
-            + ("" if observed else PREVIEW_SCHEMA)
-            + "\nPRAGMA user_version = 13;\nCOMMIT;"
+            "BEGIN IMMEDIATE;\n" + ("" if observed else PREVIEW_SCHEMA) + "\nPRAGMA user_version = 13;\nCOMMIT;"
         )
 
     @staticmethod
@@ -1135,22 +1088,49 @@ class ProjectRepository:
 
         expected_columns = {
             "edit_agent_runs": (
-                "run_id", "project_id", "request_id", "base_timeline_id", "state",
-                "phase", "max_tool_calls", "tool_calls", "max_preview_renders",
-                "preview_renders", "current_revision_id", "final_revision_id",
-                "provider", "provider_attempt_id", "usage_json", "error_code",
-                "created_at", "started_at", "completed_at",
+                "run_id",
+                "project_id",
+                "request_id",
+                "base_timeline_id",
+                "state",
+                "phase",
+                "max_tool_calls",
+                "tool_calls",
+                "max_preview_renders",
+                "preview_renders",
+                "current_revision_id",
+                "final_revision_id",
+                "provider",
+                "provider_attempt_id",
+                "usage_json",
+                "error_code",
+                "created_at",
+                "started_at",
+                "completed_at",
             ),
             "edit_agent_revisions": (
-                "revision_id", "run_id", "ordinal", "parent_revision_id",
-                "payload_digest", "payload_json", "summary", "created_at",
+                "revision_id",
+                "run_id",
+                "ordinal",
+                "parent_revision_id",
+                "payload_digest",
+                "payload_json",
+                "summary",
+                "created_at",
             ),
             "edit_agent_events": (
-                "event_id", "run_id", "sequence", "event_type", "payload_json",
+                "event_id",
+                "run_id",
+                "sequence",
+                "event_type",
+                "payload_json",
                 "created_at",
             ),
             "edit_agent_command_receipts": (
-                "request_id", "command_type", "request_hash", "response_json",
+                "request_id",
+                "command_type",
+                "request_hash",
+                "response_json",
                 "created_at",
             ),
         }
@@ -1166,18 +1146,10 @@ class ProjectRepository:
             raise sqlite3.DatabaseError("incomplete edit agent schema")
         if observed:
             for table, expected in expected_columns.items():
-                columns = tuple(
-                    row["name"]
-                    for row in connection.execute(f"PRAGMA table_info({table})")
-                )
+                columns = tuple(row["name"] for row in connection.execute(f"PRAGMA table_info({table})"))
                 if columns != expected:
                     raise sqlite3.DatabaseError("unexpected edit agent schema")
-            indexes = {
-                row["name"]
-                for row in connection.execute(
-                    "SELECT name FROM sqlite_master WHERE type='index'"
-                )
-            }
+            indexes = {row["name"] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='index'")}
             if not {
                 "edit_agent_runs_project_created",
                 "edit_agent_revisions_run_ordinal",
@@ -1185,9 +1157,7 @@ class ProjectRepository:
             }.issubset(indexes):
                 raise sqlite3.DatabaseError("incomplete edit agent indexes")
         connection.executescript(
-            "BEGIN IMMEDIATE;\n"
-            + ("" if observed else EDIT_AGENT_SCHEMA)
-            + "\nPRAGMA user_version = 14;\nCOMMIT;"
+            "BEGIN IMMEDIATE;\n" + ("" if observed else EDIT_AGENT_SCHEMA) + "\nPRAGMA user_version = 14;\nCOMMIT;"
         )
 
     @staticmethod
@@ -1207,20 +1177,36 @@ class ProjectRepository:
     def _migrate_v15_to_v16(connection: sqlite3.Connection) -> None:
         expected = {
             "finishing_library": ("role", "directory_json", "assets_json", "issues_json"),
-            "finishing_runs": ("run_id", "request_id", "request_hash", "kind", "state", "phase", "progress", "context_json", "result_json", "usage_json", "error_code", "created_at", "completed_at"),
+            "finishing_runs": (
+                "run_id",
+                "request_id",
+                "request_hash",
+                "kind",
+                "state",
+                "phase",
+                "progress",
+                "context_json",
+                "result_json",
+                "usage_json",
+                "error_code",
+                "created_at",
+                "completed_at",
+            ),
             "finishing_draft": ("slot", "revision", "context_json", "payload_json"),
         }
-        observed = {row["name"] for row in connection.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'finishing_%'"
-        )}
+        observed = {
+            row["name"]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'finishing_%'"
+            )
+        }
         if observed and observed != set(expected):
             raise sqlite3.DatabaseError("incomplete finishing schema")
         for table in observed:
             if tuple(row["name"] for row in connection.execute(f"PRAGMA table_info({table})")) != expected[table]:
                 raise sqlite3.DatabaseError("unexpected finishing schema")
         connection.executescript(
-            "BEGIN IMMEDIATE;\n" + ("" if observed else FINISHING_SCHEMA)
-            + "\nPRAGMA user_version = 16;\nCOMMIT;"
+            "BEGIN IMMEDIATE;\n" + ("" if observed else FINISHING_SCHEMA) + "\nPRAGMA user_version = 16;\nCOMMIT;"
         )
 
     @staticmethod
@@ -1232,19 +1218,24 @@ class ProjectRepository:
         before a render can start.
         """
 
-        columns = tuple(
-            row["name"] for row in connection.execute("PRAGMA table_info(preview_renders)")
-        )
+        columns = tuple(row["name"] for row in connection.execute("PRAGMA table_info(preview_renders)"))
         expected = (
-            "render_id", "project_id", "timeline_id", "request_id", "state",
-            "progress", "output_relative_path", "output_size_bytes", "error_code",
-            "created_at", "started_at", "completed_at",
+            "render_id",
+            "project_id",
+            "timeline_id",
+            "request_id",
+            "state",
+            "progress",
+            "output_relative_path",
+            "output_size_bytes",
+            "error_code",
+            "created_at",
+            "started_at",
+            "completed_at",
         )
         if columns != expected:
             raise sqlite3.DatabaseError("unexpected preview render schema")
-        current = connection.execute(
-            "SELECT render_id FROM current_preview_render WHERE slot=1"
-        ).fetchone()
+        current = connection.execute("SELECT render_id FROM current_preview_render WHERE slot=1").fetchone()
         connection.execute("PRAGMA foreign_keys=OFF")
         try:
             connection.executescript(
@@ -1272,11 +1263,7 @@ class ProjectRepository:
     @staticmethod
     def _migrate_v2_to_v3(connection: sqlite3.Connection) -> None:
         try:
-            connection.executescript(
-                "BEGIN IMMEDIATE;\n"
-                + _ANALYSIS_SCHEMA
-                + "\nPRAGMA user_version = 4;\nCOMMIT;"
-            )
+            connection.executescript("BEGIN IMMEDIATE;\n" + _ANALYSIS_SCHEMA + "\nPRAGMA user_version = 4;\nCOMMIT;")
         except sqlite3.Error:
             connection.rollback()
             raise
@@ -1368,15 +1355,11 @@ class ProjectRepository:
     def _migrate_v4_to_v5(connection: sqlite3.Connection) -> None:
         """Keep old transcripts while making their unverified quality explicit."""
         try:
-            columns = {
-                row[1]
-                for row in connection.execute(
-                    "PRAGMA table_info(preparation_items)"
-                ).fetchall()
-            }
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(preparation_items)").fetchall()}
             add_review_column = (
-                "" if "review_required" in columns else
-                "ALTER TABLE preparation_items ADD COLUMN review_required INTEGER "
+                ""
+                if "review_required" in columns
+                else "ALTER TABLE preparation_items ADD COLUMN review_required INTEGER "
                 "NOT NULL DEFAULT 0 CHECK (review_required IN (0, 1));"
             )
             connection.executescript(
@@ -1429,13 +1412,10 @@ class ProjectRepository:
     @staticmethod
     def _read_snapshot(connection: sqlite3.Connection) -> ProjectSnapshot:
         row = connection.execute(
-            "SELECT project_id, name, brief, stage, revision, created_at, updated_at "
-            "FROM project LIMIT 1"
+            "SELECT project_id, name, brief, stage, revision, created_at, updated_at FROM project LIMIT 1"
         ).fetchone()
         if row is None:
-            raise ProjectError(
-                "storage_corrupt", "Clipen 無法讀取作品資料。", status_code=500
-            )
+            raise ProjectError("storage_corrupt", "Clipen 無法讀取作品資料。", status_code=500)
         directories = connection.execute(
             "SELECT role, canonical_path, display_path, display_name, device, inode, saved_at "
             "FROM project_directories ORDER BY role"

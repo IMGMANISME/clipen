@@ -44,11 +44,9 @@ clipen claude        # 或 clipen codex
 
 - 本機語音辨識產生逐字稿與字幕，素材不離開你的電腦
 - 指定自己的配樂，AI 會依歌曲長度安排段落與淡入淡出
-- 下載這一版影片（MP4）或 Clipen 的剪輯資料
+- 下載這一版影片（MP4）或 Clipen 的剪輯資料，也可以匯出到 DaVinci Resolve 繼續剪
 - 作品存在該資料夾的 `.clipen` 子目錄，毛片留在原本的位置
 - 只有在你從畫面上確認後才呼叫 AI，使用 Claude Code 或 Codex 自己的登入與額度
-
-DaVinci Resolve 工程匯出還沒有提供。
 
 ## 安裝
 

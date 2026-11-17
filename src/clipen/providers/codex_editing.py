@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import tempfile
+from pathlib import Path
 from typing import Mapping
 
 from .codex import (
@@ -73,7 +73,7 @@ class CodexEditingAgent(BoundedEditingAgent):
             "-c",
             "mcp_servers.clipen.tool_timeout_sec=600",
             "-c",
-            "mcp_servers.clipen.default_tools_approval_mode=\"approve\"",
+            'mcp_servers.clipen.default_tools_approval_mode="approve"',
             "-c",
             f"mcp_servers.clipen.enabled_tools={json.dumps(_MCP_TOOLS)}",
             *model_config(self.binary, self.environment),

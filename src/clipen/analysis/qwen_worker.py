@@ -3,17 +3,16 @@
 from __future__ import annotations
 
 import argparse
-from decimal import Decimal
 import importlib.metadata
 import json
 import math
 import os
-from pathlib import Path
 import stat
 import sys
 import unicodedata
 import wave
-
+from decimal import Decimal
+from pathlib import Path
 
 _MAX_REQUEST_BYTES = 64 * 1024
 _MAX_CAPTURE_BYTES = 32 * 1024 * 1024
@@ -72,9 +71,7 @@ def _write_result(path: Path, value: dict[str, object]) -> None:
         info = os.fstat(descriptor)
         if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
             raise ValueError("unsafe output")
-        encoded = json.dumps(
-            value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
-        ).encode("utf-8")
+        encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         if len(encoded) > _MAX_CAPTURE_BYTES:
             raise ValueError("result too large")
         with os.fdopen(descriptor, "wb", closefd=False) as output:
@@ -98,9 +95,7 @@ def _read_audio(path: Path):
             raise ValueError("unsupported audio")
         frame_count = audio.getnframes()
         duration = frame_count / audio.getframerate()
-        samples = np.frombuffer(audio.readframes(frame_count), dtype="<i2").astype(
-            np.float32
-        ) / 32768.0
+        samples = np.frombuffer(audio.readframes(frame_count), dtype="<i2").astype(np.float32) / 32768.0
     if duration > _MAX_AUDIO_SECONDS:
         raise ValueError("audio chunk too long")
     return samples
@@ -115,9 +110,7 @@ def _window_ranges(samples, sample_rate: int = 16_000) -> list[tuple[int, int]]:
     usable = int(samples.shape[0]) // search_frame * search_frame
     frames = samples[:usable].reshape(-1, search_frame)
     energies = np.mean(frames * frames, axis=1).tolist()
-    return _window_ranges_from_energy(
-        int(samples.shape[0]), energies, search_frame, sample_rate
-    )
+    return _window_ranges_from_energy(int(samples.shape[0]), energies, search_frame, sample_rate)
 
 
 def _window_ranges_from_energy(
@@ -164,9 +157,7 @@ def _has_audible_activity(samples, sample_rate: int = 16_000) -> bool:
     return _audible_from_rms(rms.tolist(), int(samples.shape[0]), sample_rate)
 
 
-def _audible_from_rms(
-    rms: list[float], sample_count: int, sample_rate: int = 16_000
-) -> bool:
+def _audible_from_rms(rms: list[float], sample_count: int, sample_rate: int = 16_000) -> bool:
     if sample_count < sample_rate // 2 or not rms:
         return False
     return max(rms) >= 0.006 and sum(value >= 0.003 for value in rms) / len(rms) >= 0.02
@@ -185,9 +176,7 @@ def _percentile(values: list[float], fraction: float) -> float:
     return ordered[lower] * (1 - weight) + ordered[upper] * weight
 
 
-def _quality_from_rms(
-    rms: list[float], *, peak: float, clipping_ratio: float
-) -> dict[str, float | bool]:
+def _quality_from_rms(rms: list[float], *, peak: float, clipping_ratio: float) -> dict[str, float | bool]:
     """Summarize capture quality without claiming that energy equals speech."""
 
     if (
@@ -298,11 +287,7 @@ def _retry_budget(sample_count: int, sample_rate: int = 16_000) -> int:
 
 
 def _semantic(value: str) -> str:
-    return "".join(
-        character.casefold()
-        for character in value
-        if unicodedata.category(character)[0] in {"L", "N"}
-    )
+    return "".join(character.casefold() for character in value if unicodedata.category(character)[0] in {"L", "N"})
 
 
 def _looks_repetitive(value: str) -> bool:
@@ -327,9 +312,7 @@ def _confidence(probabilities: list[float]) -> tuple[float, float, float]:
     return mean, low_ratio, score
 
 
-def _accept_candidate(
-    text: str, probabilities: list[float], *, ended: bool
-) -> tuple[bool, float]:
+def _accept_candidate(text: str, probabilities: list[float], *, ended: bool) -> tuple[bool, float]:
     compact = _semantic(text)
     _mean, low_ratio, score = _confidence(probabilities)
     if not ended or len(compact) < 2 or _looks_repetitive(text):
@@ -347,9 +330,7 @@ def _candidate(runtime, convert, audio) -> dict[str, object]:
     return {"text": text, "accepted": accepted, "score": score}
 
 
-def _should_retry(
-    candidate: dict[str, object], quality: dict[str, float | bool]
-) -> bool:
+def _should_retry(candidate: dict[str, object], quality: dict[str, float | bool]) -> bool:
     # Model confidence was high for several labelled Pocket 3 near-homophone
     # errors. Capture quality, not model confidence alone, controls the bounded
     # comparison pass.
@@ -357,16 +338,10 @@ def _should_retry(
     return bool(quality["needs_enhancement"])
 
 
-def _choose_candidate(
-    original: dict[str, object], enhanced: dict[str, object] | None
-) -> tuple[str, float] | None:
+def _choose_candidate(original: dict[str, object], enhanced: dict[str, object] | None) -> tuple[str, float] | None:
     original_ok = bool(original["accepted"])
     if enhanced is None:
-        return (
-            (str(original["text"]), float(original["score"]))
-            if original_ok
-            else None
-        )
+        return (str(original["text"]), float(original["score"])) if original_ok else None
     enhanced_ok = bool(enhanced["accepted"])
     if original_ok and enhanced_ok:
         original_score = float(original["score"])
@@ -398,11 +373,7 @@ def _selection_needs_review(
     enhanced_ok = enhanced is not None and bool(enhanced["accepted"])
     if not original_ok and not enhanced_ok:
         return False
-    return not (
-        original_ok
-        and enhanced_ok
-        and _semantic(str(original["text"])) == _semantic(str(enhanced["text"]))
-    )
+    return not (original_ok and enhanced_ok and _semantic(str(original["text"])) == _semantic(str(enhanced["text"])))
 
 
 def _canonical_probability(value: float) -> str:
@@ -421,9 +392,7 @@ def _transcribe(runtime, audio) -> tuple[str, list[float], bool]:
 
     features = runtime.processor.feature_extractor(audio, sample_rate=16_000)
     audio_length = int(features.audio_lengths.reshape(-1)[0])
-    prompt = runtime.processor.build_prompt(
-        context="", audio_length=audio_length, language="Chinese"
-    )
+    prompt = runtime.processor.build_prompt(context="", audio_length=audio_length, language="Chinese")
     audio_features = runtime.model.get_audio_features(
         mx.array(features.input_features, dtype=mx.float32),
         feature_attention_mask=mx.array(features.feature_attention_mask, dtype=mx.int32),
@@ -503,14 +472,16 @@ def _result(runtime, convert, audio: Path) -> dict[str, object]:
     for index, _record in eligible[: _retry_budget(int(samples.shape[0]))]:
         record = windows[index]
         enhanced_audio = _enhance_for_speech(
-            record["audio"], record["quality"]  # type: ignore[arg-type]
+            record["audio"],
+            record["quality"],  # type: ignore[arg-type]
         )
         record["enhanced"] = _candidate(runtime, convert, enhanced_audio)
 
     selections: list[tuple[dict[str, object], str, float, bool]] = []
     for record in windows:
         selected = _choose_candidate(
-            record["original"], record["enhanced"]  # type: ignore[arg-type]
+            record["original"],
+            record["enhanced"],  # type: ignore[arg-type]
         )
         if selected is None:
             continue
@@ -612,13 +583,7 @@ def main() -> int:
         mlx_version = importlib.metadata.version("mlx")
         speech_version = importlib.metadata.version("mlx-speech")
         opencc_version = importlib.metadata.version("opencc-python-reimplemented")
-        _response(
-            {
-                "qwen3_asr_runtime": (
-                    f"mlx-speech-{speech_version}+mlx-{mlx_version}+opencc-{opencc_version}"
-                )
-            }
-        )
+        _response({"qwen3_asr_runtime": (f"mlx-speech-{speech_version}+mlx-{mlx_version}+opencc-{opencc_version}")})
         return 0
     if arguments.serve:
         return _serve(model)

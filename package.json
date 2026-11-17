@@ -1,13 +1,14 @@
 {
   "name": "@clipen/clipen-cli",
   "version": "1.0.0",
-  "description": "Clipen：本機 AI 剪輯工作台",
+  "description": "讓 AI 用 Claude Code 或 Codex 幫你剪影片，再用時間線上的審片注記修改",
   "keywords": [
     "video-editing",
     "ai",
-    "claude",
+    "claude-code",
     "codex",
     "vlog",
+    "local-first",
     "cli"
   ],
   "homepage": "https://github.com/IMGMANISME/clipen#readme",
@@ -46,6 +47,7 @@
     "arm64"
   ],
   "scripts": {
+    "prepack": "npm --prefix apps/web run build 1>&2",
     "test": "node --test tests/npm/",
     "release": "node scripts/release.mjs"
   },

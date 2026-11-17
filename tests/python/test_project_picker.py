@@ -1,10 +1,9 @@
 import hashlib
-import os
-from dataclasses import replace
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from dataclasses import replace
+from pathlib import Path
 from unittest import mock
 
 from clipen.projects import (
@@ -33,9 +32,7 @@ def tree_fingerprint(root: Path) -> tuple[tuple[str, int, str], ...]:
     for path in sorted(root.rglob("*")):
         relative = str(path.relative_to(root))
         if path.is_file():
-            entries.append(
-                (relative, path.stat().st_mtime_ns, hashlib.sha256(path.read_bytes()).hexdigest())
-            )
+            entries.append((relative, path.stat().st_mtime_ns, hashlib.sha256(path.read_bytes()).hexdigest()))
         else:
             entries.append((relative + "/", path.stat().st_mtime_ns, "directory"))
     return tuple(entries)
@@ -66,9 +63,7 @@ class ProjectPickerTests(unittest.TestCase):
         before_reference = tree_fingerprint(self.reference)
         workspace, project = self.create_workspace(FakePicker(self.source, self.reference))
 
-        source_selection = workspace.select_directory(
-            "request-pick-source", DirectoryRole.SOURCE
-        )
+        source_selection = workspace.select_directory("request-pick-source", DirectoryRole.SOURCE)
         assert source_selection is not None
         project = workspace.set_directory(
             project.project_id,
@@ -77,9 +72,7 @@ class ProjectPickerTests(unittest.TestCase):
             DirectoryRole.SOURCE,
             source_selection["selection_token"],
         )
-        reference_selection = workspace.select_directory(
-            "request-pick-reference", DirectoryRole.REFERENCE
-        )
+        reference_selection = workspace.select_directory("request-pick-reference", DirectoryRole.REFERENCE)
         assert reference_selection is not None
         project = workspace.set_directory(
             project.project_id,
@@ -96,12 +89,8 @@ class ProjectPickerTests(unittest.TestCase):
     def test_cancel_is_not_an_error_and_request_can_be_retried(self) -> None:
         picker = FakePicker(None, self.source)
         workspace, _ = self.create_workspace(picker)
-        self.assertIsNone(
-            workspace.select_directory("request-pick-cancel", DirectoryRole.SOURCE)
-        )
-        selected = workspace.select_directory(
-            "request-pick-cancel", DirectoryRole.SOURCE
-        )
+        self.assertIsNone(workspace.select_directory("request-pick-cancel", DirectoryRole.SOURCE))
+        selected = workspace.select_directory("request-pick-cancel", DirectoryRole.SOURCE)
         self.assertIsNotNone(selected)
         self.assertEqual(picker.calls, [DirectoryRole.SOURCE, DirectoryRole.SOURCE])
 
@@ -136,9 +125,7 @@ class ProjectPickerTests(unittest.TestCase):
             workspace.select_directory("request-pick-managed", DirectoryRole.SOURCE)
         self.assertEqual(context.exception.code, "directory_managed_overlap")
 
-        source_selection = workspace.select_directory(
-            "request-pick-overlap-source", DirectoryRole.SOURCE
-        )
+        source_selection = workspace.select_directory("request-pick-overlap-source", DirectoryRole.SOURCE)
         assert source_selection is not None
         project = workspace.set_directory(
             project.project_id,
@@ -147,9 +134,7 @@ class ProjectPickerTests(unittest.TestCase):
             DirectoryRole.SOURCE,
             source_selection["selection_token"],
         )
-        nested_selection = workspace.select_directory(
-            "request-pick-overlap-reference", DirectoryRole.REFERENCE
-        )
+        nested_selection = workspace.select_directory("request-pick-overlap-reference", DirectoryRole.REFERENCE)
         assert nested_selection is not None
         with self.assertRaises(ProjectError) as context:
             workspace.set_directory(
@@ -183,20 +168,14 @@ class ProjectPickerTests(unittest.TestCase):
         moved = self.root / "source-unplugged"
         self.source.rename(moved)
         offline = workspace.get_project(project.project_id)
-        self.assertEqual(
-            offline.directories[0].availability, DirectoryAvailability.OFFLINE
-        )
+        self.assertEqual(offline.directories[0].availability, DirectoryAvailability.OFFLINE)
         self.source.mkdir(parents=True)
         changed = workspace.get_project(project.project_id)
-        self.assertEqual(
-            changed.directories[0].availability, DirectoryAvailability.CHANGED
-        )
+        self.assertEqual(changed.directories[0].availability, DirectoryAvailability.CHANGED)
 
     def test_reconnecting_the_same_directory_restores_availability(self) -> None:
         workspace, project = self.create_workspace(FakePicker(self.source))
-        selection = workspace.select_directory(
-            "request-pick-reconnect", DirectoryRole.SOURCE
-        )
+        selection = workspace.select_directory("request-pick-reconnect", DirectoryRole.SOURCE)
         assert selection is not None
         project = workspace.set_directory(
             project.project_id,
@@ -220,9 +199,7 @@ class ProjectPickerTests(unittest.TestCase):
 
     def test_external_volume_device_number_may_change_after_remount(self) -> None:
         workspace, project = self.create_workspace(FakePicker(self.source))
-        selection = workspace.select_directory(
-            "request-pick-device-drift", DirectoryRole.SOURCE
-        )
+        selection = workspace.select_directory("request-pick-device-drift", DirectoryRole.SOURCE)
         assert selection is not None
         project = workspace.set_directory(
             project.project_id,

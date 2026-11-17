@@ -1,21 +1,15 @@
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 
 from clipen.analysis import qwen_worker
 
 
 class QwenWorkerTests(unittest.TestCase):
     def test_audio_quality_only_requests_enhancement_for_quiet_or_noisy_capture(self) -> None:
-        clean = qwen_worker._quality_from_rms(
-            [0.001] * 80 + [0.05] * 20, peak=0.4, clipping_ratio=0
-        )
-        quiet = qwen_worker._quality_from_rms(
-            [0.001] * 80 + [0.012] * 20, peak=0.08, clipping_ratio=0
-        )
-        noisy = qwen_worker._quality_from_rms(
-            [0.01] * 80 + [0.025] * 20, peak=0.2, clipping_ratio=0
-        )
+        clean = qwen_worker._quality_from_rms([0.001] * 80 + [0.05] * 20, peak=0.4, clipping_ratio=0)
+        quiet = qwen_worker._quality_from_rms([0.001] * 80 + [0.012] * 20, peak=0.08, clipping_ratio=0)
+        noisy = qwen_worker._quality_from_rms([0.01] * 80 + [0.025] * 20, peak=0.2, clipping_ratio=0)
 
         self.assertFalse(clean["needs_enhancement"])
         self.assertTrue(quiet["needs_enhancement"])
@@ -30,18 +24,12 @@ class QwenWorkerTests(unittest.TestCase):
         weak_capture = {"needs_enhancement": True}
         clean_capture = {"needs_enhancement": False}
 
-        self.assertTrue(qwen_worker._should_retry(
-            {"text": "清楚口語", "accepted": True, "score": 0.9}, weak_capture
-        ))
-        self.assertTrue(qwen_worker._should_retry(
-            {"text": "不確定口語", "accepted": True, "score": 0.72}, weak_capture
-        ))
-        self.assertTrue(qwen_worker._should_retry(
-            {"text": "", "accepted": False, "score": 0.2}, weak_capture
-        ))
-        self.assertFalse(qwen_worker._should_retry(
-            {"text": "清楚口語", "accepted": True, "score": 0.9}, clean_capture
-        ))
+        self.assertTrue(qwen_worker._should_retry({"text": "清楚口語", "accepted": True, "score": 0.9}, weak_capture))
+        self.assertTrue(
+            qwen_worker._should_retry({"text": "不確定口語", "accepted": True, "score": 0.72}, weak_capture)
+        )
+        self.assertTrue(qwen_worker._should_retry({"text": "", "accepted": False, "score": 0.2}, weak_capture))
+        self.assertFalse(qwen_worker._should_retry({"text": "清楚口語", "accepted": True, "score": 0.9}, clean_capture))
 
     def test_enhancement_disagreement_remains_reviewable(self) -> None:
         original = {"text": "我們去玩尼莫", "accepted": True, "score": 0.72}
@@ -75,15 +63,9 @@ class QwenWorkerTests(unittest.TestCase):
         different = {"text": "我們去玩泥莫", "accepted": True, "score": 0.93}
 
         self.assertTrue(qwen_worker._selection_needs_review(original, None, weak))
-        self.assertTrue(
-            qwen_worker._selection_needs_review(original, different, weak)
-        )
-        self.assertFalse(
-            qwen_worker._selection_needs_review(original, matching, weak)
-        )
-        self.assertFalse(
-            qwen_worker._selection_needs_review(original, None, clean)
-        )
+        self.assertTrue(qwen_worker._selection_needs_review(original, different, weak))
+        self.assertFalse(qwen_worker._selection_needs_review(original, matching, weak))
+        self.assertFalse(qwen_worker._selection_needs_review(original, None, clean))
 
     def test_labelled_pocket3_foreground_speech_is_retained(self) -> None:
         # 0018: 點一個酪梨吐司、水波蛋吐司，黑咖啡跟拿鐵。
@@ -125,21 +107,15 @@ class QwenWorkerTests(unittest.TestCase):
         self.assertLess(score, 0.68)
 
     def test_unfinished_or_repetitive_generation_is_rejected(self) -> None:
-        self.assertFalse(
-            qwen_worker._accept_candidate("準備" * 20, [0.99] * 40, ended=True)[0]
-        )
-        self.assertFalse(
-            qwen_worker._accept_candidate("今天要去東京", [0.99] * 6, ended=False)[0]
-        )
+        self.assertFalse(qwen_worker._accept_candidate("準備" * 20, [0.99] * 40, ended=True)[0])
+        self.assertFalse(qwen_worker._accept_candidate("今天要去東京", [0.99] * 6, ended=False)[0])
 
     def test_internal_windows_are_bounded_and_prefer_quiet_cut(self) -> None:
         frame_size = 320
         energies = [0.01] * (30 * 16_000 // frame_size)
         energies[10 * 16_000 // frame_size] = 0
 
-        ranges = qwen_worker._window_ranges_from_energy(
-            30 * 16_000, energies, frame_size
-        )
+        ranges = qwen_worker._window_ranges_from_energy(30 * 16_000, energies, frame_size)
 
         self.assertEqual(ranges[0][1], 10 * 16_000)
         self.assertEqual(ranges[-1][1], 30 * 16_000)

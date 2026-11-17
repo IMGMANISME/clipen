@@ -1,4 +1,3 @@
-from pathlib import Path
 import json
 import sqlite3
 import tempfile
@@ -6,21 +5,22 @@ import threading
 import time
 import unittest
 import wave
+from pathlib import Path
 
 from clipen.analysis import (
     ArtifactKind,
     ArtifactStore,
-    PreparedAudioChunk,
     PreparationCoordinator,
     PreparationItemStatus,
-    PreparationRepository,
     PreparationRecipe,
+    PreparationRepository,
     PreparationState,
-    TranscriptSegment,
-    TranscriptWord,
+    PreparedAudioChunk,
+    TimelineSegment,
     TranscriptionError,
     TranscriptionResult,
-    TimelineSegment,
+    TranscriptSegment,
+    TranscriptWord,
     project_samples_to_source,
 )
 from clipen.media import (
@@ -57,9 +57,7 @@ class FakeTranscriber:
     def probe(self) -> str:
         return "mlx-whisper test"
 
-    def transcribe(
-        self, audio, output, *, language="zh", initial_prompt=None, cancel=None
-    ):
+    def transcribe(self, audio, output, *, language="zh", initial_prompt=None, cancel=None):
         del audio, cancel
         self.requests.append((language, initial_prompt))
         output.write_text('{"test":true}', encoding="utf-8")
@@ -79,9 +77,7 @@ class FakeTranscriber:
 
 
 class FailingTranscriber(FakeTranscriber):
-    def transcribe(
-        self, audio, output, *, language="zh", initial_prompt=None, cancel=None
-    ):
+    def transcribe(self, audio, output, *, language="zh", initial_prompt=None, cancel=None):
         del audio, output, language, initial_prompt, cancel
         raise TranscriptionError("asr_failed")
 
@@ -89,9 +85,7 @@ class FailingTranscriber(FakeTranscriber):
 class BlockingTranscriber(FakeTranscriber):
     entered = threading.Event()
 
-    def transcribe(
-        self, audio, output, *, language="zh", initial_prompt=None, cancel=None
-    ):
+    def transcribe(self, audio, output, *, language="zh", initial_prompt=None, cancel=None):
         del audio, output, language, initial_prompt
         self.entered.set()
         assert cancel is not None
@@ -229,11 +223,7 @@ class PreparationStorageTests(unittest.TestCase):
         self.assertEqual(scope.duration_seconds, "5")
         self.assertEqual(len(scope.targets), 2)
         audio = next(target for target in scope.targets if target.audio is not None)
-        no_audio = next(
-            target
-            for target in scope.targets
-            if target.initial_status is PreparationItemStatus.NO_AUDIO
-        )
+        no_audio = next(target for target in scope.targets if target.initial_status is PreparationItemStatus.NO_AUDIO)
         self.assertEqual(audio.audio.source_span.start_pts, "48000")
         self.assertEqual(audio.audio.source_span.end_pts, "288000")
         self.assertEqual(no_audio.stream_index, -1)
@@ -475,9 +465,7 @@ class PreparationStorageTests(unittest.TestCase):
             PreparationItemStatus.PREPARED,
             audio_artifact_id=artifact.artifact_id,
         )
-        chunk_span = project_samples_to_source(
-            target.audio.source_span, 0, 16_000, 16_000
-        )
+        chunk_span = project_samples_to_source(target.audio.source_span, 0, 16_000, 16_000)
         self.repository.register_chunks(
             self.project.project_id,
             old.run_id,
@@ -490,9 +478,7 @@ class PreparationStorageTests(unittest.TestCase):
             "舊逐字稿",
             (TranscriptSegment(0, 16_000, "舊逐字稿", "0.01", ()),),
         )
-        chunk_staging = store.create_staging_file(
-            self.project.project_id, suffix=".json"
-        )
+        chunk_staging = store.create_staging_file(self.project.project_id, suffix=".json")
         chunk_staging.write_text('{"chunk":"old"}', encoding="utf-8")
         chunk_artifact = store.publish(
             self.project.project_id,
@@ -514,9 +500,7 @@ class PreparationStorageTests(unittest.TestCase):
             chunk_artifact.artifact_id,
             result,
         )
-        final_staging = store.create_staging_file(
-            self.project.project_id, suffix=".json"
-        )
+        final_staging = store.create_staging_file(self.project.project_id, suffix=".json")
         final_staging.write_text('{"text":"舊逐字稿"}', encoding="utf-8")
         final_artifact = store.publish(
             self.project.project_id,
@@ -641,13 +625,9 @@ class PreparationStorageTests(unittest.TestCase):
             PreparationItemStatus.PREPARED,
             audio_artifact_id=audio.artifact_id,
         )
-        source_span = project_samples_to_source(
-            target.audio.source_span, 0, 80_000, 16_000
-        )
+        source_span = project_samples_to_source(target.audio.source_span, 0, 80_000, 16_000)
         chunk_path = self.root / "chunk.wav"
-        chunks = (
-            PreparedAudioChunk(chunk_path, source_span, 0, 80_000),
-        )
+        chunks = (PreparedAudioChunk(chunk_path, source_span, 0, 80_000),)
         registered = self.repository.register_chunks(
             self.project.project_id,
             run.run_id,
@@ -680,9 +660,7 @@ class PreparationStorageTests(unittest.TestCase):
                 ),
             ),
         )
-        transcript_staging = store.create_staging_file(
-            self.project.project_id, suffix=".json"
-        )
+        transcript_staging = store.create_staging_file(self.project.project_id, suffix=".json")
         transcript_staging.write_text("{}", encoding="utf-8")
         transcript = store.publish(
             self.project.project_id,
@@ -716,9 +694,7 @@ class PreparationStorageTests(unittest.TestCase):
             ),
             completed,
         )
-        final_staging = store.create_staging_file(
-            self.project.project_id, suffix=".json"
-        )
+        final_staging = store.create_staging_file(self.project.project_id, suffix=".json")
         final_staging.write_text('{"text":"手沖咖啡"}', encoding="utf-8")
         final_artifact = store.publish(
             self.project.project_id,
@@ -826,17 +802,11 @@ class PreparationStorageTests(unittest.TestCase):
         self.assertEqual(context.exception.code, "inventory_required")
 
     def test_v3_analysis_skeleton_migrates_to_checkpoint_schema(self) -> None:
-        database = (
-            self.root
-            / "projects"
-            / self.project.project_id
-            / "project.sqlite3"
-        )
+        database = self.root / "projects" / self.project.project_id / "project.sqlite3"
         run_id = "prep_" + "7" * 32
         with sqlite3.connect(database) as connection:
             version_id = connection.execute(
-                "SELECT version_id FROM inventory_items WHERE run_id = ? "
-                "AND display_name = 'clip.mov'",
+                "SELECT version_id FROM inventory_items WHERE run_id = ? AND display_name = 'clip.mov'",
                 (self.inventory.run_id,),
             ).fetchone()[0]
             connection.execute("PRAGMA foreign_keys = OFF")
@@ -880,8 +850,7 @@ class PreparationStorageTests(unittest.TestCase):
                 (run_id, self.project.project_id, self.inventory.run_id, "d" * 64),
             )
             connection.execute(
-                "INSERT INTO preparation_items "
-                "(run_id, version_id, stream_index, status) VALUES (?, ?, 1, 'pending')",
+                "INSERT INTO preparation_items (run_id, version_id, stream_index, status) VALUES (?, ?, 1, 'pending')",
                 (run_id, version_id),
             )
 
@@ -894,13 +863,11 @@ class PreparationStorageTests(unittest.TestCase):
                 (run_id,),
             ).fetchone()
             item = connection.execute(
-                "SELECT stream_index, audio_artifact_id FROM preparation_items "
-                "WHERE run_id = ?",
+                "SELECT stream_index, audio_artifact_id FROM preparation_items WHERE run_id = ?",
                 (run_id,),
             ).fetchone()
             chunks_exists = connection.execute(
-                "SELECT 1 FROM sqlite_master WHERE type = 'table' "
-                "AND name = 'preparation_chunks'"
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'preparation_chunks'"
             ).fetchone()
         self.assertEqual(run["project_revision"], self.project.revision)
         self.assertTrue(run["scope_id"].startswith("scope_"))
@@ -958,16 +925,12 @@ class PreparationStorageTests(unittest.TestCase):
         )
         self.assertEqual(self.clip.read_bytes(), before)
         with self.projects.connect(self.project.project_id) as connection:
-            segment = connection.execute(
-                "SELECT start_pts, end_pts, text FROM transcript_segments"
-            ).fetchone()
+            segment = connection.execute("SELECT start_pts, end_pts, text FROM transcript_segments").fetchone()
         self.assertEqual(segment["start_pts"], "48000")
         self.assertEqual(segment["end_pts"], "96000")
         self.assertEqual(segment["text"], "手沖咖啡")
 
-        results = repository.result_items(
-            self.project.project_id, run.run_id, offset=0, limit=25
-        )
+        results = repository.result_items(self.project.project_id, run.run_id, offset=0, limit=25)
         self.assertEqual(results["total"], 2)
         self.assertIsNone(results["next_offset"])
         self.assertEqual(

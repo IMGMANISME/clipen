@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import sys
+from pathlib import Path
 from typing import Sequence
 
 from clipen.controller import LocalSessionAuthority
@@ -22,7 +22,7 @@ def _repo_root() -> Path:
     root = Path(configured) if configured else Path(__file__).resolve().parents[2]
     resolved = root.resolve(strict=True)
     if not (resolved / "apps" / "web" / "dist" / "index.html").is_file():
-        raise RuntimeError("找不到 Clipen UI production bundle")
+        raise RuntimeError("找不到 Clipen 操作介面，請重新安裝（npx @clipen/clipen-cli 或 ./install）。")
     return resolved
 
 

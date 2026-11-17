@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import base64
-from dataclasses import dataclass
 import json
 import os
 import re
-from pathlib import Path
 import shutil
 import subprocess
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Mapping
 
 from jsonschema import Draft202012Validator
@@ -28,7 +28,6 @@ from .codex import (
     _provider_environment,
     _workspace_file,
 )
-from .recovery import ProviderUsage
 from .errors import (
     ProviderAuthenticationError,
     ProviderNetworkError,
@@ -37,7 +36,7 @@ from .errors import (
     ProviderUnavailable,
     ProviderUsageLimitError,
 )
-
+from .recovery import ProviderUsage
 
 # Flags the bounded editing attempt depends on; an older CLI without them
 # could load user tools or settings, so it is reported as unsupported.
@@ -81,8 +80,10 @@ def claude_preferences(environment: Mapping[str, str] | None = None) -> tuple[st
     if not isinstance(settings, dict):
         return None, None
     model, effort = settings.get("model"), settings.get("effortLevel")
-    return (model if isinstance(model, str) and _CLAUDE_MODEL.fullmatch(model) else None,
-            effort if effort in _CLAUDE_EFFORTS else None)
+    return (
+        model if isinstance(model, str) and _CLAUDE_MODEL.fullmatch(model) else None,
+        effort if effort in _CLAUDE_EFFORTS else None,
+    )
 
 
 def model_arguments(environment: Mapping[str, str] | None = None) -> tuple[str, ...]:
@@ -94,27 +95,49 @@ def claude_environment(source: Mapping[str, str] | None = None) -> dict[str, str
     inherited = os.environ if source is None else source
     environment = _provider_environment(inherited)
     environment.update({key: value for key, value in inherited.items() if key in _CLAUDE_ENVIRONMENT})
-    environment.update({
-        # Match Codex's 600-second MCP tool timeout for bounded music downloads.
-        "MCP_TOOL_TIMEOUT": "600000",
-        "MCP_TIMEOUT": "60000",
-        "DISABLE_AUTOUPDATER": "1",
-        "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
-    })
+    environment.update(
+        {
+            # Match Codex's 600-second MCP tool timeout for bounded music downloads.
+            "MCP_TOOL_TIMEOUT": "600000",
+            "MCP_TIMEOUT": "60000",
+            "DISABLE_AUTOUPDATER": "1",
+            "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+        }
+    )
     return environment
 
 
 def raise_for_claude_failure(returncode: int, diagnostic: str, status: object = None) -> None:
     text = diagnostic.lower()
-    if status == 401 or any(marker in text for marker in (
-            "not logged in", "invalid api key", "/login", "authentication_error", "authentication_failed",
-            "failed to authenticate", "oauth token", "oauth session")):
+    if status == 401 or any(
+        marker in text
+        for marker in (
+            "not logged in",
+            "invalid api key",
+            "/login",
+            "authentication_error",
+            "authentication_failed",
+            "failed to authenticate",
+            "oauth token",
+            "oauth session",
+        )
+    ):
         raise ProviderAuthenticationError("Claude login is missing or no longer valid")
-    if status == 429 or any(marker in text for marker in (
-            "usage limit", "rate limit", "rate_limit", "quota", "credit balance", "limit reached")):
+    if status == 429 or any(
+        marker in text
+        for marker in ("usage limit", "rate limit", "rate_limit", "quota", "credit balance", "limit reached")
+    ):
         raise ProviderUsageLimitError("Claude account usage limit prevented this attempt")
-    if any(marker in text for marker in (
-            "connection error", "network is unreachable", "could not resolve host", "econnrefused", "enotfound")):
+    if any(
+        marker in text
+        for marker in (
+            "connection error",
+            "network is unreachable",
+            "could not resolve host",
+            "econnrefused",
+            "enotfound",
+        )
+    ):
         raise ProviderNetworkError("Claude could not reach its service")
     if "permission denied" in text or "operation not permitted" in text:
         raise ProviderPermissionError("Claude permission confinement failed")
@@ -314,14 +337,23 @@ class ClaudeExecAdapter(CodexExecAdapter):
         content: list[dict[str, object]] = [{"type": "text", "text": attempt.prompt}]
         for image in attempt.images:
             path = _workspace_file(image, attempt.workspace.resolve(), "image")
-            content.append({"type": "image", "source": {
-                "type": "base64", "media_type": "image/png",
-                "data": base64.b64encode(path.read_bytes()).decode("ascii")}})
+            content.append(
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": base64.b64encode(path.read_bytes()).decode("ascii"),
+                    },
+                }
+            )
         message = {"type": "user", "message": {"role": "user", "content": content}}
         return (json.dumps(message, ensure_ascii=False) + "\n").encode("utf-8")
 
     @staticmethod
-    def _events_and_usage(stdout: bytes, *, limit: int = _MAX_CAPTURE_BYTES) -> tuple[tuple[str, ...], ProviderUsage | None]:
+    def _events_and_usage(
+        stdout: bytes, *, limit: int = _MAX_CAPTURE_BYTES
+    ) -> tuple[tuple[str, ...], ProviderUsage | None]:
         events = _stream_events(stdout, limit)
         return stream_event_types(events), stream_usage(events)
 
@@ -367,7 +399,9 @@ class ClaudeExecAdapter(CodexExecAdapter):
             raise ProviderProtocolError("Claude result was not valid UTF-8 JSON") from error
         if not isinstance(payload, dict):
             raise ProviderProtocolError("Claude result must be a JSON object")
-        schema = _load_output_schema(_workspace_file(attempt.output_schema, _isolated_workspace(attempt.workspace), "output_schema"))
+        schema = _load_output_schema(
+            _workspace_file(attempt.output_schema, _isolated_workspace(attempt.workspace), "output_schema")
+        )
         try:
             Draft202012Validator(schema).validate(payload)
         except ValidationError as error:

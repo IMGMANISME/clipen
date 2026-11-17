@@ -55,9 +55,7 @@ class MediaTimeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             Rational.from_storage({"num": 1, "den": 1_000, "ignored": True})
         with self.assertRaises(ValueError):
-            SourceSpan.from_storage(
-                {key: value for key, value in valid.items() if key != "end_pts"}
-            )
+            SourceSpan.from_storage({key: value for key, value in valid.items() if key != "end_pts"})
         with self.assertRaises(ValueError):
             SourceSpan.from_storage({**valid, "ignored": True})
 

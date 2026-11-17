@@ -11,20 +11,20 @@ validates the copy again and publishes it atomically. Production sessions
 freeze the package content, so removing or replacing a skill never changes
 existing work.
 """
+
 from __future__ import annotations
 
-from dataclasses import replace
 import json
 import os
-from pathlib import Path
 import shutil
 import threading
 import uuid
+from dataclasses import replace
+from pathlib import Path
 
 from clipen.projects import ProjectError
 
 from .package import SKILL_ID, SkillPackage, load_package
-
 
 _POINTER = "current.json"
 _STAGING = ".staging"
@@ -69,7 +69,9 @@ class SkillLibrary:
             raise ProjectError("skill_not_found", "找不到這個剪輯樣板。", status_code=404)
         package = load_package(version, self.design, self.reserved)
         if package.skill_id != skill_id or not version.name == package.content_hash[:16]:
-            raise ProjectError("skill_package_changed", "樣板庫裡的這個樣板 內容已被修改，請重新匯入。", status_code=409)
+            raise ProjectError(
+                "skill_package_changed", "樣板庫裡的這個樣板 內容已被修改，請重新匯入。", status_code=409
+            )
         return package
 
     def list(self) -> list[dict[str, object]]:
@@ -103,15 +105,19 @@ class SkillLibrary:
                 # Re-validate what was written; the source may change during the copy.
                 copied = load_package(staging, self.design, self.reserved)
                 if copied.content_hash != package.content_hash or copied.skill_id != package.skill_id:
-                    raise ProjectError("skill_package_changed", "匯入期間 樣板內容有變動，請重新匯入。", status_code=409)
+                    raise ProjectError(
+                        "skill_package_changed", "匯入期間 樣板內容有變動，請重新匯入。", status_code=409
+                    )
                 directory = self._skill_dir(package.skill_id)
                 directory.mkdir(mode=0o700, exist_ok=True)
                 version_dir = directory / package.content_hash[:16]
                 if not version_dir.exists():
                     os.replace(staging, version_dir)
                 pointer = directory / f".{_POINTER}.{uuid.uuid4().hex}"
-                pointer.write_text(json.dumps({"version_dir": version_dir.name, "version": package.version},
-                                              ensure_ascii=False), encoding="utf-8")
+                pointer.write_text(
+                    json.dumps({"version_dir": version_dir.name, "version": package.version}, ensure_ascii=False),
+                    encoding="utf-8",
+                )
                 os.replace(pointer, directory / _POINTER)
             finally:
                 if staging.exists():

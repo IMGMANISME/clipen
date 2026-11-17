@@ -1,5 +1,6 @@
 """Pure product-domain types without transport or provider dependencies."""
 
+from .errors import InvalidTransition
 from .media_time import Rational, SourceSpan
 from .timeline import (
     ClipSource,
@@ -12,7 +13,6 @@ from .timeline import (
     Track,
     TrackKind,
 )
-from .errors import InvalidTransition
 
 __all__ = [
     "InvalidTransition",

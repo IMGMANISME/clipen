@@ -7,9 +7,9 @@ from .models import (
     ProjectError,
     ProjectSnapshot,
 )
-from .storage import ProjectRepository, command_digest
 from .picker import MacOSDirectoryPicker, NativeDirectoryPicker, SelectionAuthority
 from .service import ProjectWorkspace
+from .storage import ProjectRepository, command_digest
 
 __all__ = [
     "DirectoryAvailability",

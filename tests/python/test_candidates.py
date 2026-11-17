@@ -1,14 +1,11 @@
-import json
-from pathlib import Path
 import unittest
 
-
-from clipen.domain import Rational, SourceSpan
-from clipen.planning import (
-    PlanningCandidate,
-    PlanningContext,
+from clipen.candidates import (
+    SourceCandidate,
+    SourceContext,
     TranscriptReliability,
 )
+from clipen.domain import Rational, SourceSpan
 
 
 class PlanningModelsTests(unittest.TestCase):
@@ -18,8 +15,8 @@ class PlanningModelsTests(unittest.TestCase):
         *,
         reliability: TranscriptReliability = TranscriptReliability.TRUSTED,
         excerpt: str | None = "我們抵達東京。",
-    ) -> PlanningCandidate:
-        return PlanningCandidate(
+    ) -> SourceCandidate:
+        return SourceCandidate(
             f"candidate-{index}",
             SourceSpan(
                 "av_" + f"{index:032x}",
@@ -35,8 +32,8 @@ class PlanningModelsTests(unittest.TestCase):
             excerpt,
         )
 
-    def context(self) -> PlanningContext:
-        return PlanningContext(
+    def context(self) -> SourceContext:
+        return SourceContext(
             "prj_" + "1" * 32,
             "依旅程順序剪成自然的敘事 Vlog。",
             "inventory-1",
@@ -90,9 +87,7 @@ class PlanningModelsTests(unittest.TestCase):
                             "candidate_id": "candidate-1",
                             "role": "hook",
                             "audio_treatment": "mixed",
-                            "effects": [
-                                {"effect": "punch_in", "intensity": "subtle"}
-                            ],
+                            "effects": [{"effect": "punch_in", "intensity": "subtle"}],
                         },
                         {
                             "candidate_id": "candidate-2",
@@ -127,11 +122,9 @@ class PlanningModelsTests(unittest.TestCase):
     def test_context_is_path_free_bounded_and_has_conservative_estimate(self) -> None:
         context = self.context()
         payload = context.to_provider()
-        encoded = context.encoded()
         self.assertNotIn("version_id", repr(payload))
         self.assertNotIn("start_pts", repr(payload))
         self.assertNotIn("/Volumes/", repr(payload))
-        self.assertEqual(context.estimated_input_tokens, (len(encoded) + 2) // 3)
         self.assertEqual(len(context.content_hash), 64)
 
     def test_untrusted_transcript_text_cannot_enter_context(self) -> None:

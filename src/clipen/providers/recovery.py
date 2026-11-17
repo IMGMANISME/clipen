@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime, timezone
-from enum import Enum
 import hashlib
 import json
 import os
-from pathlib import Path
 import uuid
-
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from enum import Enum
+from pathlib import Path
 
 _RECEIPT_SCHEMA = 1
 _MAX_RECEIPT_BYTES = 64 * 1024
@@ -232,9 +231,9 @@ class AttemptReceiptStore:
     def write(self, receipt: ProviderAttemptReceipt) -> None:
         if self.path.is_symlink():
             raise AttemptReceiptError("provider attempt receipt cannot be a symbolic link")
-        encoded = json.dumps(
-            receipt.to_dict(), ensure_ascii=False, sort_keys=True, separators=(",", ":")
-        ).encode("utf-8")
+        encoded = json.dumps(receipt.to_dict(), ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
+            "utf-8"
+        )
         if len(encoded) > _MAX_RECEIPT_BYTES:
             raise AttemptReceiptError("provider attempt receipt exceeds its size limit")
         temporary = self.workspace / f".receipt-{receipt.attempt_id}-{uuid.uuid4().hex}"

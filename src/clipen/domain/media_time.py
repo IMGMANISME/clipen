@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import re
+from dataclasses import dataclass
 from typing import Any, Mapping
-
 
 _DECIMAL_INTEGER = re.compile(r"-?(?:0|[1-9][0-9]*)\Z")
 _VERSION_ID = re.compile(r"av_[0-9a-f]{32}\Z")
@@ -37,10 +36,7 @@ class Rational:
             for value in (self.numerator, self.denominator)
         ):
             raise ValueError("time base must contain positive integers")
-        if (
-            self.numerator > _MAX_TIME_BASE_COMPONENT
-            or self.denominator > _MAX_TIME_BASE_COMPONENT
-        ):
+        if self.numerator > _MAX_TIME_BASE_COMPONENT or self.denominator > _MAX_TIME_BASE_COMPONENT:
             raise ValueError("time base is outside supported bounds")
 
     def to_storage(self) -> dict[str, int]:
@@ -64,10 +60,7 @@ class SourceSpan:
     time_base: Rational
 
     def __post_init__(self) -> None:
-        if (
-            not isinstance(self.version_id, str)
-            or _VERSION_ID.fullmatch(self.version_id) is None
-        ):
+        if not isinstance(self.version_id, str) or _VERSION_ID.fullmatch(self.version_id) is None:
             raise ValueError("source span version is invalid")
         if (
             isinstance(self.stream_index, bool)

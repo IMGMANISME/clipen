@@ -1,21 +1,23 @@
 """Bounded local evidence extraction, using decoded PTS rather than average FPS."""
+
 from __future__ import annotations
 
-from array import array
-from contextlib import contextmanager
-from fractions import Fraction
 import math
 import os
-from pathlib import Path
 import re
 import shutil
 import sys
 import threading
 import wave
+from array import array
+from contextlib import contextmanager
+from fractions import Fraction
+from pathlib import Path
 
 from clipen.media import bounded_file_fingerprint
 from clipen.media.discovery import open_file_beneath
-from .audio import AudioPreparationInput, AudioPreparationError, FFmpegAudioAdapter
+
+from .audio import AudioPreparationError, AudioPreparationInput, FFmpegAudioAdapter
 from .keyframes import AdaptiveKeyframeSelector
 
 
@@ -23,9 +25,11 @@ from .keyframes import AdaptiveKeyframeSelector
 def verified_source(source: AudioPreparationInput):
     descriptor = open_file_beneath(source.root, source.relative_path)
     try:
+
         def identity():
             info = os.fstat(descriptor)
             return info.st_size, info.st_mtime_ns, bounded_file_fingerprint(descriptor, info.st_size)
+
         expected = source.size_bytes, source.mtime_ns, source.fingerprint
         if identity() != expected:
             raise AudioPreparationError("source_changed")
@@ -46,15 +50,14 @@ def verified_source(source: AudioPreparationInput):
 
 class LocalEvidenceExtractor(FFmpegAudioAdapter):
     """Bounded sparse video evidence plus a 120-second audio window per stream."""
+
     MAX_FRAMES = AdaptiveKeyframeSelector.MAXIMUM_BUDGET
     WINDOW_SECONDS = 120
 
     def __init__(self, executable: str | None = None, probe_executable: str | None = None):
         super().__init__(executable, timeout_seconds=120, maximum_output_bytes=8 * 1024**2)
         sibling = Path(self.executable).with_name("ffprobe")
-        self.probe_executable = probe_executable or (
-            str(sibling) if sibling.is_file() else shutil.which("ffprobe")
-        )
+        self.probe_executable = probe_executable or (str(sibling) if sibling.is_file() else shutil.which("ffprobe"))
 
     def frame(self, source, offset: Fraction, output: Path, cancel: threading.Event):
         output = self._validate_empty_output(output)
@@ -67,13 +70,41 @@ class LocalEvidenceExtractor(FFmpegAudioAdapter):
             raise AudioPreparationError("frame_time_mapping_invalid")
         absolute_time = Fraction(int(span.start_pts)) * Fraction(tb.numerator, tb.denominator) + offset
         with verified_source(source) as descriptor:
-            _, stderr, code = self._run((
-                self.executable, "-nostdin", "-hide_banner", "-loglevel", "info",
-                "-copyts", "-noaccurate_seek", "-seek_timestamp", "1", "-ss", f"{float(absolute_time):.9f}", "-i", f"/dev/fd/{descriptor}",
-                "-map", f"0:{source.stream_index}", "-an", "-frames:v", "1",
-                "-vf", f"scale=512:512:force_original_aspect_ratio=decrease,format=rgb24,settb={tb.numerator}/{tb.denominator},select=gte(pts\\,{math.ceil(absolute_time / Fraction(tb.numerator, tb.denominator))}),showinfo",
-                "-threads", "1", "-c:v", "png", "-f", "image2", "-y", str(output),
-            ), (descriptor,), cancel, observed_output=output)
+            _, stderr, code = self._run(
+                (
+                    self.executable,
+                    "-nostdin",
+                    "-hide_banner",
+                    "-loglevel",
+                    "info",
+                    "-copyts",
+                    "-noaccurate_seek",
+                    "-seek_timestamp",
+                    "1",
+                    "-ss",
+                    f"{float(absolute_time):.9f}",
+                    "-i",
+                    f"/dev/fd/{descriptor}",
+                    "-map",
+                    f"0:{source.stream_index}",
+                    "-an",
+                    "-frames:v",
+                    "1",
+                    "-vf",
+                    f"scale=512:512:force_original_aspect_ratio=decrease,format=rgb24,settb={tb.numerator}/{tb.denominator},select=gte(pts\\,{math.ceil(absolute_time / Fraction(tb.numerator, tb.denominator))}),showinfo",
+                    "-threads",
+                    "1",
+                    "-c:v",
+                    "png",
+                    "-f",
+                    "image2",
+                    "-y",
+                    str(output),
+                ),
+                (descriptor,),
+                cancel,
+                observed_output=output,
+            )
         matches = re.findall(rb"\bn:\s*0\s+pts:\s*(-?\d+)", stderr)
         if code or len(matches) != 1 or not output.stat().st_size:
             raise AudioPreparationError("frame_decode_failed")
@@ -87,20 +118,28 @@ class LocalEvidenceExtractor(FFmpegAudioAdapter):
             raise AudioPreparationError("ffprobe_not_found")
         span = source.source_span
         time_base = Fraction(span.time_base.numerator, span.time_base.denominator)
-        anchors = AdaptiveKeyframeSelector.uniform(
-            int(span.start_pts), int(span.end_pts), 32
-        )
-        intervals = ",".join(
-            f"{float(Fraction(candidate.pts) * time_base):.9f}%+0.02"
-            for candidate in anchors
-        )
+        anchors = AdaptiveKeyframeSelector.uniform(int(span.start_pts), int(span.end_pts), 32)
+        intervals = ",".join(f"{float(Fraction(candidate.pts) * time_base):.9f}%+0.02" for candidate in anchors)
         with verified_source(source) as descriptor:
-            stdout, _, code = self._run((
-                self.probe_executable, "-v", "error", "-read_intervals", intervals,
-                "-select_streams", str(source.stream_index),
-                "-show_packets", "-show_entries", "packet=pts,size,flags",
-                "-of", "csv=p=0", f"/dev/fd/{descriptor}",
-            ), (descriptor,), cancel)
+            stdout, _, code = self._run(
+                (
+                    self.probe_executable,
+                    "-v",
+                    "error",
+                    "-read_intervals",
+                    intervals,
+                    "-select_streams",
+                    str(source.stream_index),
+                    "-show_packets",
+                    "-show_entries",
+                    "packet=pts,size,flags",
+                    "-of",
+                    "csv=p=0",
+                    f"/dev/fd/{descriptor}",
+                ),
+                (descriptor,),
+                cancel,
+            )
         if code:
             raise AudioPreparationError("keyframe_packet_probe_failed")
         packets = {}
@@ -117,18 +156,13 @@ class LocalEvidenceExtractor(FFmpegAudioAdapter):
         ordered = sorted(packets.items())
         limited = len(ordered) > 256
         if limited:
-            ordered = [
-                ordered[index * len(ordered) // 256]
-                for index in range(256)
-            ]
+            ordered = [ordered[index * len(ordered) // 256] for index in range(256)]
         sizes = [size for _, size in ordered]
         minimum, maximum = (min(sizes), max(sizes)) if sizes else (0, 0)
         candidates = [
             {
                 "pts": str(point),
-                "score": round((size - minimum) / (maximum - minimum), 6)
-                if maximum > minimum
-                else 0.0,
+                "score": round((size - minimum) / (maximum - minimum), 6) if maximum > minimum else 0.0,
             }
             for point, size in ordered
         ]
@@ -145,12 +179,35 @@ class LocalEvidenceExtractor(FFmpegAudioAdapter):
     def audio_features(self, source, output: Path, cancel: threading.Event):
         output = self._validate_empty_output(output)
         with verified_source(source) as descriptor:
-            _, _, code = self._run((
-                self.executable, "-nostdin", "-hide_banner", "-loglevel", "error",
-                "-i", f"/dev/fd/{descriptor}", "-map", f"0:{source.stream_index}",
-                "-t", str(self.WINDOW_SECONDS), "-vn", "-ac", "1", "-ar", "16000",
-                "-c:a", "pcm_s16le", "-f", "wav", "-y", str(output),
-            ), (descriptor,), cancel, observed_output=output)
+            _, _, code = self._run(
+                (
+                    self.executable,
+                    "-nostdin",
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-i",
+                    f"/dev/fd/{descriptor}",
+                    "-map",
+                    f"0:{source.stream_index}",
+                    "-t",
+                    str(self.WINDOW_SECONDS),
+                    "-vn",
+                    "-ac",
+                    "1",
+                    "-ar",
+                    "16000",
+                    "-c:a",
+                    "pcm_s16le",
+                    "-f",
+                    "wav",
+                    "-y",
+                    str(output),
+                ),
+                (descriptor,),
+                cancel,
+                observed_output=output,
+            )
         if code:
             raise AudioPreparationError("audio_decode_failed")
         windows = []
@@ -164,13 +221,17 @@ class LocalEvidenceExtractor(FFmpegAudioAdapter):
                 values = array("h", data)
                 if sys.byteorder != "little":
                     values.byteswap()
-                rms = math.sqrt(sum(v*v for v in values) / len(values)) / 32768
-                windows.append({"start_sample": start, "end_sample": start + len(values),
-                                "rms_dbfs": round(20 * math.log10(max(rms, 1e-6)), 2),
-                                "peak": round(max(abs(v) for v in values) / 32768, 6),
-                                "low_energy": rms < 0.01})
+                rms = math.sqrt(sum(v * v for v in values) / len(values)) / 32768
+                windows.append(
+                    {
+                        "start_sample": start,
+                        "end_sample": start + len(values),
+                        "rms_dbfs": round(20 * math.log10(max(rms, 1e-6)), 2),
+                        "peak": round(max(abs(v) for v in values) / 32768, 6),
+                        "low_energy": rms < 0.01,
+                    }
+                )
                 start += len(values)
         if not windows:
             raise AudioPreparationError("normalized_audio_invalid")
-        return {"sample_rate": 16000, "windows": windows,
-                "method": "signal_energy_not_music_or_speech_classification"}
+        return {"sample_rate": 16000, "windows": windows, "method": "signal_energy_not_music_or_speech_classification"}

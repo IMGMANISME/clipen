@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from enum import Enum
 import hashlib
 import json
-from pathlib import PurePosixPath
 import re
-from typing import Mapping, Any
+from dataclasses import dataclass
+from enum import Enum
+from pathlib import PurePosixPath
+from typing import Any, Mapping
 
 from clipen.projects.models import DirectoryRole, ProjectError, validate_project_id
-
 
 _RUN_ID = re.compile(r"inv_[0-9a-f]{32}\Z")
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
@@ -61,10 +60,7 @@ class InventoryCounts:
 
     def __post_init__(self) -> None:
         values = (self.discovered, self.probed, self.usable, self.issues, self.ignored)
-        if any(
-            isinstance(value, bool) or not isinstance(value, int) or value < 0
-            for value in values
-        ):
+        if any(isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in values):
             raise ValueError("inventory counts must be non-negative integers")
         if self.usable + self.issues + self.ignored > self.discovered:
             raise ValueError("inventory categorized counts exceed discovered count")
@@ -243,10 +239,7 @@ class AssetCandidate:
     def version_id(self, project_id: str) -> str | None:
         if self.fingerprint is None:
             return None
-        value = (
-            f"clipen-version:v1:{self.asset_id(project_id)}:{self.size_bytes}:"
-            f"{self.mtime_ns}:{self.fingerprint}"
-        )
+        value = f"clipen-version:v1:{self.asset_id(project_id)}:{self.size_bytes}:{self.mtime_ns}:{self.fingerprint}"
         return "av_" + hashlib.sha256(value.encode("utf-8")).hexdigest()[:32]
 
 
@@ -345,11 +338,7 @@ def validate_relative_path(value: object) -> str:
     if "\x00" in value or "\\" in value:
         raise ValueError("asset relative path is invalid")
     path = PurePosixPath(value)
-    if (
-        path.is_absolute()
-        or path.as_posix() != value
-        or any(part in {"", ".", ".."} for part in path.parts)
-    ):
+    if path.is_absolute() or path.as_posix() != value or any(part in {"", ".", ".."} for part in path.parts):
         raise ValueError("asset relative path is unsafe")
     return value
 

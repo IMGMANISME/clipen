@@ -1,14 +1,15 @@
 """Graphics an Agent designs as a web page, drawn frame by frame in a sealed headless Chrome."""
+
 import os
-from pathlib import Path
 import tempfile
-from types import SimpleNamespace
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
+import test_skill_production as fixtures
 from PIL import Image, ImageDraw
 
-import test_skill_production as fixtures
 from clipen.rendering import custom_components, program_components
 
 
@@ -20,7 +21,7 @@ def _chrome_available():
     try:
         with sync_playwright() as playwright:
             try:
-                playwright.chromium.launch(channel='chrome').close()
+                playwright.chromium.launch(channel="chrome").close()
             except Exception:
                 playwright.chromium.launch().close()
         return True
@@ -38,14 +39,14 @@ SLIDE = """<style>
 
 
 def item(duration=30, start=0):
-    return SimpleNamespace(start_frame=start, duration_frames=duration, text='x')
+    return SimpleNamespace(start_frame=start, duration_frames=duration, text="x")
 
 
-@unittest.skipUnless(CHROME, 'needs Chrome and Playwright')
+@unittest.skipUnless(CHROME, "needs Chrome and Playwright")
 class CustomRenderTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        self.environment = patch.dict(os.environ, {'CLIPEN_CUSTOM_COMPONENT_CACHE': self.temp.name})
+        self.environment = patch.dict(os.environ, {"CLIPEN_CUSTOM_COMPONENT_CACHE": self.temp.name})
         self.environment.start()
 
     def tearDown(self):
@@ -53,9 +54,15 @@ class CustomRenderTests(unittest.TestCase):
         self.temp.cleanup()
 
     def picture(self, html, frame, duration=30, x=0, y=0):
-        image = Image.new('RGBA', (TIMELINE.width, TIMELINE.height), (0, 0, 0, 255))
-        program_components.draw_program_component(ImageDraw.Draw(image), None, TIMELINE, item(duration),
-                                                  {'component_id': 'custom', 'html': html, 'x': x, 'y': y}, frame)
+        image = Image.new("RGBA", (TIMELINE.width, TIMELINE.height), (0, 0, 0, 255))
+        program_components.draw_program_component(
+            ImageDraw.Draw(image),
+            None,
+            TIMELINE,
+            item(duration),
+            {"component_id": "custom", "html": html, "x": x, "y": y},
+            frame,
+        )
         return image
 
     def test_clipen_sets_the_time_of_css_animations(self):
@@ -67,8 +74,8 @@ class CustomRenderTests(unittest.TestCase):
         self.assertEqual(end.getpixel((300, 170))[:3], (0, 0, 0))
         # The same frame always gives the same picture, and a person's move shifts the whole page.
         self.assertEqual(self.picture(SLIDE, 29).tobytes(), end.tobytes())
-        moved = self.picture(SLIDE, 29, x=.25)
-        self.assertEqual(moved.getpixel((60+80, 50))[:3], (255, 0, 0))
+        moved = self.picture(SLIDE, 29, x=0.25)
+        self.assertEqual(moved.getpixel((60 + 80, 50))[:3], (255, 0, 0))
 
     def test_script_driven_pages_draw_the_frame_they_are_asked_for(self):
         html = """<canvas id="c" width="320" height="180"></canvas><script>
@@ -77,11 +84,17 @@ class CustomRenderTests(unittest.TestCase):
         </script>"""
         self.assertEqual(self.picture(html, 5).getpixel((55, 5))[:3], (0, 0, 255))
         self.assertEqual(self.picture(html, 5).getpixel((5, 5))[:3], (0, 0, 0))
-        marks = program_components.animation_boundaries(item(12, start=100), {'component_id': 'custom', 'html': html}, TIMELINE)
+        marks = program_components.animation_boundaries(
+            item(12, start=100), {"component_id": "custom", "html": html}, TIMELINE
+        )
         self.assertEqual(marks, set(range(100, 113)))
 
     def test_still_stretches_cost_one_image(self):
-        marks = program_components.animation_boundaries(item(30, start=10), {'component_id': 'custom', 'html': '<div style="width:9px;height:9px;background:red"></div>'}, TIMELINE)
+        marks = program_components.animation_boundaries(
+            item(30, start=10),
+            {"component_id": "custom", "html": '<div style="width:9px;height:9px;background:red"></div>'},
+            TIMELINE,
+        )
         self.assertEqual(marks, {10, 40})
 
     def test_the_page_has_no_network_and_no_real_clock(self):
@@ -98,26 +111,35 @@ class CustomRenderTests(unittest.TestCase):
     def test_only_technical_problems_are_refused(self):
         def code(html):
             with self.assertRaises(custom_components.CustomRenderError) as caught:
-                custom_components.check(TIMELINE, item(), {'component_id': 'custom', 'html': html})
+                custom_components.check(TIMELINE, item(), {"component_id": "custom", "html": html})
             return caught.exception.code
-        self.assertEqual(code("<script>throw new Error('boom')</script><div>x</div>"), 'custom_component_script_error')
-        self.assertEqual(code('<div></div>'), 'custom_component_empty')
-        self.assertEqual(code('<b>' + 'x' * custom_components.MAX_HTML_BYTES + '</b>'), 'custom_component_html_too_large')
-        with patch.object(custom_components, 'FRAME_TIMEOUT_SECONDS', 2):
-            self.assertEqual(code('<div>x</div><script>while (true) {}</script>'), 'custom_component_load_timeout')
+
+        self.assertEqual(code("<script>throw new Error('boom')</script><div>x</div>"), "custom_component_script_error")
+        self.assertEqual(code("<div></div>"), "custom_component_empty")
+        self.assertEqual(
+            code("<b>" + "x" * custom_components.MAX_HTML_BYTES + "</b>"), "custom_component_html_too_large"
+        )
+        with patch.object(custom_components, "FRAME_TIMEOUT_SECONDS", 2):
+            self.assertEqual(code("<div>x</div><script>while (true) {}</script>"), "custom_component_load_timeout")
 
 
-@unittest.skipUnless(CHROME, 'needs Chrome and Playwright')
+@unittest.skipUnless(CHROME, "needs Chrome and Playwright")
 class CustomComponentToolTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        self.environment = patch.dict(os.environ, {'CLIPEN_CUSTOM_COMPONENT_CACHE': self.temp.name})
+        self.environment = patch.dict(os.environ, {"CLIPEN_CUSTOM_COMPONENT_CACHE": self.temp.name})
         self.environment.start()
         self.f = fixtures.SkillProductionTests()
         self.f.setUp()
         self.f.cut()
-        self.f.call('set_component_look', look_id='base', name='基本', fonts=[{'key': 'main', 'family': 'PingFang TC'}],
-                    colors=[{'key': 'accent', 'value': '#ff2e63'}], summary='外觀')
+        self.f.call(
+            "set_component_look",
+            look_id="base",
+            name="基本",
+            fonts=[{"key": "main", "family": "PingFang TC"}],
+            colors=[{"key": "accent", "value": "#ff2e63"}],
+            summary="外觀",
+        )
 
     def tearDown(self):
         self.f.tearDown()
@@ -126,37 +148,49 @@ class CustomComponentToolTests(unittest.TestCase):
 
     def styles(self):
         from clipen.editing.production_media import load_text_styles
+
         return load_text_styles(self.f.projects, self.f.project.project_id)
 
-    def element(self, element_id='free'):
+    def element(self, element_id="free"):
         return next(i for t in self.f.tools._timeline().tracks for i in t.items if i.item_id == element_id)
 
     def test_agent_designs_updates_and_people_move_a_free_graphic(self):
         from clipen.projects import ProjectError
-        result = self.f.call('add_custom_component', look_id='base', **{'name': '手繪標題'}, element_id='free', item_id='agent-video-0001', start_offset_frames=6,
-                             duration_frames=30, html=SLIDE, summary='自由設計標題')
+
+        result = self.f.call(
+            "add_custom_component",
+            look_id="base",
+            **{"name": "手繪標題"},
+            element_id="free",
+            item_id="agent-video-0001",
+            start_offset_frames=6,
+            duration_frames=30,
+            html=SLIDE,
+            summary="自由設計標題",
+        )
         profile = self.styles()[self.element().style_id]
-        self.assertEqual((profile['component_id'], profile['html'], self.element().text), ('custom', SLIDE, '手繪標題'))
+        self.assertEqual((profile["component_id"], profile["html"], self.element().text), ("custom", SLIDE, "手繪標題"))
         # The Agent gets a still of its design over the actual footage to look at.
         self.assertEqual(len(result.images), 2)
         self.assertTrue(all(Path(image).is_file() for image in result.images))
         # The second image is a sheet of frames from entry to exit: the slide-in is visible as it moves.
         from PIL import Image
+
         with Image.open(result.images[1]) as sheet:
             self.assertGreater(sheet.width, sheet.height)
         # Updating replaces only what is given.
-        self.f.call('update_custom_component', element_id='free', duration_frames=20, summary='縮短')
-        self.assertEqual((self.element().duration_frames, self.styles()[self.element().style_id]['html']), (20, SLIDE))
+        self.f.call("update_custom_component", element_id="free", duration_frames=20, summary="縮短")
+        self.assertEqual((self.element().duration_frames, self.styles()[self.element().style_id]["html"]), (20, SLIDE))
         with self.assertRaises(ProjectError) as caught:
-            self.f.call('update_custom_component', element_id='free', html='<div></div>', summary='空白')
-        self.assertEqual(caught.exception.code, 'custom_component_empty')
+            self.f.call("update_custom_component", element_id="free", html="<div></div>", summary="空白")
+        self.assertEqual(caught.exception.code, "custom_component_empty")
         # A person drags it: the whole page shifts, the design itself is untouched.
         self.f.tools._user_edit = True
-        draft, moved, _ = self.f.tools._component_draft({'element_id': 'free', 'x': .1, 'y': -.05})
-        self.assertEqual((moved['x'], moved['y'], moved['html']), (.1, -.05, SLIDE))
-        editing = self.f.tools._component_editing()['components']['free']
-        self.assertEqual((editing['custom'], editing['name']), (True, '手繪標題'))
+        draft, moved, _ = self.f.tools._component_draft({"element_id": "free", "x": 0.1, "y": -0.05})
+        self.assertEqual((moved["x"], moved["y"], moved["html"]), (0.1, -0.05, SLIDE))
+        editing = self.f.tools._component_editing()["components"]["free"]
+        self.assertEqual((editing["custom"], editing["name"]), (True, "手繪標題"))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

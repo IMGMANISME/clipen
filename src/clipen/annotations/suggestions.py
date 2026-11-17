@@ -2,18 +2,15 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 import json
 import re
 import sqlite3
-
+from datetime import datetime
 
 _FILENAME_TIME = re.compile(r"(?<!\d)(20\d{12})(?!\d)")
 
 
-def annotation_suggestion(
-    database: sqlite3.Connection, version_id: str
-) -> dict[str, object]:
+def annotation_suggestion(database: sqlite3.Connection, version_id: str) -> dict[str, object]:
     return annotation_suggestions(database).get(version_id, _empty())
 
 
@@ -44,9 +41,7 @@ def annotation_suggestions(
 
     day_numbers = {
         capture_date: index
-        for index, capture_date in enumerate(
-            sorted({value.date() for value in captures.values()}), start=1
-        )
+        for index, capture_date in enumerate(sorted({value.date() for value in captures.values()}), start=1)
     }
     result: dict[str, dict[str, object]] = {}
     for row in rows:

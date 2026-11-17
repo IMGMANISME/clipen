@@ -5,10 +5,21 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "clipen"
 version = "1.0.0"
-description = "Local AI-assisted video editing workspace"
+description = "Let AI cut your video with Claude Code or Codex, and review it with notes on the timeline"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
+authors = [{ name = "GMAN" }]
+keywords = ["video-editing", "ai", "claude-code", "codex", "vlog", "local-first"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: MacOS X",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Topic :: Multimedia :: Video :: Non-Linear Editor",
+]
 dependencies = [
     "cryptography==50.0.1",
     "jsonschema==4.26.0",
@@ -17,6 +28,11 @@ dependencies = [
     "starlette==1.6.0",
     "uvicorn==0.52.4",
 ]
+
+[project.urls]
+Homepage = "https://github.com/IMGMANISME/clipen"
+Issues = "https://github.com/IMGMANISME/clipen/issues"
+npm = "https://www.npmjs.com/package/@clipen/clipen-cli"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
-from pathlib import Path
 import threading
 import time
+from dataclasses import replace
+from pathlib import Path
 
 from .models import (
     DirectoryReference,
@@ -55,15 +55,9 @@ class ProjectWorkspace:
         name: object,
         brief: object,
     ) -> ProjectSnapshot:
-        return self._refresh(
-            self.repository.update_details(
-                project_id, request_id, expected_revision, name, brief
-            )
-        )
+        return self._refresh(self.repository.update_details(project_id, request_id, expected_revision, name, brief))
 
-    def select_directory(
-        self, request_id: object, role: DirectoryRole
-    ) -> dict[str, object] | None:
+    def select_directory(self, request_id: object, role: DirectoryRole) -> dict[str, object] | None:
         normalized_request = validate_request_id(request_id)
         with self._picker_lock:
             cached = self._picker_receipts.get(normalized_request)
@@ -102,16 +96,12 @@ class ProjectWorkspace:
                 "selection_token": selection_token,
             }
         )
-        replay = self.repository.replay_receipt(
-            project_id, normalized_request, "set_directory", command_hash
-        )
+        replay = self.repository.replay_receipt(project_id, normalized_request, "set_directory", command_hash)
         if replay is not None:
             return self._refresh(replay)
         reference = self.selections.resolve(selection_token, role)
         current = self.repository.get_project(project_id)
-        other = next(
-            (item for item in current.directories if item.role is not role), None
-        )
+        other = next((item for item in current.directories if item.role is not role), None)
         if other is not None and self._overlaps(reference, other):
             raise ProjectError(
                 "directory_overlap",
@@ -135,11 +125,7 @@ class ProjectWorkspace:
         expected_revision: object,
         role: DirectoryRole,
     ) -> ProjectSnapshot:
-        return self._refresh(
-            self.repository.remove_directory(
-                project_id, request_id, expected_revision, role
-            )
-        )
+        return self._refresh(self.repository.remove_directory(project_id, request_id, expected_revision, role))
 
     def delete_project(
         self,
@@ -169,7 +155,5 @@ class ProjectWorkspace:
     def _refresh(project: ProjectSnapshot) -> ProjectSnapshot:
         return replace(
             project,
-            directories=tuple(
-                refresh_availability(reference) for reference in project.directories
-            ),
+            directories=tuple(refresh_availability(reference) for reference in project.directories),
         )

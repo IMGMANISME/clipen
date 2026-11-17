@@ -48,9 +48,7 @@ class ManagedAnalysisRuntime:
         with self._lock:
             coordinator = self._coordinator
             self._coordinator = None
-        return self._setup.remove(
-            None if coordinator is None else lambda: coordinator.close(timeout=15)
-        )
+        return self._setup.remove(None if coordinator is None else lambda: coordinator.close(timeout=15))
 
     def close(self) -> None:
         self._setup.close()

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-
 _PRESETS = {
     "landscape_1080p": (1920, 1080),
     "portrait_1080p": (1080, 1920),

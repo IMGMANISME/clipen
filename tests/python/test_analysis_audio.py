@@ -1,11 +1,11 @@
 import hashlib
 import os
-from pathlib import Path
 import stat
 import tempfile
 import threading
 import unittest
 import wave
+from pathlib import Path
 
 from clipen.analysis import (
     AudioPreparationError,
@@ -178,11 +178,14 @@ class AnalysisAudioTests(unittest.TestCase):
             output_factory,
         )
 
-        self.assertEqual([(item.start_sample, item.end_sample) for item in chunks], [
-            (0, 160_000),
-            (128_000, 288_000),
-            (256_000, 336_000),
-        ])
+        self.assertEqual(
+            [(item.start_sample, item.end_sample) for item in chunks],
+            [
+                (0, 160_000),
+                (128_000, 288_000),
+                (256_000, 336_000),
+            ],
+        )
         self.assertEqual(
             [(item.source_span.start_pts, item.source_span.end_pts) for item in chunks],
             [("48000", "528000"), ("432000", "912000"), ("816000", "1056000")],

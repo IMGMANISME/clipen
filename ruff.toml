@@ -1,0 +1,15 @@
+# Formatting and lint rules for Clipen's Python code: ruff format . && ruff check .
+line-length = 120
+target-version = "py310"
+extend-exclude = ["apps", "examples"]
+
+[lint]
+select = ["E4", "E7", "E9", "F", "I", "W"]
+# Short lambdas and loop names like `l` read fine in this code base.
+ignore = ["E731", "E741"]
+
+[lint.per-file-ignores]
+# Launchers put src on sys.path before importing Clipen.
+"clipen" = ["E402"]
+"install" = ["E402"]
+"uninstall" = ["E402"]

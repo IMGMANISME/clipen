@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from fractions import Fraction
 import math
 import os
-from pathlib import Path
 import re
 import shutil
 import signal
@@ -15,17 +12,18 @@ import subprocess
 import tempfile
 import threading
 import time
-from typing import Callable
 import wave
+from dataclasses import dataclass
+from fractions import Fraction
+from pathlib import Path
+from typing import Callable
 
+from clipen.domain.media_time import Rational, SourceSpan
 from clipen.media import InventoryRoot, bounded_file_fingerprint
 from clipen.media.discovery import DiscoveryError, open_file_beneath
 from clipen.media.models import validate_relative_path
 
 from .resources import local_analysis_slot
-
-from .models import Rational, SourceSpan
-
 
 _VERSION_ID = re.compile(r"av_[0-9a-f]{32}\Z")
 _POLL_SECONDS = 0.05
@@ -200,7 +198,11 @@ class FFmpegAudioAdapter:
         *,
         observed_output: Path | None = None,
     ) -> tuple[bytes, bytes, int]:
-        with local_analysis_slot(cancel, lambda: AudioPreparationError("cancelled")), tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
+        with (
+            local_analysis_slot(cancel, lambda: AudioPreparationError("cancelled")),
+            tempfile.TemporaryFile() as stdout_file,
+            tempfile.TemporaryFile() as stderr_file,
+        ):
             deadline = time.monotonic() + self.timeout_seconds
             try:
                 process = subprocess.Popen(

@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import os
 import re
-from pathlib import Path
 import subprocess
 import tempfile
 import threading
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, Iterable
 
 from clipen.domain import EditTimeline, TextClip, TrackKind
@@ -37,16 +37,11 @@ class TitleCardRenderer:
     # memory pressure on consumer machines.
     _MAX_TITLES = 32
 
-    def __init__(self,custom_styles=None):
-        self.custom_styles=custom_styles or {}
+    def __init__(self, custom_styles=None):
+        self.custom_styles = custom_styles or {}
 
     def render(self, timeline: EditTimeline, directory: Path) -> tuple[RenderedTitle, ...]:
-        items = tuple(
-            item
-            for track in timeline.tracks
-            if track.kind is TrackKind.TITLE
-            for item in track.items
-        )
+        items = tuple(item for track in timeline.tracks if track.kind is TrackKind.TITLE for item in track.items)
         if len(items) > self._MAX_TITLES:
             raise TitleRenderError("preview_title_limit_exceeded")
         if not items:
@@ -95,29 +90,42 @@ class TitleCardRenderer:
         self, draw, image_font, font_path: Path, timeline: EditTimeline, item: TextClip, relative_frame=None
     ) -> None:
         width, height = timeline.width, timeline.height
-        if self.custom_styles.get(item.style_id,{}).get('kind')=='program_component':
+        if self.custom_styles.get(item.style_id, {}).get("kind") == "program_component":
             from .program_components import draw_program_component
-            draw_program_component(draw,font_path,timeline,item,self.custom_styles[item.style_id],relative_frame)
+
+            draw_program_component(draw, font_path, timeline, item, self.custom_styles[item.style_id], relative_frame)
             return
-        if self.custom_styles.get(item.style_id,{}).get('kind')=='program_subtitle':
+        if self.custom_styles.get(item.style_id, {}).get("kind") == "program_subtitle":
             from .program_subtitles import draw_program_subtitle
-            draw_program_subtitle(draw,font_path,timeline,item,self.custom_styles[item.style_id],relative_frame)
+
+            draw_program_subtitle(draw, font_path, timeline, item, self.custom_styles[item.style_id], relative_frame)
             return
         if item.style_id in self.custom_styles:
-            profile=self.custom_styles[item.style_id]
-            size=max(1,round(height*profile['font_size_ratio']))
-            font=image_font.truetype(str(font_path),size)
-            maximum=round(width*profile['width_ratio'])
-            lines=self._wrap(draw,item.text,font,maximum)
-            line_height=max(1,round(size*1.5));pad=max(1,round(size*.25))
-            x=round(width*profile['x']);y=round(height*profile['y'])
-            if y+line_height*len(lines)+pad>height or x+maximum>width:
-                raise TitleRenderError('preview_text_overflow')
+            profile = self.custom_styles[item.style_id]
+            size = max(1, round(height * profile["font_size_ratio"]))
+            font = image_font.truetype(str(font_path), size)
+            maximum = round(width * profile["width_ratio"])
+            lines = self._wrap(draw, item.text, font, maximum)
+            line_height = max(1, round(size * 1.5))
+            pad = max(1, round(size * 0.25))
+            x = round(width * profile["x"])
+            y = round(height * profile["y"])
+            if y + line_height * len(lines) + pad > height or x + maximum > width:
+                raise TitleRenderError("preview_text_overflow")
             for row in lines:
-                length=draw.textlength(row,font=font)
-                at=x if profile['align']=='left' else x+(maximum-length)/(2 if profile['align']=='center' else 1)
-                draw.rounded_rectangle((at-pad,y-pad,at+length+pad,y+line_height),radius=pad,fill=tuple(profile['background_color']))
-                draw.text((at,y),row,font=font,fill=tuple(profile['text_color']));y+=line_height
+                length = draw.textlength(row, font=font)
+                at = (
+                    x
+                    if profile["align"] == "left"
+                    else x + (maximum - length) / (2 if profile["align"] == "center" else 1)
+                )
+                draw.rounded_rectangle(
+                    (at - pad, y - pad, at + length + pad, y + line_height),
+                    radius=pad,
+                    fill=tuple(profile["background_color"]),
+                )
+                draw.text((at, y), row, font=font, fill=tuple(profile["text_color"]))
+                y += line_height
             return
         if item.style_id == "title.chapter":
             size = max(28, round(height * 0.055))
@@ -193,9 +201,7 @@ class TitleCardRenderer:
     @staticmethod
     def _text_box(draw, lines: Iterable[str], font, spacing: int) -> tuple[int, int]:
         boxes = [draw.textbbox((0, 0), line, font=font) for line in lines]
-        return max(box[2] - box[0] for box in boxes), sum(
-            box[3] - box[1] for box in boxes
-        ) + spacing * (len(boxes) - 1)
+        return max(box[2] - box[0] for box in boxes), sum(box[3] - box[1] for box in boxes) + spacing * (len(boxes) - 1)
 
     @staticmethod
     def _multiline(draw, origin, lines: Iterable[str], font, fill, font_size: int) -> None:
@@ -236,9 +242,7 @@ class FfmpegTitleCompositor:
         filters = []
         previous = "[0:v]"
         for index, title in enumerate(titles, start=1):
-            command.extend(
-                ["-loop", "1", "-t", f"{title.duration_seconds:.6f}", "-i", str(title.path)]
-            )
+            command.extend(["-loop", "1", "-t", f"{title.duration_seconds:.6f}", "-i", str(title.path)])
             fade = min(0.18, title.duration_seconds / 4)
             fade_out = max(0.0, title.duration_seconds - fade)
             filters.append(
@@ -247,22 +251,30 @@ class FfmpegTitleCompositor:
                 f"setpts=PTS+{title.start_seconds:.6f}/TB[title{index}]"
             )
             output_label = f"composed{index}"
-            filters.append(
-                f"{previous}[title{index}]overlay=0:0:eof_action=pass:shortest=0[{output_label}]"
-            )
+            filters.append(f"{previous}[title{index}]overlay=0:0:eof_action=pass:shortest=0[{output_label}]")
             previous = f"[{output_label}]"
         command.extend(
             [
-                "-filter_complex", ";".join(filters),
-                "-map", previous,
-                "-map", "0:a?",
-                "-c:v", "libx264",
-                "-preset", "veryfast",
-                "-crf", "21",
-                "-pix_fmt", "yuv420p",
-                "-c:a", "copy",
-                "-movflags", "+faststart",
-                "-progress", "pipe:1",
+                "-filter_complex",
+                ";".join(filters),
+                "-map",
+                previous,
+                "-map",
+                "0:a?",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "veryfast",
+                "-crf",
+                "21",
+                "-pix_fmt",
+                "yuv420p",
+                "-c:a",
+                "copy",
+                "-movflags",
+                "+faststart",
+                "-progress",
+                "pipe:1",
                 "-nostats",
                 str(output),
             ]
@@ -297,64 +309,159 @@ class FfmpegTitleCompositor:
         progress(1.0)
 
 
-def compose_dense_titles(executable,source,timeline,directory,output,cancel,custom_styles=None,progress=None,hardware=False):
+def compose_dense_titles(
+    executable, source, timeline, directory, output, cancel, custom_styles=None, progress=None, hardware=False
+):
     """One event-based RGBA stream avoids opening dozens of full-HD inputs.
 
     Reports progress while drawing (first 40%) and while FFmpeg overlays the
     stream (the rest), so a long film never looks stuck at the same number.
     """
-    report=progress or (lambda _value:None)
-    from PIL import Image,ImageDraw,ImageFont
+    report = progress or (lambda _value: None)
+    from PIL import Image, ImageDraw, ImageFont
+
     from clipen.finishing.audio import run_process
-    items=[i for t in timeline.tracks if t.kind is TrackKind.TITLE for i in t.items]
-    if len(items)>(960 if timeline.production_session_id else 96):raise TitleRenderError('preview_title_limit_exceeded')
-    font=TitleCardRenderer._font_path()
-    if font is None:raise TitleRenderError('preview_title_font_missing')
-    renderer=TitleCardRenderer(custom_styles);fps=timeline.frame_rate.numerator/timeline.frame_rate.denominator
-    boundaries=sorted({0,timeline.duration_frames,*(i.start_frame for i in items),*(i.start_frame+i.duration_frames for i in items)})
+
+    items = [i for t in timeline.tracks if t.kind is TrackKind.TITLE for i in t.items]
+    if len(items) > (960 if timeline.production_session_id else 96):
+        raise TitleRenderError("preview_title_limit_exceeded")
+    font = TitleCardRenderer._font_path()
+    if font is None:
+        raise TitleRenderError("preview_title_font_missing")
+    renderer = TitleCardRenderer(custom_styles)
+    fps = timeline.frame_rate.numerator / timeline.frame_rate.denominator
+    boundaries = sorted(
+        {
+            0,
+            timeline.duration_frames,
+            *(i.start_frame for i in items),
+            *(i.start_frame + i.duration_frames for i in items),
+        }
+    )
     from .program_subtitles import animation_boundaries
-    boundaries=sorted(set(boundaries)|{b for i in items if (custom_styles or {}).get(i.style_id,{}).get('kind')=='program_subtitle' for b in animation_boundaries(i)})
+
+    boundaries = sorted(
+        set(boundaries)
+        | {
+            b
+            for i in items
+            if (custom_styles or {}).get(i.style_id, {}).get("kind") == "program_subtitle"
+            for b in animation_boundaries(i)
+        }
+    )
     from .program_components import animation_boundaries as component_boundaries
-    boundaries=sorted(set(boundaries)|{b for i in items if (custom_styles or {}).get(i.style_id,{}).get('kind')=='program_component'
-                                      for b in component_boundaries(i,custom_styles[i.style_id],timeline)})
-    lines=['ffconcat version 1.0'];events=max(1,len(boundaries)-1)
-    for index,(start,end) in enumerate(zip(boundaries,boundaries[1:])):
-        if cancel.is_set():raise TitleRenderError('cancelled')
-        if index%20==0:report(.4*index/events)
-        image=Image.new('RGBA',(timeline.width,timeline.height),(0,0,0,0));draw=ImageDraw.Draw(image)
+
+    boundaries = sorted(
+        set(boundaries)
+        | {
+            b
+            for i in items
+            if (custom_styles or {}).get(i.style_id, {}).get("kind") == "program_component"
+            for b in component_boundaries(i, custom_styles[i.style_id], timeline)
+        }
+    )
+    lines = ["ffconcat version 1.0"]
+    events = max(1, len(boundaries) - 1)
+    for index, (start, end) in enumerate(zip(boundaries, boundaries[1:])):
+        if cancel.is_set():
+            raise TitleRenderError("cancelled")
+        if index % 20 == 0:
+            report(0.4 * index / events)
+        image = Image.new("RGBA", (timeline.width, timeline.height), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(image)
         for item in items:
-            if item.start_frame<=start<item.start_frame+item.duration_frames:renderer._draw_card(draw,ImageFont,font,timeline,item,start-item.start_frame)
-        name=f'text-event-{index}.png';image.save(directory/name)
-        lines.extend((f"file '{name}'",f'option framerate {timeline.frame_rate.numerator}/{timeline.frame_rate.denominator}',f'duration {(end-start)/fps:.9f}'))
-    lines.extend((f"file 'text-event-{len(boundaries)-2}.png'",f'option framerate {timeline.frame_rate.numerator}/{timeline.frame_rate.denominator}'))
-    manifest=directory/'text-events.ffconcat';manifest.write_text('\n'.join(lines)+'\n')
-    report(.4)
-    seconds=timeline.duration_frames/fps;progress_file=directory/'overlay-progress.txt'
-    done=threading.Event()
+            if item.start_frame <= start < item.start_frame + item.duration_frames:
+                renderer._draw_card(draw, ImageFont, font, timeline, item, start - item.start_frame)
+        name = f"text-event-{index}.png"
+        image.save(directory / name)
+        lines.extend(
+            (
+                f"file '{name}'",
+                f"option framerate {timeline.frame_rate.numerator}/{timeline.frame_rate.denominator}",
+                f"duration {(end - start) / fps:.9f}",
+            )
+        )
+    lines.extend(
+        (
+            f"file 'text-event-{len(boundaries) - 2}.png'",
+            f"option framerate {timeline.frame_rate.numerator}/{timeline.frame_rate.denominator}",
+        )
+    )
+    manifest = directory / "text-events.ffconcat"
+    manifest.write_text("\n".join(lines) + "\n")
+    report(0.4)
+    seconds = timeline.duration_frames / fps
+    progress_file = directory / "overlay-progress.txt"
+    done = threading.Event()
+
     def watch():
         # FFmpeg rewrites out_time_us in its progress file about twice a second.
-        while not done.wait(.5):
-            try:text=progress_file.read_text()
-            except OSError:continue
-            times=[int(v) for v in re.findall(r'out_time_us=(\d+)',text)]
-            if times and seconds>0:report(.4+.6*min(1.,times[-1]/1e6/seconds))
-    watcher=threading.Thread(target=watch,daemon=True);watcher.start()
+        while not done.wait(0.5):
+            try:
+                text = progress_file.read_text()
+            except OSError:
+                continue
+            times = [int(v) for v in re.findall(r"out_time_us=(\d+)", text)]
+            if times and seconds > 0:
+                report(0.4 + 0.6 * min(1.0, times[-1] / 1e6 / seconds))
+
+    watcher = threading.Thread(target=watch, daemon=True)
+    watcher.start()
+
     def encode(video):
-        run_process([executable,'-v','error','-nostdin','-y','-progress',str(progress_file),'-filter_complex_threads','2','-i',str(source),'-f','concat','-safe','0','-i',str(manifest),
-                     '-filter_complex','[0:v][1:v]overlay=eof_action=repeat:format=auto,format=yuv420p[v]',
-                     '-map','[v]','-map','0:a?','-t',str(timeline.duration_frames/fps),'-r',f'{timeline.frame_rate.numerator}/{timeline.frame_rate.denominator}',
-                     *video,'-c:a','copy','-movflags','+faststart',str(output)],cancel,timeout=max(300,round(timeline.duration_frames/fps*3)))
-    software=['-c:v','libx264','-preset','veryfast','-crf','21']
+        run_process(
+            [
+                executable,
+                "-v",
+                "error",
+                "-nostdin",
+                "-y",
+                "-progress",
+                str(progress_file),
+                "-filter_complex_threads",
+                "2",
+                "-i",
+                str(source),
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                str(manifest),
+                "-filter_complex",
+                "[0:v][1:v]overlay=eof_action=repeat:format=auto,format=yuv420p[v]",
+                "-map",
+                "[v]",
+                "-map",
+                "0:a?",
+                "-t",
+                str(timeline.duration_frames / fps),
+                "-r",
+                f"{timeline.frame_rate.numerator}/{timeline.frame_rate.denominator}",
+                *video,
+                "-c:a",
+                "copy",
+                "-movflags",
+                "+faststart",
+                str(output),
+            ],
+            cancel,
+            timeout=max(300, round(timeline.duration_frames / fps * 3)),
+        )
+
+    software = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "21"]
     try:
         if not hardware:
             encode(software)
         else:
             # The Mac's video encoder is about a third faster; any machine that refuses it gets the software path.
             try:
-                encode(['-c:v','h264_videotoolbox','-b:v','8000k'])
+                encode(["-c:v", "h264_videotoolbox", "-b:v", "8000k"])
             except Exception:
-                if cancel.is_set():raise
+                if cancel.is_set():
+                    raise
                 encode(software)
     finally:
-        done.set();watcher.join(timeout=2)
-    report(1.)
+        done.set()
+        watcher.join(timeout=2)
+    report(1.0)

@@ -7,18 +7,18 @@ attempt workspace.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
 import json
 import os
-from pathlib import Path
 import re
 import shutil
 import signal
 import subprocess
 import tempfile
 import time
-from typing import Mapping
 import uuid
+from dataclasses import dataclass, replace
+from pathlib import Path
+from typing import Mapping
 
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError, ValidationError
@@ -44,7 +44,6 @@ from .recovery import (
     sha256_file,
     utc_now,
 )
-
 
 _MAX_PROMPT_BYTES = 1_000_000
 _MAX_SCHEMA_BYTES = 1_000_000
@@ -142,10 +141,13 @@ def codex_preferences(environment: Mapping[str, str] | None = None) -> tuple[str
             tables.setdefault(table, {})
         elif value := _STRING.match(line):
             tables[table][value.group(1)] = value.group(2) if value.group(2) is not None else value.group(3)
-    chosen = {**tables[""], **tables.get("profiles." + tables[""].get("profile", ""), {})} if tables[""].get("profile") else tables[""]
+    chosen = (
+        {**tables[""], **tables.get("profiles." + tables[""].get("profile", ""), {})}
+        if tables[""].get("profile")
+        else tables[""]
+    )
     model, effort = chosen.get("model"), chosen.get("model_reasoning_effort")
-    return (model if model and _MODEL.fullmatch(model) else None,
-            effort if effort in _EFFORTS else None)
+    return (model if model and _MODEL.fullmatch(model) else None, effort if effort in _EFFORTS else None)
 
 
 def model_config(binary: str | Path, environment: Mapping[str, str] | None = None) -> tuple[str, ...]:
@@ -154,11 +156,14 @@ def model_config(binary: str | Path, environment: Mapping[str, str] | None = Non
     if preferences == (None, None):
         return ()
     from .account import available_models, resolve_codex_model
+
     resolved = resolve_codex_model(preferences, available_models(binary, environment or os.environ))
     if resolved is None:
         return ()
-    return (*(("-c", f"model={json.dumps(resolved['id'])}") if resolved["apply_model"] else ()),
-            *(("-c", f"model_reasoning_effort={json.dumps(resolved['effort'])}") if resolved["apply_effort"] else ()))
+    return (
+        *(("-c", f"model={json.dumps(resolved['id'])}") if resolved["apply_model"] else ()),
+        *(("-c", f"model_reasoning_effort={json.dumps(resolved['effort'])}") if resolved["apply_effort"] else ()),
+    )
 
 
 def _provider_environment(source: Mapping[str, str] | None = None) -> dict[str, str]:
@@ -209,12 +214,10 @@ def _permission_config(workspace: Path, temp_root: Path | None = None) -> tuple[
         f'{_toml_string(":minimal")}="read"',
         f'{_toml_string(":workspace_roots")}="read"',
     ]
-    filesystem_entries.extend(
-        f'{_toml_string(path)}="deny"' for path in sorted(denied_roots)
-    )
+    filesystem_entries.extend(f'{_toml_string(path)}="deny"' for path in sorted(denied_roots))
     return (
         "-c",
-        f'default_permissions={_toml_string(_PERMISSION_PROFILE)}',
+        f"default_permissions={_toml_string(_PERMISSION_PROFILE)}",
         "-c",
         f'permissions.{_PERMISSION_PROFILE}.description="Clipen isolated AI attempt"',
         "-c",
@@ -268,11 +271,7 @@ class CodexProbeResult:
 
     @property
     def available(self) -> bool:
-        return (
-            self.authenticated
-            and self.capabilities.supports_bounded_attempts
-            and self.confinement_verified
-        )
+        return self.authenticated and self.capabilities.supports_bounded_attempts and self.confinement_verified
 
 
 @dataclass(frozen=True)
@@ -310,15 +309,17 @@ class CodexAttempt:
             with path.open("rb") as source:
                 if source.read(8) != b"\x89PNG\r\n\x1a\n":
                     raise ValueError("image input must be a PNG snapshot")
-            identity.append({"name": str(path.relative_to(self.workspace.resolve())),
-                             "sha256": sha256_file(path, 2 * 1024**2)})
+            identity.append(
+                {"name": str(path.relative_to(self.workspace.resolve())), "sha256": sha256_file(path, 2 * 1024**2)}
+            )
         return identity
 
     def input_hash(self) -> str:
         if not self.images:
             return sha256_bytes(self.prompt.encode("utf-8"))
-        return sha256_bytes(json.dumps({"prompt": self.prompt, "images": self.image_identity()},
-                                      sort_keys=True).encode("utf-8"))
+        return sha256_bytes(
+            json.dumps({"prompt": self.prompt, "images": self.image_identity()}, sort_keys=True).encode("utf-8")
+        )
 
 
 @dataclass(frozen=True)
@@ -419,8 +420,7 @@ class CodexExecAdapter:
 
         try:
             with (
-                tempfile.TemporaryDirectory(prefix=".permission-probe-", dir=self._attempt_root)
-                as probe_directory,
+                tempfile.TemporaryDirectory(prefix=".permission-probe-", dir=self._attempt_root) as probe_directory,
                 tempfile.TemporaryDirectory(prefix="clipen-denied-") as denied_directory,
             ):
                 probe_root = Path(probe_directory)
@@ -529,9 +529,7 @@ class CodexExecAdapter:
         diagnostics_path = workspace / f"provider-diagnostics-{attempt.attempt_id}.log"
         store = AttemptReceiptStore(workspace, attempt.attempt_id)
         if store.path.exists() or store.path.is_symlink():
-            raise ProviderProtocolError(
-                "Codex attempt already has a receipt; reconcile it instead of rerunning"
-            )
+            raise ProviderProtocolError("Codex attempt already has a receipt; reconcile it instead of rerunning")
         for artifact in (output_path, events_path, diagnostics_path):
             if artifact.exists() or artifact.is_symlink():
                 raise ProviderProtocolError("Codex attempt artifact already exists")
@@ -568,9 +566,7 @@ class CodexExecAdapter:
                 diagnostics_path,
                 record_started,
             )
-            self._sanitize_persisted_artifacts(
-                events_path, diagnostics_path, attempt.prompt
-            )
+            self._sanitize_persisted_artifacts(events_path, diagnostics_path, attempt.prompt)
             stdout = self._read_artifact(events_path, _MAX_CAPTURE_BYTES)
             stderr = self._read_artifact(diagnostics_path, _MAX_CAPTURE_BYTES)
             self._raise_for_failed_turn(stdout)
@@ -586,32 +582,22 @@ class CodexExecAdapter:
                 return_code=returncode,
                 output_sha256=sha256_file(output_path, _MAX_RESULT_BYTES),
                 events_sha256=sha256_file(events_path, _MAX_CAPTURE_BYTES),
-                diagnostics_sha256=sha256_file(
-                    diagnostics_path, _MAX_CAPTURE_BYTES
-                ),
+                diagnostics_sha256=sha256_file(diagnostics_path, _MAX_CAPTURE_BYTES),
                 usage=result.usage,
             )
             store.write(receipt)
             return replace(result, elapsed_seconds=time.monotonic() - started)
         except Exception as error:
-            self._sanitize_persisted_artifacts(
-                events_path, diagnostics_path, attempt.prompt
-            )
+            self._sanitize_persisted_artifacts(events_path, diagnostics_path, attempt.prompt)
             state, error_code = self._failure_receipt(error)
             receipt = replace(
                 receipt,
                 state=state,
                 finished_at=utc_now(),
                 return_code=returncode,
-                output_sha256=self._optional_artifact_hash(
-                    output_path, _MAX_RESULT_BYTES
-                ),
-                events_sha256=self._optional_artifact_hash(
-                    events_path, _MAX_CAPTURE_BYTES
-                ),
-                diagnostics_sha256=self._optional_artifact_hash(
-                    diagnostics_path, _MAX_CAPTURE_BYTES
-                ),
+                output_sha256=self._optional_artifact_hash(output_path, _MAX_RESULT_BYTES),
+                events_sha256=self._optional_artifact_hash(events_path, _MAX_CAPTURE_BYTES),
+                diagnostics_sha256=self._optional_artifact_hash(diagnostics_path, _MAX_CAPTURE_BYTES),
                 usage=self._optional_usage(events_path),
                 error_code=error_code,
             )
@@ -638,10 +624,8 @@ class CodexExecAdapter:
         try:
             if (
                 receipt.attempt_id != attempt.attempt_id
-                or receipt.prompt_sha256
-                != attempt.input_hash()
-                or receipt.schema_sha256
-                != sha256_file(attempt.output_schema, _MAX_SCHEMA_BYTES)
+                or receipt.prompt_sha256 != attempt.input_hash()
+                or receipt.schema_sha256 != sha256_file(attempt.output_schema, _MAX_SCHEMA_BYTES)
             ):
                 raise AttemptReceiptError("attempt identity does not match its receipt")
             output_path = workspace / f"provider-output-{attempt.attempt_id}.json"
@@ -655,21 +639,15 @@ class CodexExecAdapter:
                 output_hash = sha256_file(output_path, _MAX_RESULT_BYTES)
                 events_hash = sha256_file(events_path, _MAX_CAPTURE_BYTES)
                 if receipt.state is ProviderAttemptState.SUCCEEDED:
-                    if (
-                        receipt.output_sha256 != output_hash
-                        or receipt.events_sha256 != events_hash
-                    ):
+                    if receipt.output_sha256 != output_hash or receipt.events_sha256 != events_hash:
                         raise AttemptReceiptError("terminal provider artifacts changed")
                     self._verify_recorded_hash(
-                        workspace
-                        / f"provider-diagnostics-{attempt.attempt_id}.log",
+                        workspace / f"provider-diagnostics-{attempt.attempt_id}.log",
                         receipt.diagnostics_sha256,
                         _MAX_CAPTURE_BYTES,
                     )
                 else:
-                    diagnostics_path = workspace / (
-                        f"provider-diagnostics-{attempt.attempt_id}.log"
-                    )
+                    diagnostics_path = workspace / (f"provider-diagnostics-{attempt.attempt_id}.log")
                     receipt = replace(
                         receipt,
                         state=ProviderAttemptState.SUCCEEDED,
@@ -677,9 +655,7 @@ class CodexExecAdapter:
                         return_code=0,
                         output_sha256=output_hash,
                         events_sha256=events_hash,
-                        diagnostics_sha256=self._optional_artifact_hash(
-                            diagnostics_path, _MAX_CAPTURE_BYTES
-                        ),
+                        diagnostics_sha256=self._optional_artifact_hash(diagnostics_path, _MAX_CAPTURE_BYTES),
                         usage=result.usage,
                         error_code=None,
                     )
@@ -733,10 +709,7 @@ class CodexExecAdapter:
                 "terminal_state_unverified",
             )
 
-
-    def _validated_result(
-        self, attempt: CodexAttempt, output_path: Path, stdout: bytes
-    ) -> CodexAttemptResult:
+    def _validated_result(self, attempt: CodexAttempt, output_path: Path, stdout: bytes) -> CodexAttemptResult:
         if not output_path.is_file() or output_path.is_symlink():
             raise ProviderProtocolError("Codex did not create the expected result file")
         if output_path.stat().st_size > _MAX_RESULT_BYTES:
@@ -772,23 +745,29 @@ class CodexExecAdapter:
     @staticmethod
     def _raise_for_failed_turn(stdout: bytes, *, limit: int = _MAX_CAPTURE_BYTES) -> None:
         """CLI failures can be reported only in JSONL while stderr stays empty."""
-        events=[]
-        for line in _decode_capture(stdout,'JSONL stream',limit).splitlines():
-            try:event=json.loads(line)
-            except json.JSONDecodeError:continue  # Normal protocol validation follows.
-            if isinstance(event,dict):events.append(event)
-        terminal=next((e for e in reversed(events) if e.get('type') in {'turn.completed','turn.failed'}),None)
-        if terminal is not None and terminal.get('type')=='turn.completed':return
-        messages=[]
+        events = []
+        for line in _decode_capture(stdout, "JSONL stream", limit).splitlines():
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue  # Normal protocol validation follows.
+            if isinstance(event, dict):
+                events.append(event)
+        terminal = next((e for e in reversed(events) if e.get("type") in {"turn.completed", "turn.failed"}), None)
+        if terminal is not None and terminal.get("type") == "turn.completed":
+            return
+        messages = []
         for event in events:
-            if event.get('type') not in {'error','turn.failed'}:continue
-            detail=event.get('error',event)
-            message=detail.get('message') if isinstance(detail,dict) else detail
-            if isinstance(message,str):messages.append(message)
+            if event.get("type") not in {"error", "turn.failed"}:
+                continue
+            detail = event.get("error", event)
+            message = detail.get("message") if isinstance(detail, dict) else detail
+            if isinstance(message, str):
+                messages.append(message)
         if messages:
-            CodexExecAdapter._raise_for_exit(1,'\n'.join(messages).encode('utf-8'))
+            CodexExecAdapter._raise_for_exit(1, "\n".join(messages).encode("utf-8"))
         if terminal is not None:
-            raise ProviderProtocolError('Codex reported a failed turn without a diagnostic')
+            raise ProviderProtocolError("Codex reported a failed turn without a diagnostic")
 
     @staticmethod
     def _raise_for_exit(returncode: int, stderr: bytes) -> None:
@@ -798,8 +777,7 @@ class CodexExecAdapter:
         if any(marker in diagnostic for marker in ("usage limit", "rate limit", "quota", "credits")):
             raise ProviderUsageLimitError("Codex account usage limit prevented this attempt")
         if any(
-            marker in diagnostic
-            for marker in ("connection failed", "network is unreachable", "could not resolve host")
+            marker in diagnostic for marker in ("connection failed", "network is unreachable", "could not resolve host")
         ):
             raise ProviderNetworkError("Codex could not reach its service")
         if any(marker in diagnostic for marker in ("sandbox", "operation not permitted", "permission")):
@@ -824,13 +802,9 @@ class CodexExecAdapter:
         with tempfile.TemporaryFile() as prompt_stream:
             prompt_stream.write(self._stdin_payload(attempt))
             prompt_stream.seek(0)
-            stdout_descriptor = os.open(
-                events_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
-            )
+            stdout_descriptor = os.open(events_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             try:
-                stderr_descriptor = os.open(
-                    diagnostics_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
-                )
+                stderr_descriptor = os.open(diagnostics_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             except Exception:
                 os.close(stdout_descriptor)
                 raise
@@ -855,22 +829,16 @@ class CodexExecAdapter:
                 while process.poll() is None:
                     if cancel_token is not None and cancel_token.is_set():
                         self._terminate(process)
-                        raise ProviderCancelled(
-                            f"Codex attempt {attempt.attempt_id} was cancelled"
-                        )
+                        raise ProviderCancelled(f"Codex attempt {attempt.attempt_id} was cancelled")
                     if time.monotonic() >= deadline:
                         self._terminate(process)
-                        raise ProviderTimedOut(
-                            f"Codex attempt {attempt.attempt_id} exceeded its timeout"
-                        )
+                        raise ProviderTimedOut(f"Codex attempt {attempt.attempt_id} exceeded its timeout")
                     if (
                         os.fstat(stdout_stream.fileno()).st_size > _MAX_CAPTURE_BYTES
                         or os.fstat(stderr_stream.fileno()).st_size > _MAX_CAPTURE_BYTES
                     ):
                         self._terminate(process)
-                        raise ProviderProtocolError(
-                            "Codex diagnostic output exceeded the capture limit"
-                        )
+                        raise ProviderProtocolError("Codex diagnostic output exceeded the capture limit")
                     time.sleep(_POLL_INTERVAL_SECONDS)
 
                 stdout_stream.flush()
@@ -882,7 +850,8 @@ class CodexExecAdapter:
     @staticmethod
     def _events_and_usage(
         stdout: bytes,
-        *, limit: int = _MAX_CAPTURE_BYTES,
+        *,
+        limit: int = _MAX_CAPTURE_BYTES,
     ) -> tuple[tuple[str, ...], ProviderUsage | None]:
         event_types: list[str] = []
         usage: ProviderUsage | None = None
@@ -900,29 +869,21 @@ class CodexExecAdapter:
             if isinstance(event_type, str) and event_type:
                 event_types.append(event_type)
             candidate_usage = event.get("usage")
-            if event_type in {"turn.completed", "turn.failed"} and isinstance(
-                candidate_usage, dict
-            ):
+            if event_type in {"turn.completed", "turn.failed"} and isinstance(candidate_usage, dict):
                 try:
                     usage = ProviderUsage(
                         input_tokens=candidate_usage["input_tokens"],
-                        cached_input_tokens=candidate_usage.get(
-                            "cached_input_tokens", 0
-                        ),
+                        cached_input_tokens=candidate_usage.get("cached_input_tokens", 0),
                         output_tokens=candidate_usage["output_tokens"],
                     )
                 except (KeyError, TypeError, ValueError) as error:
-                    raise ProviderProtocolError(
-                        "Codex usage data was malformed"
-                    ) from error
+                    raise ProviderProtocolError("Codex usage data was malformed") from error
         return tuple(event_types), usage
 
     @classmethod
     def _optional_usage(cls, path: Path) -> ProviderUsage | None:
         try:
-            _, usage = cls._events_and_usage(
-                cls._read_artifact(path, _MAX_CAPTURE_BYTES)
-            )
+            _, usage = cls._events_and_usage(cls._read_artifact(path, _MAX_CAPTURE_BYTES))
             return usage
         except (OSError, ProviderProtocolError):
             return None
@@ -944,9 +905,7 @@ class CodexExecAdapter:
             return None
 
     @staticmethod
-    def _sanitize_persisted_artifacts(
-        events_path: Path, diagnostics_path: Path, prompt: str
-    ) -> None:
+    def _sanitize_persisted_artifacts(events_path: Path, diagnostics_path: Path, prompt: str) -> None:
         prompt_bytes = prompt.encode("utf-8")
         for path in (events_path, diagnostics_path):
             if path.is_symlink() or not path.is_file():
@@ -964,9 +923,7 @@ class CodexExecAdapter:
             if sanitized == value:
                 continue
             temporary = path.with_name(f".{path.name}.redacted-{uuid.uuid4().hex}")
-            descriptor = os.open(
-                temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
-            )
+            descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             try:
                 with os.fdopen(descriptor, "wb") as stream:
                     stream.write(sanitized)
@@ -979,9 +936,7 @@ class CodexExecAdapter:
                     temporary.unlink()
 
     @staticmethod
-    def _verify_recorded_hash(
-        path: Path, expected: str | None, limit: int
-    ) -> None:
+    def _verify_recorded_hash(path: Path, expected: str | None, limit: int) -> None:
         if expected is None:
             return
         if sha256_file(path, limit) != expected:

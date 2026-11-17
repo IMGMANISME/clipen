@@ -1,8 +1,8 @@
-from pathlib import Path
 import sqlite3
 import tempfile
 import threading
 import unittest
+from pathlib import Path
 
 from clipen.projects import ProjectError, ProjectRepository
 from clipen.projects.storage import command_digest
@@ -33,8 +33,7 @@ class ProjectStorageTests(unittest.TestCase):
             0o700,
         )
         self.assertEqual(
-            (self.projects / created.project_id / "project.sqlite3").stat().st_mode
-            & 0o777,
+            (self.projects / created.project_id / "project.sqlite3").stat().st_mode & 0o777,
             0o600,
         )
 
@@ -95,12 +94,8 @@ class ProjectStorageTests(unittest.TestCase):
             with outcome_lock:
                 outcomes.append(outcome)
 
-        first = threading.Thread(
-            target=update, args=("request-update-concurrent-a", "並行版本 A")
-        )
-        second = threading.Thread(
-            target=update, args=("request-update-concurrent-b", "並行版本 B")
-        )
+        first = threading.Thread(target=update, args=("request-update-concurrent-a", "並行版本 A"))
+        second = threading.Thread(target=update, args=("request-update-concurrent-b", "並行版本 B"))
         first.start()
         second.start()
         barrier.wait()
@@ -117,9 +112,7 @@ class ProjectStorageTests(unittest.TestCase):
     def test_failed_mutation_rolls_back_data_and_receipt(self) -> None:
         created = self.repository.create_project("request-create-rollback", "回滾前")
         request_id = "request-update-rollback"
-        request_hash = command_digest(
-            {"expected_revision": created.revision, "name": "不應保存"}
-        )
+        request_hash = command_digest({"expected_revision": created.revision, "name": "不應保存"})
 
         def fail_after_write(connection, now) -> None:
             connection.execute(
@@ -164,16 +157,25 @@ class ProjectStorageTests(unittest.TestCase):
         self.assertEqual([project.project_id for project in listed], [updated_first.project_id, second.project_id])
 
     def test_production_activity_sorts_home_without_changing_project_revision(self):
-        first=self.repository.create_project('request-activity-first','持續剪輯的作品')
-        second=self.repository.create_project('request-activity-second','較新建立的作品')
+        first = self.repository.create_project("request-activity-first", "持續剪輯的作品")
+        second = self.repository.create_project("request-activity-second", "較新建立的作品")
         with self.repository.connect(first.project_id) as db:
-            db.execute('INSERT INTO operation_events(event_id,project_id,operation_id,event_type,payload_json,created_at) VALUES(?,?,?,?,?,?)',
-                       ('activity-event',first.project_id,'activity-operation','production_prompt_saved','{}','2099-01-01T00:00:00+00:00'))
-        listed=self.repository.list_projects()
-        self.assertEqual([p.project_id for p in listed],[first.project_id,second.project_id])
-        self.assertEqual(listed[0].to_public()['last_activity_at'],'2099-01-01T00:00:00+00:00')
-        self.assertEqual((listed[0].revision,listed[0].updated_at),(first.revision,first.updated_at))
-        self.assertEqual(self.repository.get_project(first.project_id),first)
+            db.execute(
+                "INSERT INTO operation_events(event_id,project_id,operation_id,event_type,payload_json,created_at) VALUES(?,?,?,?,?,?)",
+                (
+                    "activity-event",
+                    first.project_id,
+                    "activity-operation",
+                    "production_prompt_saved",
+                    "{}",
+                    "2099-01-01T00:00:00+00:00",
+                ),
+            )
+        listed = self.repository.list_projects()
+        self.assertEqual([p.project_id for p in listed], [first.project_id, second.project_id])
+        self.assertEqual(listed[0].to_public()["last_activity_at"], "2099-01-01T00:00:00+00:00")
+        self.assertEqual((listed[0].revision, listed[0].updated_at), (first.revision, first.updated_at))
+        self.assertEqual(self.repository.get_project(first.project_id), first)
 
     def test_rejects_invalid_project_id_and_symlinked_project(self) -> None:
         with self.assertRaises(ProjectError):
@@ -209,9 +211,7 @@ class ProjectStorageTests(unittest.TestCase):
         self.assertEqual(context.exception.code, "migration_required")
 
     def test_v6_with_existing_observation_table_finishes_migration(self) -> None:
-        created = self.repository.create_project(
-            "request-create-partial-migration", "接續 migration"
-        )
+        created = self.repository.create_project("request-create-partial-migration", "接續 migration")
         database = self.projects / created.project_id / "project.sqlite3"
         with sqlite3.connect(database) as connection:
             connection.execute(
@@ -234,8 +234,7 @@ class ProjectStorageTests(unittest.TestCase):
         with restarted.connect(created.project_id) as connection:
             self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 19)
             observation = connection.execute(
-                "SELECT state FROM evidence_observations "
-                "WHERE observation_id = 'obs_test'"
+                "SELECT state FROM evidence_observations WHERE observation_id = 'obs_test'"
             ).fetchone()
         self.assertEqual(observation["state"], "running")
 
@@ -274,10 +273,7 @@ class ProjectStorageTests(unittest.TestCase):
         self.assertEqual(restarted.get_project(created.project_id), created)
         with restarted.connect(created.project_id) as connection:
             self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 19)
-            columns = {
-                row["name"]: row
-                for row in connection.execute("PRAGMA table_info(transcript_annotations)")
-            }
+            columns = {row["name"]: row for row in connection.execute("PRAGMA table_info(transcript_annotations)")}
         self.assertIn("discarded", columns)
         self.assertEqual(columns["discarded"]["dflt_value"], "0")
 
@@ -298,7 +294,8 @@ class ProjectStorageTests(unittest.TestCase):
 
     def _retired_tables(self, connection) -> set[str]:
         return {
-            row[0] for row in connection.execute(
+            row[0]
+            for row in connection.execute(
                 "SELECT name FROM sqlite_master WHERE name IN "
                 "('planning_runs','plan_revisions','current_plan','plan_command_receipts',"
                 "'planning_runs_project_created','plan_revisions_project_created')"
@@ -307,6 +304,7 @@ class ProjectStorageTests(unittest.TestCase):
 
     def test_v18_project_archives_and_drops_retired_planning_tables(self) -> None:
         import json
+
         created = self.repository.create_project("request-create-v18", "外接硬碟上的作品")
         directory = self.projects / created.project_id
         with sqlite3.connect(directory / "project.sqlite3") as connection:
@@ -371,8 +369,7 @@ class ProjectStorageTests(unittest.TestCase):
             tables = {
                 row["name"]
                 for row in connection.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table' "
-                    "AND name LIKE 'edit_agent_%'"
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'edit_agent_%'"
                 )
             }
         self.assertEqual(

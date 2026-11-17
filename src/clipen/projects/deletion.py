@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
-from contextlib import AbstractContextManager
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
 import shutil
 import sqlite3
 import stat
 import threading
-from typing import Mapping, Protocol
 import uuid
+from contextlib import AbstractContextManager
+from pathlib import Path
+from typing import Mapping, Protocol
 
 from clipen.filesystem import restrict_permissions
 
@@ -32,9 +32,7 @@ class ProjectStorage(Protocol):
 
     def get_project(self, project_id: str) -> ProjectSnapshot: ...
 
-    def connect(
-        self, project_id: str
-    ) -> AbstractContextManager[sqlite3.Connection]: ...
+    def connect(self, project_id: str) -> AbstractContextManager[sqlite3.Connection]: ...
 
 
 class ProjectDeletion:
@@ -92,11 +90,7 @@ class ProjectDeletion:
 
     def _validate_managed_tree(self, project_id: str) -> None:
         project = self.storage.root / project_id
-        if (
-            project.parent != self.storage.root
-            or project.is_symlink()
-            or not project.is_dir()
-        ):
+        if project.parent != self.storage.root or project.is_symlink() or not project.is_dir():
             raise ProjectError("project_not_found", "找不到這個作品。", status_code=404)
         expected_owner = os.getuid() if hasattr(os, "getuid") else None
         for parent, directory_names, file_names in os.walk(project, followlinks=False):
@@ -185,16 +179,17 @@ class ProjectDeletion:
             "SELECT 1 FROM preparation_runs WHERE state IN (?, ?, ?) LIMIT 1",
         )
         with self.storage.connect(project_id) as connection:
-            active = any(
-                connection.execute(query, active_states).fetchone() is not None
-                for query in queries
+            active = any(connection.execute(query, active_states).fetchone() is not None for query in queries)
+            active = (
+                active
+                or connection.execute("SELECT 1 FROM evidence_runs WHERE state = 'running' LIMIT 1").fetchone()
+                is not None
             )
-            active = active or connection.execute(
-                "SELECT 1 FROM evidence_runs WHERE state = 'running' LIMIT 1"
-            ).fetchone() is not None
-            active = active or connection.execute(
-                "SELECT 1 FROM evidence_observations WHERE state = 'running' LIMIT 1"
-            ).fetchone() is not None
+            active = (
+                active
+                or connection.execute("SELECT 1 FROM evidence_observations WHERE state = 'running' LIMIT 1").fetchone()
+                is not None
+            )
         if active:
             raise ProjectError(
                 "project_busy",
@@ -206,9 +201,7 @@ class ProjectDeletion:
         receipts = self.storage.root / ".delete-receipts"
         receipts.mkdir(mode=0o700, exist_ok=True)
         if receipts.is_symlink() or not receipts.is_dir():
-            raise ProjectError(
-                "storage_unsafe", "Clipen 刪除紀錄位置不安全。", status_code=500
-            )
+            raise ProjectError("storage_unsafe", "Clipen 刪除紀錄位置不安全。", status_code=500)
         restrict_permissions(receipts, 0o700)
         return receipts
 
@@ -221,19 +214,13 @@ class ProjectDeletion:
         if not path.exists():
             return None
         if path.is_symlink() or not path.is_file():
-            raise ProjectError(
-                "storage_unsafe", "Clipen 刪除紀錄不安全。", status_code=500
-            )
+            raise ProjectError("storage_unsafe", "Clipen 刪除紀錄不安全。", status_code=500)
         try:
             value = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, UnicodeError, json.JSONDecodeError) as error:
-            raise ProjectError(
-                "storage_corrupt", "Clipen 無法讀取刪除紀錄。", status_code=500
-            ) from error
+            raise ProjectError("storage_corrupt", "Clipen 無法讀取刪除紀錄。", status_code=500) from error
         if not isinstance(value, dict) or value.get("project_id") is None:
-            raise ProjectError(
-                "storage_corrupt", "Clipen 無法讀取刪除紀錄。", status_code=500
-            )
+            raise ProjectError("storage_corrupt", "Clipen 無法讀取刪除紀錄。", status_code=500)
         return value
 
     def _write_receipt(self, request_id: str, value: Mapping[str, object]) -> None:

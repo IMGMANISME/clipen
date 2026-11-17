@@ -13,10 +13,10 @@ from clipen.projects.models import validate_project_id, validate_request_id
 from clipen.projects.storage import command_digest, utc_now
 
 from .agent_models import (
-    AgentRevision,
-    AgentRun,
     REVISION_ID_PATTERN,
     RUN_ID_PATTERN,
+    AgentRevision,
+    AgentRun,
     bounded_text,
     encoded,
     make_id,
@@ -50,42 +50,77 @@ class EditAgentRepository:
         """Start an AI production session; there are no runs without one."""
         validate_project_id(project_id)
         request = validate_request_id(request_id)
-        from .program_direction import validate_direction, PROGRAM_DIRECTION, FULL_PRODUCTION_REQUIREMENTS
-        if not isinstance(production, dict) or (not {"skill_id", "intent"} <= set(production) or not set(production) <= {"skill_id", "intent", "visual_style_id", "font_style_id", "target_duration_seconds", "music_asset_id", "template_id"}):
+        from .program_direction import FULL_PRODUCTION_REQUIREMENTS, PROGRAM_DIRECTION, validate_direction
+
+        if not isinstance(production, dict) or (
+            not {"skill_id", "intent"} <= set(production)
+            or not set(production)
+            <= {
+                "skill_id",
+                "intent",
+                "visual_style_id",
+                "font_style_id",
+                "target_duration_seconds",
+                "music_asset_id",
+                "template_id",
+            }
+        ):
             raise ProjectError("production_input_invalid", "請選擇剪輯樣板並填寫影片需求。", status_code=422)
         from clipen.skills import get_skill
+
         skill = get_skill(production["skill_id"])
-        from clipen.skills.visual_styles import style_presets, font_presets
-        template=None
-        template_supplied='template_id' in production
-        font_supplied='font_style_id' in production or template_supplied
-        if 'template_id' not in production:
-            inferred=next((t for t in skill.get('templates',[]) if t['visual_style_id']==production.get('visual_style_id')),None)
-            if inferred is not None:production={**production,'template_id':inferred['template_id']}
-        if 'template_id' in production:
-            template=next((t for t in skill.get('templates',[]) if t['template_id']==production['template_id']),None)
-            if template is None:raise ProjectError('template_unavailable','找不到這套影片模板。',status_code=422)
-            if production.get('visual_style_id',template['visual_style_id'])!=template['visual_style_id']:
-                raise ProjectError('template_conflict','畫面風格與選擇的模板不一致，請重新選擇。',status_code=422)
-            production={**production,'visual_style_id':template['visual_style_id'],'font_style_id':production.get('font_style_id',template['font_style_id'])}
+        from clipen.skills.visual_styles import font_presets, style_presets
+
+        template = None
+        template_supplied = "template_id" in production
+        font_supplied = "font_style_id" in production or template_supplied
+        if "template_id" not in production:
+            inferred = next(
+                (t for t in skill.get("templates", []) if t["visual_style_id"] == production.get("visual_style_id")),
+                None,
+            )
+            if inferred is not None:
+                production = {**production, "template_id": inferred["template_id"]}
+        if "template_id" in production:
+            template = next(
+                (t for t in skill.get("templates", []) if t["template_id"] == production["template_id"]), None
+            )
+            if template is None:
+                raise ProjectError("template_unavailable", "找不到這套影片模板。", status_code=422)
+            if production.get("visual_style_id", template["visual_style_id"]) != template["visual_style_id"]:
+                raise ProjectError("template_conflict", "畫面風格與選擇的模板不一致，請重新選擇。", status_code=422)
+            production = {
+                **production,
+                "visual_style_id": template["visual_style_id"],
+                "font_style_id": production.get("font_style_id", template["font_style_id"]),
+            }
             # A template is its own skill over the production core.
-            skill=get_skill(template['skill']['skill_id'])
-            skill['selected_template_id']=template['template_id']
-        elif skill.get('template'):
+            skill = get_skill(template["skill"]["skill_id"])
+            skill["selected_template_id"] = template["template_id"]
+        elif skill.get("template"):
             # The template skill was chosen directly; keep its design brief in the intent.
-            template=skill['template']
-            skill['selected_template_id']=template['template_id']
-        target=production.get('target_duration_seconds',skill.get('default_duration_seconds',60))
-        if isinstance(target,bool) or not isinstance(target,int) or not 30<=target<=1200:
-            raise ProjectError('production_input_invalid','預計片長必須為 30 到 1200 秒。',status_code=422)
+            template = skill["template"]
+            skill["selected_template_id"] = template["template_id"]
+        target = production.get("target_duration_seconds", skill.get("default_duration_seconds", 60))
+        if isinstance(target, bool) or not isinstance(target, int) or not 30 <= target <= 1200:
+            raise ProjectError("production_input_invalid", "預計片長必須為 30 到 1200 秒。", status_code=422)
         from .workbench import music_choice
-        selected_music=music_choice(self,project_id,production.get("music_asset_id"))
-        supplied_style="visual_style_id" in production
-        selected,_=style_presets(skill,production.get('visual_style_id'))
-        skill['selected_visual_style_id']=selected
-        selected_font,_=font_presets(skill,{},production.get('font_style_id'))
-        skill['selected_font_style_id']=selected_font
-        production = {**({'template_id':template['template_id']} if template_supplied else {}),"skill_id": skill["skill_id"], "intent": bounded_text(production["intent"], "影片需求", 8000), **({"visual_style_id":selected} if supplied_style else {}), **({"font_style_id":selected_font} if font_supplied else {}), **({"target_duration_seconds":target} if "target_duration_seconds" in production else {}), **({"music_asset_id":production["music_asset_id"]} if "music_asset_id" in production else {})}
+
+        selected_music = music_choice(self, project_id, production.get("music_asset_id"))
+        supplied_style = "visual_style_id" in production
+        selected, _ = style_presets(skill, production.get("visual_style_id"))
+        skill["selected_visual_style_id"] = selected
+        selected_font, _ = font_presets(skill, {}, production.get("font_style_id"))
+        skill["selected_font_style_id"] = selected_font
+        production = {
+            **({"template_id": template["template_id"]} if template_supplied else {}),
+            "skill_id": skill["skill_id"],
+            "intent": bounded_text(production["intent"], "影片需求", 8000),
+            **({"visual_style_id": selected} if supplied_style else {}),
+            **({"font_style_id": selected_font} if font_supplied else {}),
+            **({"target_duration_seconds": target} if "target_duration_seconds" in production else {}),
+            **({"music_asset_id": production["music_asset_id"]} if "music_asset_id" in production else {}),
+        }
         creative_direction = {**PROGRAM_DIRECTION, "production_requirements": FULL_PRODUCTION_REQUIREMENTS}
         creative_direction = validate_direction(creative_direction)
         if isinstance(max_tool_calls, bool) or not 1 <= max_tool_calls <= 500:
@@ -102,6 +137,7 @@ class EditAgentRepository:
             }
         )
         from clipen.provider_registry import implemented_providers
+
         if provider not in implemented_providers():
             raise ValueError("provider is invalid")
         run_id = make_id("editrun_", [project_id, request])
@@ -126,8 +162,7 @@ class EditAgentRepository:
                     database.rollback()
                     return result, False
                 busy = database.execute(
-                    "SELECT run_id FROM edit_agent_runs "
-                    "WHERE state IN ('queued','running') LIMIT 1"
+                    "SELECT run_id FROM edit_agent_runs WHERE state IN ('queued','running') LIMIT 1"
                 ).fetchone()
                 if busy is not None:
                     raise ProjectError(
@@ -136,14 +171,24 @@ class EditAgentRepository:
                         status_code=409,
                     )
                 from clipen.domain import Rational, Track, TrackKind
+
                 from .production_media import source_rows
+
                 sources = source_rows(self.projects, project_id)
                 inventory = database.execute("SELECT run_id FROM current_inventory WHERE slot=1").fetchone()
                 if inventory is None or not any(s["kind"] == "video" for s in sources):
                     raise ProjectError("inventory_required", "請先檢查素材，至少需要一段可用影片。", status_code=409)
                 timeline = EditTimeline(
-                    make_id("production_", run_id), project_id, None, None, None,
-                    Rational(30, 1), 1280, 720, 0, (Track("video-main", TrackKind.VIDEO, ()),),
+                    make_id("production_", run_id),
+                    project_id,
+                    None,
+                    None,
+                    None,
+                    Rational(30, 1),
+                    1280,
+                    720,
+                    0,
+                    (Track("video-main", TrackKind.VIDEO, ()),),
                     production_session_id=run_id,
                 )
                 payload = timeline.to_payload()
@@ -172,11 +217,35 @@ class EditAgentRepository:
                     "payload_json,summary,created_at) VALUES(?,?,0,NULL,?,?,?,?)",
                     (revision_id, run_id, digest, encoded(payload), "空白製作草稿", now),
                 )
-                database.execute("INSERT INTO production_sessions VALUES(?,?,?,?,?,?)", (
-                    run_id, encoded({**({'template':template} if template else {}),"authority": "user", "brief": production["intent"], "allow_local_model_downloads": True, "visual_style_id":selected, "font_style_id":selected_font, "target_duration_seconds":target, "music_choice":selected_music}),
-                    encoded(skill), encoded(sources), inventory["run_id"], now,
-                ))
-                self._append_event(database, run_id, "run_created", {"revision_id": revision_id, "creative_direction": creative_direction}, now)
+                database.execute(
+                    "INSERT INTO production_sessions VALUES(?,?,?,?,?,?)",
+                    (
+                        run_id,
+                        encoded(
+                            {
+                                **({"template": template} if template else {}),
+                                "authority": "user",
+                                "brief": production["intent"],
+                                "allow_local_model_downloads": True,
+                                "visual_style_id": selected,
+                                "font_style_id": selected_font,
+                                "target_duration_seconds": target,
+                                "music_choice": selected_music,
+                            }
+                        ),
+                        encoded(skill),
+                        encoded(sources),
+                        inventory["run_id"],
+                        now,
+                    ),
+                )
+                self._append_event(
+                    database,
+                    run_id,
+                    "run_created",
+                    {"revision_id": revision_id, "creative_direction": creative_direction},
+                    now,
+                )
                 database.execute(
                     "INSERT INTO edit_agent_command_receipts VALUES(?,?,?,?,?)",
                     (request, "start", request_hash, encoded({"run_id": run_id}), now),
@@ -201,98 +270,193 @@ class EditAgentRepository:
             row = db.execute("SELECT * FROM production_sessions WHERE run_id=?", (run_id,)).fetchone()
         if row is None:
             return None
-        return {"run_id": run_id, "intent": json.loads(row["intent_json"]),
-                "skill": json.loads(row["skill_json"]), "sources": json.loads(row["sources_json"]),
-                "inventory_run_id": row["inventory_run_id"]}
+        return {
+            "run_id": run_id,
+            "intent": json.loads(row["intent_json"]),
+            "skill": json.loads(row["skill_json"]),
+            "sources": json.loads(row["sources_json"]),
+            "inventory_run_id": row["inventory_run_id"],
+        }
 
     def creative_direction(self, project_id: str, run_id: str) -> dict:
         self._validate_run_id(run_id)
         with self.projects.connect(project_id) as db:
-            row=db.execute("SELECT payload_json FROM edit_agent_events WHERE run_id=? AND event_type='run_created' ORDER BY sequence LIMIT 1",(run_id,)).fetchone()
-        return {} if row is None else json.loads(row['payload_json']).get('creative_direction',{})
+            row = db.execute(
+                "SELECT payload_json FROM edit_agent_events WHERE run_id=? AND event_type='run_created' ORDER BY sequence LIMIT 1",
+                (run_id,),
+            ).fetchone()
+        return {} if row is None else json.loads(row["payload_json"]).get("creative_direction", {})
 
-    def set_target_duration(self, project_id, run_id, expected_revision_id, *, target_duration_seconds, request_excerpt, summary):
+    def set_target_duration(
+        self, project_id, run_id, expected_revision_id, *, target_duration_seconds, request_excerpt, summary
+    ):
         """Reconcile a later user duration request without rewriting the film."""
-        normalized=self._validate_run_id(run_id)
-        if isinstance(target_duration_seconds,bool) or not isinstance(target_duration_seconds,int) or not 30<=target_duration_seconds<=1200:
-            raise ProjectError('production_input_invalid','預計片長必須為 30 到 1200 秒。',status_code=422)
-        excerpt=bounded_text(request_excerpt,'使用者要求引文',500)
-        summary=bounded_text(summary,'修改說明',500)
+        normalized = self._validate_run_id(run_id)
+        if (
+            isinstance(target_duration_seconds, bool)
+            or not isinstance(target_duration_seconds, int)
+            or not 30 <= target_duration_seconds <= 1200
+        ):
+            raise ProjectError("production_input_invalid", "預計片長必須為 30 到 1200 秒。", status_code=422)
+        excerpt = bounded_text(request_excerpt, "使用者要求引文", 500)
+        summary = bounded_text(summary, "修改說明", 500)
         with self.projects.connect(project_id) as db:
-            db.execute('BEGIN IMMEDIATE')
-            run=self._read_run(db,normalized)
-            if run.current_revision_id!=expected_revision_id:
-                raise ProjectError('revision_conflict','影片已更新，請重新讀取後修改。',status_code=409)
-            if run.state!='running':
-                raise ProjectError('edit_agent_not_running','AI 製作目前未在執行。',status_code=409)
-            row=db.execute('SELECT intent_json FROM production_sessions WHERE run_id=?',(normalized,)).fetchone()
-            if row is None:raise ProjectError('production_required','這個版本不支援持續修訂。',status_code=422)
-            intent=json.loads(row['intent_json'])
-            request=intent.get('latest_revision_request',{})
-            if request.get('authority')!='user' or excerpt not in request.get('instruction',''):
-                raise ProjectError('duration_request_required','請引用使用者本輪修改片長的原文；不能自行降低交付目標。',status_code=422)
-            previous=intent.get('target_duration_seconds',60)
-            intent['target_duration_seconds']=target_duration_seconds
-            db.execute('UPDATE production_sessions SET intent_json=? WHERE run_id=?',(encoded(intent),normalized))
-            result={'revision_id':run.current_revision_id,'previous_target_duration_seconds':previous,
-                    'target_duration_seconds':target_duration_seconds,'request_excerpt':excerpt}
-            self._append_event(db,normalized,'production_duration_updated',{
-                **result,'authority':'model','instruction':request['instruction'],
-                'request_created_at':request.get('created_at'),'summary':summary},utc_now())
+            db.execute("BEGIN IMMEDIATE")
+            run = self._read_run(db, normalized)
+            if run.current_revision_id != expected_revision_id:
+                raise ProjectError("revision_conflict", "影片已更新，請重新讀取後修改。", status_code=409)
+            if run.state != "running":
+                raise ProjectError("edit_agent_not_running", "AI 製作目前未在執行。", status_code=409)
+            row = db.execute("SELECT intent_json FROM production_sessions WHERE run_id=?", (normalized,)).fetchone()
+            if row is None:
+                raise ProjectError("production_required", "這個版本不支援持續修訂。", status_code=422)
+            intent = json.loads(row["intent_json"])
+            request = intent.get("latest_revision_request", {})
+            if request.get("authority") != "user" or excerpt not in request.get("instruction", ""):
+                raise ProjectError(
+                    "duration_request_required",
+                    "請引用使用者本輪修改片長的原文；不能自行降低交付目標。",
+                    status_code=422,
+                )
+            previous = intent.get("target_duration_seconds", 60)
+            intent["target_duration_seconds"] = target_duration_seconds
+            db.execute("UPDATE production_sessions SET intent_json=? WHERE run_id=?", (encoded(intent), normalized))
+            result = {
+                "revision_id": run.current_revision_id,
+                "previous_target_duration_seconds": previous,
+                "target_duration_seconds": target_duration_seconds,
+                "request_excerpt": excerpt,
+            }
+            self._append_event(
+                db,
+                normalized,
+                "production_duration_updated",
+                {
+                    **result,
+                    "authority": "model",
+                    "instruction": request["instruction"],
+                    "request_created_at": request.get("created_at"),
+                    "summary": summary,
+                },
+                utc_now(),
+            )
             db.commit()
             return result
 
-    def request_refinement(self, project_id, run_id, request_id, expected_revision_id, instruction, music_asset_id=None, expected_references_version=None, provider=None):
+    def request_refinement(
+        self,
+        project_id,
+        run_id,
+        request_id,
+        expected_revision_id,
+        instruction,
+        music_asset_id=None,
+        expected_references_version=None,
+        provider=None,
+    ):
         from .refinement_references import hand_over, public_state, references
         from .workbench import music_choice
-        normalized=self._validate_run_id(run_id)
-        request=validate_request_id(request_id)
-        instruction=bounded_text(instruction,'修改需求',8000)
-        choice=music_choice(self,project_id,music_asset_id)
+
+        normalized = self._validate_run_id(run_id)
+        request = validate_request_id(request_id)
+        instruction = bounded_text(instruction, "修改需求", 8000)
+        choice = music_choice(self, project_id, music_asset_id)
         if provider is not None:
             from clipen.provider_registry import get_provider
+
             get_provider(provider)
-        request_hash=command_digest({'run_id':normalized,'expected_revision_id':expected_revision_id,'instruction':instruction,'music_asset_id':music_asset_id,'expected_references_version':expected_references_version,
-                                     **({'provider':provider} if provider is not None else {})})
+        request_hash = command_digest(
+            {
+                "run_id": normalized,
+                "expected_revision_id": expected_revision_id,
+                "instruction": instruction,
+                "music_asset_id": music_asset_id,
+                "expected_references_version": expected_references_version,
+                **({"provider": provider} if provider is not None else {}),
+            }
+        )
         with self.projects.connect(project_id) as db:
-            db.execute('BEGIN IMMEDIATE')
-            receipt=db.execute('SELECT * FROM edit_agent_command_receipts WHERE request_id=?',(request,)).fetchone()
+            db.execute("BEGIN IMMEDIATE")
+            receipt = db.execute("SELECT * FROM edit_agent_command_receipts WHERE request_id=?", (request,)).fetchone()
             if receipt:
-                if receipt['command_type']!='refine' or receipt['request_hash']!=request_hash:
-                    raise ProjectError('request_reused','操作識別已用於其他修改。',status_code=409)
-                return self._read_run(db,normalized),False
-            run=self._read_run(db,normalized)
-            latest=db.execute('SELECT run_id FROM edit_agent_runs ORDER BY created_at DESC LIMIT 1').fetchone()
-            if latest['run_id']!=normalized or db.execute("SELECT 1 FROM edit_agent_runs WHERE state IN ('queued','running')").fetchone():
-                raise ProjectError('edit_agent_busy','請先停止目前的 AI 製作。',status_code=409)
-            if run.current_revision_id!=expected_revision_id:
-                raise ProjectError('revision_conflict','影片已更新，請重新讀取後提出修改。',status_code=409)
-            session=db.execute('SELECT intent_json FROM production_sessions WHERE run_id=?',(normalized,)).fetchone()
-            if session is None:raise ProjectError('production_required','這個版本不支援持續修訂。',status_code=422)
-            intent=json.loads(session['intent_json'])
-            if expected_references_version is not None and (isinstance(expected_references_version,bool) or not isinstance(expected_references_version,int) or references(intent)['version'] != expected_references_version):
-                raise ProjectError('reference_conflict','參考註記已更新，請重新讀取並確認後再送出。',status_code=409)
-            reference_snapshot=public_state(intent,self._read_revision(db,run.current_revision_id).timeline)
-            intent['latest_revision_request']={'authority':'user','instruction':instruction,'base_revision_id':expected_revision_id,'created_at':utc_now(),'references':reference_snapshot}
+                if receipt["command_type"] != "refine" or receipt["request_hash"] != request_hash:
+                    raise ProjectError("request_reused", "操作識別已用於其他修改。", status_code=409)
+                return self._read_run(db, normalized), False
+            run = self._read_run(db, normalized)
+            latest = db.execute("SELECT run_id FROM edit_agent_runs ORDER BY created_at DESC LIMIT 1").fetchone()
+            if (
+                latest["run_id"] != normalized
+                or db.execute("SELECT 1 FROM edit_agent_runs WHERE state IN ('queued','running')").fetchone()
+            ):
+                raise ProjectError("edit_agent_busy", "請先停止目前的 AI 製作。", status_code=409)
+            if run.current_revision_id != expected_revision_id:
+                raise ProjectError("revision_conflict", "影片已更新，請重新讀取後提出修改。", status_code=409)
+            session = db.execute("SELECT intent_json FROM production_sessions WHERE run_id=?", (normalized,)).fetchone()
+            if session is None:
+                raise ProjectError("production_required", "這個版本不支援持續修訂。", status_code=422)
+            intent = json.loads(session["intent_json"])
+            if expected_references_version is not None and (
+                isinstance(expected_references_version, bool)
+                or not isinstance(expected_references_version, int)
+                or references(intent)["version"] != expected_references_version
+            ):
+                raise ProjectError("reference_conflict", "參考註記已更新，請重新讀取並確認後再送出。", status_code=409)
+            reference_snapshot = public_state(intent, self._read_revision(db, run.current_revision_id).timeline)
+            intent["latest_revision_request"] = {
+                "authority": "user",
+                "instruction": instruction,
+                "base_revision_id": expected_revision_id,
+                "created_at": utc_now(),
+                "references": reference_snapshot,
+            }
             # What the last change left for the person goes with the next request, so it is not lost.
             from .change_report import carried
-            last=db.execute("SELECT payload_json FROM edit_agent_events WHERE run_id=? AND event_type='run_finished' ORDER BY sequence DESC LIMIT 1",(normalized,)).fetchone()
-            left=carried(json.loads(last['payload_json']).get('report') or {}) if last else []
-            if left:intent['latest_revision_request']['left_last_time']=left
+
+            last = db.execute(
+                "SELECT payload_json FROM edit_agent_events WHERE run_id=? AND event_type='run_finished' ORDER BY sequence DESC LIMIT 1",
+                (normalized,),
+            ).fetchone()
+            left = carried(json.loads(last["payload_json"]).get("report") or {}) if last else []
+            if left:
+                intent["latest_revision_request"]["left_last_time"] = left
             # The AI gets this round's notes; only lasting facts stay listed.
             hand_over(intent)
-            if choice is not None:intent['music_choice']=choice
-            db.execute('UPDATE production_sessions SET intent_json=? WHERE run_id=?',(encoded(intent),normalized))
-            self._append_event(db,normalized,'refinement_requested',{'instruction':instruction,'references':reference_snapshot,'base_revision_id':expected_revision_id,'previous_budget':run.to_public()['budget'],'previous_attempt_id':run.provider_attempt_id,'music_choice':intent.get('music_choice')},utc_now())
+            if choice is not None:
+                intent["music_choice"] = choice
+            db.execute("UPDATE production_sessions SET intent_json=? WHERE run_id=?", (encoded(intent), normalized))
+            self._append_event(
+                db,
+                normalized,
+                "refinement_requested",
+                {
+                    "instruction": instruction,
+                    "references": reference_snapshot,
+                    "base_revision_id": expected_revision_id,
+                    "previous_budget": run.to_public()["budget"],
+                    "previous_attempt_id": run.provider_attempt_id,
+                    "music_choice": intent.get("music_choice"),
+                },
+                utc_now(),
+            )
             # A revision is a new request from the user, so the AI Clipen runs with
             # now may take over the draft; it spends its own quota from a fresh budget.
             # Resuming an interrupted attempt never switches (see resume_stopped).
-            if provider is not None and provider!=run.provider:
-                self._append_event(db,normalized,'provider_switched',{'from':run.provider,'to':provider},utc_now())
-                db.execute('UPDATE edit_agent_runs SET provider=? WHERE run_id=?',(provider,normalized))
-            db.execute("UPDATE edit_agent_runs SET state='queued',phase='ready',tool_calls=0,preview_renders=0,max_tool_calls=500,max_preview_renders=6,error_code=NULL,provider_attempt_id=NULL,usage_json=NULL,completed_at=NULL WHERE run_id=?",(normalized,))
-            db.execute('INSERT INTO edit_agent_command_receipts VALUES(?,?,?,?,?)',(request,'refine',request_hash,encoded({'run_id':normalized}),utc_now()))
-            result=self._read_run(db,normalized);db.commit();return result,True
+            if provider is not None and provider != run.provider:
+                self._append_event(
+                    db, normalized, "provider_switched", {"from": run.provider, "to": provider}, utc_now()
+                )
+                db.execute("UPDATE edit_agent_runs SET provider=? WHERE run_id=?", (provider, normalized))
+            db.execute(
+                "UPDATE edit_agent_runs SET state='queued',phase='ready',tool_calls=0,preview_renders=0,max_tool_calls=500,max_preview_renders=6,error_code=NULL,provider_attempt_id=NULL,usage_json=NULL,completed_at=NULL WHERE run_id=?",
+                (normalized,),
+            )
+            db.execute(
+                "INSERT INTO edit_agent_command_receipts VALUES(?,?,?,?,?)",
+                (request, "refine", request_hash, encoded({"run_id": normalized}), utc_now()),
+            )
+            result = self._read_run(db, normalized)
+            db.commit()
+            return result, True
 
     # Stops that leave a valid draft and say nothing about the draft itself: the
     # wall clock ran out, the provider account hit its usage limit, or the
@@ -300,47 +464,69 @@ class EditAgentRepository:
     # budget once the user asks again. A draft blocked by delivery checks needs
     # a revision request instead, since the same instructions hit the same checks.
     # A login that expired mid-run is the same: sign in again, then continue.
-    RESUMABLE_ERRORS = frozenset({'provider_timed_out', 'provider_usage_limit', 'provider_stopped_early',
-                                  'provider_authentication_required'})
+    RESUMABLE_ERRORS = frozenset(
+        {"provider_timed_out", "provider_usage_limit", "provider_stopped_early", "provider_authentication_required"}
+    )
 
     def resume_stopped(self, project_id: str, run_id: object) -> AgentRun:
         normalized = self._validate_run_id(run_id)
         with self.projects.connect(project_id) as db:
-            db.execute('BEGIN IMMEDIATE')
+            db.execute("BEGIN IMMEDIATE")
             run = self._read_run(db, normalized)
-            latest = db.execute('SELECT run_id FROM edit_agent_runs ORDER BY created_at DESC LIMIT 1').fetchone()
-            if latest is None or latest['run_id'] != normalized:
-                raise ProjectError('edit_agent_resume_invalid', '已有較新的製作工作，請使用最新工作。', status_code=409)
+            latest = db.execute("SELECT run_id FROM edit_agent_runs ORDER BY created_at DESC LIMIT 1").fetchone()
+            if latest is None or latest["run_id"] != normalized:
+                raise ProjectError("edit_agent_resume_invalid", "已有較新的製作工作，請使用最新工作。", status_code=409)
             if db.execute("SELECT 1 FROM edit_agent_runs WHERE state IN ('queued','running')").fetchone():
-                raise ProjectError('edit_agent_busy', '目前已有 AI 製作工作。', status_code=409)
-            if run.state != 'failed' or run.error_code not in self.RESUMABLE_ERRORS:
-                raise ProjectError('edit_agent_resume_invalid', '只能接續因 AI 逾時、額度不足、登入過期或提早結束而停止的工作。', status_code=409)
-            if not db.execute('SELECT 1 FROM production_sessions WHERE run_id=?', (normalized,)).fetchone():
-                raise ProjectError('edit_agent_resume_invalid', '這份工作不支援接續製作。', status_code=409)
+                raise ProjectError("edit_agent_busy", "目前已有 AI 製作工作。", status_code=409)
+            if run.state != "failed" or run.error_code not in self.RESUMABLE_ERRORS:
+                raise ProjectError(
+                    "edit_agent_resume_invalid",
+                    "只能接續因 AI 逾時、額度不足、登入過期或提早結束而停止的工作。",
+                    status_code=409,
+                )
+            if not db.execute("SELECT 1 FROM production_sessions WHERE run_id=?", (normalized,)).fetchone():
+                raise ProjectError("edit_agent_resume_invalid", "這份工作不支援接續製作。", status_code=409)
             if run.tool_calls >= run.max_tool_calls or run.preview_renders >= run.max_preview_renders:
-                raise ProjectError('edit_agent_budget_exhausted', '這份工作的操作或輸出次數已用完。', status_code=409)
+                raise ProjectError("edit_agent_budget_exhausted", "這份工作的操作或輸出次數已用完。", status_code=409)
             # The run row only keeps the latest attempt's usage; keep what the
             # stopped attempt already spent in the append-only event log.
-            previous_usage = db.execute('SELECT usage_json FROM edit_agent_runs WHERE run_id=?', (normalized,)).fetchone()['usage_json']
-            self._append_event(db, normalized, 'run_resumed', {'previous_attempt_id':run.provider_attempt_id,
-                'previous_error_code':run.error_code,
-                'previous_usage':None if previous_usage is None else json.loads(previous_usage)}, utc_now())
-            db.execute("UPDATE edit_agent_runs SET state='queued',phase='queued',error_code=NULL,provider_attempt_id=NULL,usage_json=NULL,completed_at=NULL WHERE run_id=?", (normalized,))
+            previous_usage = db.execute(
+                "SELECT usage_json FROM edit_agent_runs WHERE run_id=?", (normalized,)
+            ).fetchone()["usage_json"]
+            self._append_event(
+                db,
+                normalized,
+                "run_resumed",
+                {
+                    "previous_attempt_id": run.provider_attempt_id,
+                    "previous_error_code": run.error_code,
+                    "previous_usage": None if previous_usage is None else json.loads(previous_usage),
+                },
+                utc_now(),
+            )
+            db.execute(
+                "UPDATE edit_agent_runs SET state='queued',phase='queued',error_code=NULL,provider_attempt_id=NULL,usage_json=NULL,completed_at=NULL WHERE run_id=?",
+                (normalized,),
+            )
             result = self._read_run(db, normalized)
             db.commit()
             return result
 
-    resume_timed_out = resume_stopped
-
     def record_machine_sleep(self, project_id: str, run_id: object, periods) -> None:
         """Note each time the Mac slept during an attempt, so a stall is not blamed on the AI."""
         from datetime import datetime, timezone
+
         normalized = self._validate_run_id(run_id)
         with self.projects.connect(project_id) as db:
             for start, end in periods:
                 stamp = lambda value: datetime.fromtimestamp(value, timezone.utc).isoformat()
-                self._append_event(db, normalized, 'machine_slept',
-                                   {'from': stamp(start), 'to': stamp(end), 'seconds': round(end - start)}, stamp(end))
+                self._append_event(
+                    db,
+                    normalized,
+                    "machine_slept",
+                    {"from": stamp(start), "to": stamp(end), "seconds": round(end - start)},
+                    stamp(end),
+                )
             db.commit()
 
     def delivery_blockers(self, project_id: str, run_id: object) -> tuple[str, ...] | None:
@@ -348,14 +534,17 @@ class EditAgentRepository:
         normalized = self._validate_run_id(run_id)
         with self.projects.connect(project_id) as db:
             run = self._read_run(db, normalized)
-            rows = db.execute("SELECT payload_json FROM edit_agent_events WHERE run_id=? AND event_type='sequence_validation' ORDER BY sequence DESC LIMIT 30", (normalized,)).fetchall()
+            rows = db.execute(
+                "SELECT payload_json FROM edit_agent_events WHERE run_id=? AND event_type='sequence_validation' ORDER BY sequence DESC LIMIT 30",
+                (normalized,),
+            ).fetchall()
         for row in rows:
-            value = json.loads(row['payload_json'])
-            if value['revision_id'] == run.current_revision_id:
-                if value['valid']:
+            value = json.loads(row["payload_json"])
+            if value["revision_id"] == run.current_revision_id:
+                if value["valid"]:
                     return ()
-                codes = [issue['code'] for issue in value.get('issues', []) + value.get('delivery_issues', [])]
-                return tuple(dict.fromkeys(codes)) or ('sequence_invalid',)
+                codes = [issue["code"] for issue in value.get("issues", []) + value.get("delivery_issues", [])]
+                return tuple(dict.fromkeys(codes)) or ("sequence_invalid",)
         return None
 
     def activate(self, project_id: str, run_id: object) -> AgentRun:
@@ -366,8 +555,7 @@ class EditAgentRepository:
             if run.state == "queued":
                 now = utc_now()
                 database.execute(
-                    "UPDATE edit_agent_runs SET state='running',phase='editing',started_at=? "
-                    "WHERE run_id=?",
+                    "UPDATE edit_agent_runs SET state='running',phase='editing',started_at=? WHERE run_id=?",
                     (now, normalized),
                 )
                 self._append_event(database, normalized, "run_started", {}, now)
@@ -447,8 +635,11 @@ class EditAgentRepository:
             if run.state != "running" and not (allow_user_edit and run.state not in {"queued", "running"}):
                 database.rollback()
                 raise ProjectError("edit_agent_not_running", "AI 剪輯工作並未執行。", status_code=409)
-            if allow_user_edit and database.execute("SELECT 1 FROM edit_agent_runs WHERE state IN ('queued','running')").fetchone():
-                raise ProjectError('edit_agent_busy','AI 正在修改作品，請稍後再編輯。',status_code=409)
+            if (
+                allow_user_edit
+                and database.execute("SELECT 1 FROM edit_agent_runs WHERE state IN ('queued','running')").fetchone()
+            ):
+                raise ProjectError("edit_agent_busy", "AI 正在修改作品，請稍後再編輯。", status_code=409)
             existing = database.execute(
                 "SELECT revision_id FROM edit_agent_revisions WHERE run_id=? AND payload_digest=?",
                 (normalized, digest),
@@ -460,7 +651,9 @@ class EditAgentRepository:
                 )
                 if existing["revision_id"] != run.current_revision_id:
                     # Arriving at an earlier picture again is still a step forward in the history people see.
-                    self._append_event(database, normalized, "revision_selected", {"revision_id": existing["revision_id"]}, utc_now())
+                    self._append_event(
+                        database, normalized, "revision_selected", {"revision_id": existing["revision_id"]}, utc_now()
+                    )
                 result = self._read_revision(database, existing["revision_id"])
                 database.commit()
                 return result, False
@@ -503,8 +696,8 @@ class EditAgentRepository:
         with self.projects.connect(project_id) as database:
             database.execute("BEGIN IMMEDIATE")
             run = self._read_run(database, normalized)
-            if expected_revision_id is not None and expected_revision_id!=run.current_revision_id:
-                raise ProjectError('revision_conflict','作品版本已更新，請重新讀取。',status_code=409)
+            if expected_revision_id is not None and expected_revision_id != run.current_revision_id:
+                raise ProjectError("revision_conflict", "作品版本已更新，請重新讀取。", status_code=409)
             current = self._read_revision(database, run.current_revision_id)
             if current.parent_revision_id is None:
                 database.rollback()
@@ -524,14 +717,22 @@ class EditAgentRepository:
             database.commit()
             return parent
 
-    def finish(self, project_id: str, run_id: object, summary: object, *, expected_revision_id: str | None = None, report: dict | None = None) -> AgentRun:
+    def finish(
+        self,
+        project_id: str,
+        run_id: object,
+        summary: object,
+        *,
+        expected_revision_id: str | None = None,
+        report: dict | None = None,
+    ) -> AgentRun:
         normalized = self._validate_run_id(run_id)
         normalized_summary = bounded_text(summary, "完成摘要", 1_000)
         with self.projects.connect(project_id) as database:
             database.execute("BEGIN IMMEDIATE")
             run = self._read_run(database, normalized)
-            if expected_revision_id is not None and expected_revision_id!=run.current_revision_id:
-                raise ProjectError('revision_conflict','作品版本已更新，請重新檢視。',status_code=409)
+            if expected_revision_id is not None and expected_revision_id != run.current_revision_id:
+                raise ProjectError("revision_conflict", "作品版本已更新，請重新檢視。", status_code=409)
             if run.state != "running":
                 database.rollback()
                 raise ProjectError("edit_agent_not_running", "AI 剪輯工作並未執行。", status_code=409)
@@ -541,7 +742,13 @@ class EditAgentRepository:
                 "final_revision_id=current_revision_id,completed_at=? WHERE run_id=?",
                 (now, normalized),
             )
-            self._append_event(database, normalized, "run_finished", {"summary": normalized_summary, **({"report": report} if report else {})}, now)
+            self._append_event(
+                database,
+                normalized,
+                "run_finished",
+                {"summary": normalized_summary, **({"report": report} if report else {})},
+                now,
+            )
             result = self._read_run(database, normalized)
             database.commit()
             return result
@@ -564,8 +771,7 @@ class EditAgentRepository:
         if usage is not None:
             expected = {"input_tokens", "cached_input_tokens", "output_tokens"}
             if set(usage) != expected or any(
-                isinstance(value, bool) or not isinstance(value, int) or value < 0
-                for value in usage.values()
+                isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in usage.values()
             ):
                 raise ValueError("provider usage is invalid")
             if usage["cached_input_tokens"] > usage["input_tokens"]:
@@ -590,8 +796,12 @@ class EditAgentRepository:
                 database,
                 normalized,
                 "provider_finished" if error_code is None else "provider_failed",
-                {"attempt_id": attempt_id, "usage": usage, "error_code": error_code,
-                 "message": _closing_message(message)},
+                {
+                    "attempt_id": attempt_id,
+                    "usage": usage,
+                    "error_code": error_code,
+                    "message": _closing_message(message),
+                },
                 now,
             )
             result = self._read_run(database, normalized)
@@ -660,9 +870,7 @@ class EditAgentRepository:
         validate_project_id(project_id)
         with self.projects.connect(project_id) as database:
             database.execute("BEGIN IMMEDIATE")
-            rows = database.execute(
-                "SELECT run_id FROM edit_agent_runs WHERE state IN ('queued','running')"
-            ).fetchall()
+            rows = database.execute("SELECT run_id FROM edit_agent_runs WHERE state IN ('queued','running')").fetchall()
             now = utc_now()
             for row in rows:
                 database.execute(
@@ -670,9 +878,7 @@ class EditAgentRepository:
                     "error_code='controller_stopped',completed_at=? WHERE run_id=?",
                     (now, row["run_id"]),
                 )
-                self._append_event(
-                    database, row["run_id"], "run_interrupted", {}, now
-                )
+                self._append_event(database, row["run_id"], "run_interrupted", {}, now)
             database.commit()
             return len(rows)
 
@@ -727,31 +933,46 @@ class EditAgentRepository:
         except (json.JSONDecodeError, TypeError) as error:
             raise ProjectError("storage_corrupt", "Clipen 無法讀取 AI 用量紀錄。", status_code=500) from error
         return AgentRun(
-            row["run_id"], row["project_id"], row["base_timeline_id"], row["state"],
-            row["phase"], row["max_tool_calls"], row["tool_calls"],
-            row["max_preview_renders"], row["preview_renders"], row["current_revision_id"],
-            row["final_revision_id"], row["provider"], row["provider_attempt_id"], usage,
-            row["error_code"], row["created_at"],
-            row["started_at"], row["completed_at"],
+            row["run_id"],
+            row["project_id"],
+            row["base_timeline_id"],
+            row["state"],
+            row["phase"],
+            row["max_tool_calls"],
+            row["tool_calls"],
+            row["max_preview_renders"],
+            row["preview_renders"],
+            row["current_revision_id"],
+            row["final_revision_id"],
+            row["provider"],
+            row["provider_attempt_id"],
+            usage,
+            row["error_code"],
+            row["created_at"],
+            row["started_at"],
+            row["completed_at"],
         )
 
     @staticmethod
     def _read_revision(database, revision_id: str) -> AgentRevision:
         if not isinstance(revision_id, str) or REVISION_ID_PATTERN.fullmatch(revision_id) is None:
             raise ProjectError("edit_revision_not_found", "找不到剪輯修改版本。", status_code=404)
-        row = database.execute(
-            "SELECT * FROM edit_agent_revisions WHERE revision_id=?", (revision_id,)
-        ).fetchone()
+        row = database.execute("SELECT * FROM edit_agent_revisions WHERE revision_id=?", (revision_id,)).fetchone()
         if row is None:
             raise ProjectError("edit_revision_not_found", "找不到剪輯修改版本。", status_code=404)
         try:
             payload = json.loads(row["payload_json"])
-            if hashlib.sha256(encoded(payload).encode('utf-8')).hexdigest()!=row['payload_digest']:
-                raise ValueError('revision content digest mismatch')
+            if hashlib.sha256(encoded(payload).encode("utf-8")).hexdigest() != row["payload_digest"]:
+                raise ValueError("revision content digest mismatch")
             timeline = EditTimeline.from_payload(payload)
         except (json.JSONDecodeError, TypeError, ValueError) as error:
             raise ProjectError("storage_corrupt", "Clipen 無法讀取剪輯修改版本。", status_code=500) from error
         return AgentRevision(
-            row["revision_id"], row["run_id"], row["ordinal"], row["parent_revision_id"],
-            timeline, row["summary"], row["created_at"],
+            row["revision_id"],
+            row["run_id"],
+            row["ordinal"],
+            row["parent_revision_id"],
+            timeline,
+            row["summary"],
+            row["created_at"],
         )

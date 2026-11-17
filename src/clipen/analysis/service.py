@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
-from pathlib import Path
 import queue
 import threading
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, Iterable, Mapping, Protocol
 
 from clipen.projects.models import ProjectError
@@ -35,9 +35,7 @@ from .transcription import TranscriptionError, TranscriptionResult
 class _AudioAdapter(Protocol):
     def version(self) -> str: ...
 
-    def extract(
-        self, source, output: Path, cancel: threading.Event | None = None
-    ) -> PreparedAudio: ...
+    def extract(self, source, output: Path, cancel: threading.Event | None = None) -> PreparedAudio: ...
 
 
 class _Transcriber(Protocol):
@@ -72,10 +70,7 @@ class PreparationRecipe:
             not isinstance(self.vocabulary, tuple)
             or len(self.vocabulary) > 40
             or any(
-                not isinstance(term, str)
-                or not term.strip()
-                or term != term.strip()
-                or len(term) > 40
+                not isinstance(term, str) or not term.strip() or term != term.strip() or len(term) > 40
                 for term in self.vocabulary
             )
             or len(set(self.vocabulary)) != len(self.vocabulary)
@@ -102,9 +97,7 @@ class PreparationRecipe:
     @classmethod
     def from_storage(cls, value: Mapping[str, object]) -> "PreparationRecipe":
         vocabulary = value.get("vocabulary", [])
-        if not isinstance(vocabulary, list) or any(
-            not isinstance(term, str) for term in vocabulary
-        ):
+        if not isinstance(vocabulary, list) or any(not isinstance(term, str) for term in vocabulary):
             raise ValueError("stored preparation vocabulary is invalid")
         return cls(
             audio_recipe_id=str(value.get("audio_recipe_id", "")),
@@ -170,11 +163,7 @@ class PreparationCoordinator:
                 raise ValueError("language must be a string")
             if not isinstance(vocabulary, (list, tuple)):
                 raise ValueError("vocabulary must be a list")
-            normalized_vocabulary = tuple(
-                term.strip()
-                for term in vocabulary
-                if isinstance(term, str) and term.strip()
-            )
+            normalized_vocabulary = tuple(term.strip() for term in vocabulary if isinstance(term, str) and term.strip())
             if len(normalized_vocabulary) != len(vocabulary):
                 raise ValueError("vocabulary entries are invalid")
             recipe = PreparationRecipe(
@@ -295,9 +284,7 @@ class PreparationCoordinator:
             if self._shutdown.is_set():
                 self._interrupt(job, "controller_stopped")
                 return
-            recipe = PreparationRecipe.from_storage(
-                self.repository.recipe(job.project_id, job.run_id)
-            )
+            recipe = PreparationRecipe.from_storage(self.repository.recipe(job.project_id, job.run_id))
             run = self.repository.transition(
                 job.project_id,
                 job.run_id,
@@ -319,9 +306,7 @@ class PreparationCoordinator:
                     PreparationItemStatus.NO_SPEECH,
                 }:
                     continue
-                self._process_item(
-                    job, run, item, audio_adapter, transcriber, cancel, recipe
-                )
+                self._process_item(job, run, item, audio_adapter, transcriber, cancel, recipe)
             if cancel.is_set():
                 self._finish_cancel_or_interrupt(job)
                 return
@@ -389,14 +374,10 @@ class PreparationCoordinator:
                     checkpoint={"audio_ready": True},
                 )
             if artifact_id is None:
-                raise ProjectError(
-                    "storage_corrupt", "Clipen 找不到已準備的音訊。", status_code=500
-                )
+                raise ProjectError("storage_corrupt", "Clipen 找不到已準備的音訊。", status_code=500)
             audio_record = self.artifacts.get(job.project_id, artifact_id)
             prepared = inspect_normalized_audio(self.artifacts.path(audio_record))
-            chunker = PCMChunker(
-                chunk_seconds=recipe.chunk_seconds, overlap_seconds=0
-            )
+            chunker = PCMChunker(chunk_seconds=recipe.chunk_seconds, overlap_seconds=0)
             chunk_paths: list[Path] = []
 
             def make_chunk() -> Path:
@@ -419,9 +400,7 @@ class PreparationCoordinator:
                         raise TranscriptionError("cancelled")
                     if checkpoint.status is PreparationChunkStatus.PENDING:
                         chunk_audio = inspect_normalized_audio(chunk_file.path)
-                        output = self.artifacts.create_staging_file(
-                            job.project_id, suffix=".json"
-                        )
+                        output = self.artifacts.create_staging_file(job.project_id, suffix=".json")
                         try:
                             result = transcriber.transcribe(
                                 chunk_audio,
@@ -455,9 +434,7 @@ class PreparationCoordinator:
                             result,
                         )
                     completed.append(checkpoint)
-                self._publish_transcript(
-                    job, run, item, artifact_id, tuple(completed), recipe
-                )
+                self._publish_transcript(job, run, item, artifact_id, tuple(completed), recipe)
             finally:
                 for path in chunk_paths:
                     path.unlink(missing_ok=True)
@@ -470,9 +447,7 @@ class PreparationCoordinator:
         except Exception:
             self._fail_item(job, target, "preparation_item_internal_error")
 
-    def _publish_transcript(
-        self, job, run, item, audio_artifact_id, chunks, recipe: PreparationRecipe
-    ) -> None:
+    def _publish_transcript(self, job, run, item, audio_artifact_id, chunks, recipe: PreparationRecipe) -> None:
         target = item.target
         timeline: list[TimelineSegment] = []
         payload_segments: list[dict[str, object]] = []
@@ -480,9 +455,7 @@ class PreparationCoordinator:
         chunk_artifacts: list[str] = []
         for chunk in chunks:
             if chunk.result is None or chunk.transcript_artifact_id is None:
-                raise ProjectError(
-                    "storage_corrupt", "Clipen 找不到逐字稿切塊。", status_code=500
-                )
+                raise ProjectError("storage_corrupt", "Clipen 找不到逐字稿切塊。", status_code=500)
             chunk_artifacts.append(chunk.transcript_artifact_id)
             if chunk.result.text.strip():
                 texts.append(chunk.result.text.strip())
@@ -493,9 +466,7 @@ class PreparationCoordinator:
                     chunk.start_sample + segment.end_sample,
                     16_000,
                 )
-                timeline.append(
-                    TimelineSegment(span, segment.text, segment.word_confidence)
-                )
+                timeline.append(TimelineSegment(span, segment.text, segment.word_confidence))
                 words = []
                 for word in segment.words:
                     word_span = project_samples_to_source(
@@ -561,10 +532,7 @@ class PreparationCoordinator:
             recipe_id=recipe.transcript_recipe_id,
             source_span=target.audio.source_span,
             segments=tuple(timeline),
-            needs_review=any(
-                chunk.result is not None and chunk.result.needs_review
-                for chunk in chunks
-            ),
+            needs_review=any(chunk.result is not None and chunk.result.needs_review for chunk in chunks),
         )
 
     def _fail_item(self, job, target, code: str) -> None:

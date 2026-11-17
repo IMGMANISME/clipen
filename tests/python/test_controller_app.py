@@ -1,9 +1,9 @@
 import asyncio
-from dataclasses import dataclass
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from dataclasses import dataclass
+from pathlib import Path
 
 from clipen.controller import (
     ControllerConfig,
@@ -51,10 +51,7 @@ async def asgi_request(
         "raw_path": path.encode("ascii"),
         "query_string": b"",
         "root_path": "",
-        "headers": [
-            (key.lower().encode("ascii"), value.encode("latin-1"))
-            for key, value in header_items.items()
-        ],
+        "headers": [(key.lower().encode("ascii"), value.encode("latin-1")) for key, value in header_items.items()],
         "client": ("127.0.0.1", 50000),
         "server": ("127.0.0.1", 4200),
     }
@@ -73,17 +70,10 @@ async def asgi_request(
 
     await app(scope, receive, send)
     start = next(message for message in messages if message["type"] == "http.response.start")
-    body = b"".join(
-        message.get("body", b"")
-        for message in messages
-        if message["type"] == "http.response.body"
-    )
+    body = b"".join(message.get("body", b"") for message in messages if message["type"] == "http.response.body")
     return ASGIResponse(
         status=start["status"],
-        headers=tuple(
-            (key.decode("latin-1"), value.decode("latin-1"))
-            for key, value in start["headers"]
-        ),
+        headers=tuple((key.decode("latin-1"), value.decode("latin-1")) for key, value in start["headers"]),
         body=body,
     )
 
@@ -97,9 +87,7 @@ class ControllerAppTests(unittest.TestCase):
         (self.static_root / "assets" / "app.js").write_text("export {}", encoding="utf-8")
         self.authority = LocalSessionAuthority()
         self.provider = ProviderStatus("Codex", ProviderState.READY, "AI 已連接")
-        self.app = create_app(
-            ControllerConfig(self.static_root), self.provider, self.authority
-        )
+        self.app = create_app(ControllerConfig(self.static_root), self.provider, self.authority)
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
@@ -143,10 +131,13 @@ class ControllerAppTests(unittest.TestCase):
         self.assertTrue(payload["session"]["csrf_token"])
 
     def test_account_endpoint_names_the_model_and_quota_only_for_a_session(self) -> None:
-        details = {"model": {"id": "gpt-5.6-sol", "name": "GPT-5.6-Sol", "effort": "low"},
-                   "quota": {"source": "live", "plan": "plus", "windows": [], "limited": False}}
-        self.app = create_app(ControllerConfig(self.static_root), self.provider, self.authority,
-                              provider_account=lambda: details)
+        details = {
+            "model": {"id": "gpt-5.6-sol", "name": "GPT-5.6-Sol", "effort": "low"},
+            "quota": {"source": "live", "plan": "plus", "windows": [], "limited": False},
+        }
+        self.app = create_app(
+            ControllerConfig(self.static_root), self.provider, self.authority, provider_account=lambda: details
+        )
         self.assertEqual(self.request("GET", "/api/provider/account").status, 401)
         cookie = (self.connect().header("set-cookie") or "").split(";", 1)[0]
         payload = self.request("GET", "/api/provider/account", {"cookie": cookie}).json()
@@ -179,9 +170,7 @@ class ControllerAppTests(unittest.TestCase):
         self.assertIsNotNone(first_cookie)
         self.assertEqual(first_cookie, second_cookie)
         assert first_cookie is not None
-        status = self.request(
-            "GET", "/api/status", {"cookie": first_cookie.split(";", 1)[0]}
-        )
+        status = self.request("GET", "/api/status", {"cookie": first_cookie.split(";", 1)[0]})
         self.assertEqual(status.status, 200)
 
     def test_rejects_invalid_host_origin_and_cross_site_mutation(self) -> None:

@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
 import os
-from pathlib import Path
 import secrets
 import stat
 import subprocess
 import sys
 import threading
 import time
+from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import Callable
 
 from .models import (
@@ -20,7 +20,6 @@ from .models import (
     ProjectError,
 )
 from .storage import utc_now
-
 
 _SELECTION_LIFETIME_SECONDS = 10 * 60
 _MAX_PICKER_OUTPUT_BYTES = 8192
@@ -73,33 +72,21 @@ class MacOSDirectoryPicker(NativeDirectoryPicker):
                 timeout=_PICKER_TIMEOUT_SECONDS,
             )
         except subprocess.TimeoutExpired as error:
-            raise ProjectError(
-                "picker_timeout", "資料夾選擇已逾時，請再試一次。", status_code=408
-            ) from error
+            raise ProjectError("picker_timeout", "資料夾選擇已逾時，請再試一次。", status_code=408) from error
         except OSError as error:
-            raise ProjectError(
-                "picker_unavailable", "無法開啟 macOS 資料夾選擇器。", status_code=500
-            ) from error
+            raise ProjectError("picker_unavailable", "無法開啟 macOS 資料夾選擇器。", status_code=500) from error
         if completed.returncode != 0:
-            raise ProjectError(
-                "picker_failed", "無法完成資料夾選擇。", status_code=500
-            )
+            raise ProjectError("picker_failed", "無法完成資料夾選擇。", status_code=500)
         if len(completed.stdout) > _MAX_PICKER_OUTPUT_BYTES:
-            raise ProjectError(
-                "picker_failed", "資料夾選擇器回傳的路徑過長。", status_code=500
-            )
+            raise ProjectError("picker_failed", "資料夾選擇器回傳的路徑過長。", status_code=500)
         try:
             output = completed.stdout.decode("utf-8").strip()
         except UnicodeDecodeError as error:
-            raise ProjectError(
-                "picker_failed", "資料夾選擇器回傳無法辨識的路徑。", status_code=500
-            ) from error
+            raise ProjectError("picker_failed", "資料夾選擇器回傳無法辨識的路徑。", status_code=500) from error
         if not output:
             return None
         if "\x00" in output or not output.startswith("/"):
-            raise ProjectError(
-                "picker_failed", "資料夾選擇器回傳無效的路徑。", status_code=500
-            )
+            raise ProjectError("picker_failed", "資料夾選擇器回傳無效的路徑。", status_code=500)
         return Path(output)
 
 
@@ -137,9 +124,7 @@ def inspect_directory(
         canonical = selected_path.resolve(strict=True)
         info = canonical.stat()
     except FileNotFoundError as error:
-        raise ProjectError(
-            "directory_offline", "找不到選取的資料夾或外接磁碟。", status_code=422
-        ) from error
+        raise ProjectError("directory_offline", "找不到選取的資料夾或外接磁碟。", status_code=422) from error
     except PermissionError as error:
         raise ProjectError(
             "directory_permission",
@@ -232,25 +217,16 @@ class SelectionAuthority:
 
     def resolve(self, token: object, role: DirectoryRole) -> DirectoryReference:
         if not isinstance(token, str) or len(token) < 32 or len(token) > 256:
-            raise ProjectError(
-                "selection_invalid", "資料夾選擇已失效，請重新選擇。", status_code=422
-            )
+            raise ProjectError("selection_invalid", "資料夾選擇已失效，請重新選擇。", status_code=422)
         with self._lock:
             self._prune()
             selection = self._selections.get(token)
         if selection is None or selection.reference.role is not role:
-            raise ProjectError(
-                "selection_invalid", "資料夾選擇已失效，請重新選擇。", status_code=422
-            )
-        return inspect_directory(
-            Path(selection.reference.canonical_path), role, self._managed_root
-        )
+            raise ProjectError("selection_invalid", "資料夾選擇已失效，請重新選擇。", status_code=422)
+        return inspect_directory(Path(selection.reference.canonical_path), role, self._managed_root)
 
     def _prune(self) -> None:
         current = self._now()
-        expired = [
-            token for token, selection in self._selections.items()
-            if selection.expires_at < current
-        ]
+        expired = [token for token, selection in self._selections.items() if selection.expires_at < current]
         for token in expired:
             self._selections.pop(token, None)

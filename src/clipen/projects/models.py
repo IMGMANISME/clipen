@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from enum import Enum
-import re
 from typing import Any, Mapping
-
 
 _PROJECT_ID = re.compile(r"prj_[0-9a-f]{32}\Z")
 _REQUEST_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{7,127}\Z")
@@ -186,7 +185,5 @@ class ProjectSnapshot:
             revision=int(value["revision"]),
             created_at=str(value["created_at"]),
             updated_at=str(value["updated_at"]),
-            directories=tuple(
-                DirectoryReference.from_storage(item) for item in raw_directories
-            ),
+            directories=tuple(DirectoryReference.from_storage(item) for item in raw_directories),
         )

@@ -1,9 +1,9 @@
 import io
 import json
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 import clipen.bootstrap as bootstrap
@@ -27,12 +27,8 @@ class BootstrapTests(unittest.TestCase):
         self.repo = self.root / "repo"
         (self.repo / "requirements").mkdir(parents=True)
         (self.repo / "pyproject.toml").write_text("[project]\nname='clipen'\n", encoding="utf-8")
-        (self.repo / "requirements" / "runtime.txt").write_text(
-            "starlette==1.6.0\n", encoding="utf-8"
-        )
-        (self.repo / "requirements" / "asr-runtime.txt").write_text(
-            "mlx-whisper==0.4.3\n", encoding="utf-8"
-        )
+        (self.repo / "requirements" / "runtime.txt").write_text("starlette==1.6.0\n", encoding="utf-8")
+        (self.repo / "requirements" / "asr-runtime.txt").write_text("mlx-whisper==0.4.3\n", encoding="utf-8")
         launcher = self.repo / "clipen"
         launcher.write_text("#!/bin/sh\n", encoding="utf-8")
         launcher.chmod(0o755)
@@ -68,16 +64,12 @@ class BootstrapTests(unittest.TestCase):
 
     def test_fingerprint_changes_with_runtime_contract(self) -> None:
         first = bootstrap.runtime_fingerprint(self.repo)
-        (self.repo / "requirements" / "runtime.txt").write_text(
-            "starlette==1.5.1\n", encoding="utf-8"
-        )
+        (self.repo / "requirements" / "runtime.txt").write_text("starlette==1.5.1\n", encoding="utf-8")
         second = bootstrap.runtime_fingerprint(self.repo)
         self.assertNotEqual(first, second)
 
     def project_version(self, version: str) -> None:
-        (self.repo / "pyproject.toml").write_text(
-            f"[project]\nname='clipen'\nversion='{version}'\n", encoding="utf-8"
-        )
+        (self.repo / "pyproject.toml").write_text(f"[project]\nname='clipen'\nversion='{version}'\n", encoding="utf-8")
 
     def ready_runtime(self, fingerprint: str, version: str | None = None) -> Path:
         runtime = self.data / "runtimes" / fingerprint
@@ -85,11 +77,23 @@ class BootstrapTests(unittest.TestCase):
         python.parent.mkdir(parents=True)
         python.write_text("#!/bin/sh\n", encoding="utf-8")
         python.chmod(0o700)
-        (runtime / "clipen-runtime.json").write_text(json.dumps({
-            "schema": 1, "fingerprint": fingerprint, "repo_root": str(self.repo.resolve()),
-        }), encoding="utf-8")
+        (runtime / "clipen-runtime.json").write_text(
+            json.dumps(
+                {
+                    "schema": 1,
+                    "fingerprint": fingerprint,
+                    "repo_root": str(self.repo.resolve()),
+                }
+            ),
+            encoding="utf-8",
+        )
         if version is not None:
-            packages = runtime / "lib" / f"python{bootstrap.sys.version_info.major}.{bootstrap.sys.version_info.minor}" / "site-packages"
+            packages = (
+                runtime
+                / "lib"
+                / f"python{bootstrap.sys.version_info.major}.{bootstrap.sys.version_info.minor}"
+                / "site-packages"
+            )
             (packages / f"clipen-{version}.dist-info").mkdir(parents=True)
         return runtime
 
@@ -99,7 +103,8 @@ class BootstrapTests(unittest.TestCase):
         self.project_version("1.0.0")
         self.assertEqual(bootstrap.runtime_fingerprint(self.repo), old)
         for change in (
-            "dependencies=['other==2.0.0']\n", "requires-python='>=3.11'\n",
+            "dependencies=['other==2.0.0']\n",
+            "requires-python='>=3.11'\n",
             "[build-system]\nrequires=['setuptools==85.0.0']\n",
             "[tool.setuptools]\npackages=['different']\n",
             "[tool.other]\nversion='2.0.0'\n",
@@ -121,10 +126,18 @@ class BootstrapTests(unittest.TestCase):
         for quote in (b"'", b'"'):
             with self.subTest(quote=quote):
                 contents = b"[project]\r\n  version = " + quote + b"1.0.0" + quote + b" # release\r\n"
-                self.assertEqual(bootstrap._replace_project_version(contents, b"0.0.0"), contents.replace(b"1.0.0", b"0.0.0"))
+                self.assertEqual(
+                    bootstrap._replace_project_version(contents, b"0.0.0"), contents.replace(b"1.0.0", b"0.0.0")
+                )
         for quote in (b"'''", b'"""'):
             with self.subTest(multiline=quote):
-                contents = b"[project]\nversion='1.0.0'\ndescription=" + quote + b"\nversion='inside'\n[tool.other]\n" + quote + b"\n[tool.other]\nversion='real-tool'\n"
+                contents = (
+                    b"[project]\nversion='1.0.0'\ndescription="
+                    + quote
+                    + b"\nversion='inside'\n[tool.other]\n"
+                    + quote
+                    + b"\n[tool.other]\nversion='real-tool'\n"
+                )
                 expected = contents.replace(b"version='1.0.0'", b"version='0.0.0'")
                 self.assertEqual(bootstrap._replace_project_version(contents, b"0.0.0"), expected)
                 # A fake project table inside a tool string must not be normalized.
@@ -145,7 +158,9 @@ class BootstrapTests(unittest.TestCase):
         ):
             self.assertEqual(bootstrap.completed_runtime(self.repo, data_root=self.data), runtime)
             self.assertEqual(bootstrap.ensure_runtime(self.repo, data_root=self.data, stdin=io.StringIO()), runtime)
-            self.assertEqual(bootstrap.ensure_installation(self.repo, data_root=self.data, stdin=io.StringIO()), runtime)
+            self.assertEqual(
+                bootstrap.ensure_installation(self.repo, data_root=self.data, stdin=io.StringIO()), runtime
+            )
         confirm.assert_not_called()
         install.assert_not_called()
         asr.assert_not_called()
@@ -164,7 +179,9 @@ class BootstrapTests(unittest.TestCase):
         ):
             self.assertEqual(bootstrap.completed_runtime(self.repo, data_root=self.data), runtime)
             self.assertEqual(bootstrap.ensure_runtime(self.repo, data_root=self.data, stdin=io.StringIO()), runtime)
-            self.assertEqual(bootstrap.ensure_installation(self.repo, data_root=self.data, stdin=io.StringIO()), runtime)
+            self.assertEqual(
+                bootstrap.ensure_installation(self.repo, data_root=self.data, stdin=io.StringIO()), runtime
+            )
         confirm.assert_not_called()
         install.assert_not_called()
         self.assertEqual((runtime / "clipen-runtime.json").read_bytes(), receipt)
@@ -268,9 +285,7 @@ class BootstrapTests(unittest.TestCase):
                 "fingerprint": fingerprint,
                 "repo_root": str(repo.resolve()),
             }
-            (staging / "clipen-runtime.json").write_text(
-                json.dumps(receipt), encoding="utf-8"
-            )
+            (staging / "clipen-runtime.json").write_text(json.dumps(receipt), encoding="utf-8")
             log_path.write_text("ok", encoding="utf-8")
 
         with mock.patch("clipen.bootstrap._install_runtime", side_effect=fake_install):
@@ -290,9 +305,7 @@ class BootstrapTests(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertEqual(len(installs), 1)
         assert first is not None
-        self.assertTrue(bootstrap.runtime_is_ready(
-            first, bootstrap.runtime_fingerprint(self.repo), self.repo
-        ))
+        self.assertTrue(bootstrap.runtime_is_ready(first, bootstrap.runtime_fingerprint(self.repo), self.repo))
 
     def test_first_install_uses_one_confirmation_for_runtime_and_command(self) -> None:
         installs = []
@@ -308,9 +321,7 @@ class BootstrapTests(unittest.TestCase):
                 "fingerprint": fingerprint,
                 "repo_root": str(repo.resolve()),
             }
-            (staging / "clipen-runtime.json").write_text(
-                json.dumps(receipt), encoding="utf-8"
-            )
+            (staging / "clipen-runtime.json").write_text(json.dumps(receipt), encoding="utf-8")
             log_path.write_text("ok", encoding="utf-8")
 
         output = io.StringIO()
@@ -348,9 +359,7 @@ class BootstrapTests(unittest.TestCase):
         self.assertIn("下次開啟 Terminal", output.getvalue())
 
     def test_asr_failure_keeps_runtime_but_does_not_publish_command(self) -> None:
-        def fake_install(
-            staging: Path, repo: Path, fingerprint: str, log_path: Path
-        ) -> None:
+        def fake_install(staging: Path, repo: Path, fingerprint: str, log_path: Path) -> None:
             python = bootstrap.runtime_python(staging)
             python.parent.mkdir(parents=True, exist_ok=True)
             python.write_text("#!/bin/sh\n", encoding="utf-8")
@@ -386,11 +395,7 @@ class BootstrapTests(unittest.TestCase):
                 )
 
         fingerprint = bootstrap.runtime_fingerprint(self.repo)
-        self.assertTrue(
-            bootstrap.runtime_is_ready(
-                self.data / "runtimes" / fingerprint, fingerprint, self.repo
-            )
-        )
+        self.assertTrue(bootstrap.runtime_is_ready(self.data / "runtimes" / fingerprint, fingerprint, self.repo))
         self.assertFalse((self.data / "bin" / "clipen").exists())
 
     def test_retry_reuses_core_runtime_and_only_finishes_missing_asr(self) -> None:
@@ -486,9 +491,7 @@ class BootstrapTests(unittest.TestCase):
     def test_keyboard_interrupt_during_setup_returns_130_without_exec(self) -> None:
         errors = io.StringIO()
         with (
-            mock.patch(
-                "clipen.bootstrap.ensure_installation", side_effect=KeyboardInterrupt
-            ),
+            mock.patch("clipen.bootstrap.ensure_installation", side_effect=KeyboardInterrupt),
             mock.patch("clipen.bootstrap.os.execve") as execute,
             mock.patch("sys.stderr", errors),
         ):
@@ -554,29 +557,19 @@ class BootstrapTests(unittest.TestCase):
         profile = self.home / ".zshrc"
         profile.write_text("export EDITOR=vim\n", encoding="utf-8")
 
-        bootstrap._install_command(
-            self.repo, self.data, self.home, self.environment
-        )
+        bootstrap._install_command(self.repo, self.data, self.home, self.environment)
         first = profile.read_text(encoding="utf-8")
-        bootstrap._install_command(
-            self.repo, self.data, self.home, self.environment
-        )
+        bootstrap._install_command(self.repo, self.data, self.home, self.environment)
         second = profile.read_text(encoding="utf-8")
 
         self.assertEqual(first, second)
         self.assertIn("export EDITOR=vim", second)
         self.assertEqual(second.count("Clipen managed PATH"), 2)
-        self.assertTrue(
-            bootstrap._command_is_ready(
-                self.repo, self.data, self.home, self.environment
-            )
-        )
+        self.assertTrue(bootstrap._command_is_ready(self.repo, self.data, self.home, self.environment))
 
     def test_profile_exposes_command_when_install_path_contains_spaces(self) -> None:
         spaced_data = self.root / "Application Support" / "Clipen"
-        command, profile = bootstrap._install_command(
-            self.repo, spaced_data, self.home, self.environment
-        )
+        command, profile = bootstrap._install_command(self.repo, spaced_data, self.home, self.environment)
 
         completed = subprocess.run(
             [
@@ -601,17 +594,13 @@ class BootstrapTests(unittest.TestCase):
         (self.home / ".zshrc").symlink_to(target)
 
         with self.assertRaises(bootstrap.BootstrapError):
-            bootstrap._install_command(
-                self.repo, self.data, self.home, self.environment
-            )
+            bootstrap._install_command(self.repo, self.data, self.home, self.environment)
 
         self.assertEqual(target.read_text(encoding="utf-8"), "keep\n")
         self.assertFalse((self.data / "bin" / "clipen").exists())
 
     def test_uninstall_removes_only_managed_installation_and_preserves_work(self) -> None:
-        command, profile = bootstrap._install_command(
-            self.repo, self.data, self.home, self.environment
-        )
+        command, profile = bootstrap._install_command(self.repo, self.data, self.home, self.environment)
         for name in bootstrap._REMOVABLE_DIRECTORIES:
             directory = self.data / name
             directory.mkdir(parents=True, exist_ok=True)
@@ -650,9 +639,7 @@ class BootstrapTests(unittest.TestCase):
         self.assertIn("作品資料與所有毛片均已保留", output.getvalue())
 
     def test_declining_uninstall_changes_nothing(self) -> None:
-        command, profile = bootstrap._install_command(
-            self.repo, self.data, self.home, self.environment
-        )
+        command, profile = bootstrap._install_command(self.repo, self.data, self.home, self.environment)
         runtime = self.data / "runtimes" / "release"
         runtime.mkdir(parents=True)
 
@@ -670,9 +657,7 @@ class BootstrapTests(unittest.TestCase):
         self.assertIn("Clipen managed PATH", profile.read_text(encoding="utf-8"))
 
     def test_uninstall_refuses_symlinked_runtime_before_changing_command(self) -> None:
-        command, profile = bootstrap._install_command(
-            self.repo, self.data, self.home, self.environment
-        )
+        command, profile = bootstrap._install_command(self.repo, self.data, self.home, self.environment)
         outside = self.root / "outside-runtime"
         outside.mkdir()
         (outside / "sentinel").write_text("keep", encoding="utf-8")
@@ -729,13 +714,14 @@ class BootstrapTests(unittest.TestCase):
         self.assertTrue(runtime.is_dir())
 
 
-
 class NpmInstallTests(unittest.TestCase):
     def test_the_command_runs_with_the_python_that_set_clipen_up(self):
         import sys
         import tempfile
         from pathlib import Path
+
         from clipen import bootstrap
+
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             launcher = root / "clipen"
@@ -747,5 +733,47 @@ class NpmInstallTests(unittest.TestCase):
             (root / ".clipen-npm").write_text("1.0.0\n")
             self.assertEqual(bootstrap._install_hint(root), "npx @clipen/clipen-cli install")
 
+
 if __name__ == "__main__":
     unittest.main()
+
+
+class WebBuildTests(unittest.TestCase):
+    """A source checkout builds its UI; a stale or missing build is rebuilt, a fresh one is left alone."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.repo = Path(temporary.name)
+        self.web = self.repo / "apps" / "web"
+        (self.web / "src").mkdir(parents=True)
+        (self.web / "package.json").write_text("{}", encoding="utf-8")
+        (self.web / "src" / "main.tsx").write_text("", encoding="utf-8")
+
+    def build(self):
+        (self.web / "dist").mkdir(exist_ok=True)
+        (self.web / "dist" / "index.html").write_text("", encoding="utf-8")
+
+    def test_missing_or_stale_build_is_rebuilt_with_npm(self):
+        with (
+            mock.patch.object(bootstrap.shutil, "which", return_value="/bin/npm"),
+            mock.patch.object(bootstrap.subprocess, "run") as run,
+        ):
+            bootstrap.ensure_web_build(self.repo, io.StringIO())
+        self.assertEqual(
+            [call.args[0][1:] for call in run.call_args_list], [["ci", "--no-audit", "--no-fund"], ["run", "build"]]
+        )
+
+    def test_a_fresh_build_and_the_npm_package_need_nothing(self):
+        self.build()
+        with mock.patch.object(bootstrap.subprocess, "run") as run:
+            bootstrap.ensure_web_build(self.repo, io.StringIO())
+            # The npm package carries the built UI but no web sources.
+            (self.web / "package.json").unlink()
+            bootstrap.ensure_web_build(self.repo, io.StringIO())
+        run.assert_not_called()
+
+    def test_without_node_the_reason_is_explained(self):
+        with mock.patch.object(bootstrap.shutil, "which", return_value=None):
+            with self.assertRaisesRegex(bootstrap.BootstrapError, "Node.js"):
+                bootstrap.ensure_web_build(self.repo, io.StringIO())

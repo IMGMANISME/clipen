@@ -1,17 +1,15 @@
 import hashlib
 import io
-import os
-from pathlib import Path
 import shutil
 import tempfile
 import threading
 import time
 import unittest
+from pathlib import Path
 from unittest import mock
 
-from clipen.analysis import ASRSetupError, ASRSetupManager, ASRSetupState
+from clipen.analysis import ASRSetupError, ASRSetupManager, ASRSetupState, setup_cli
 from clipen.analysis.setup import ASRSetupStatus
-from clipen.analysis import setup_cli
 from clipen.asr_release import NOTICE_VERSION
 
 
@@ -26,10 +24,7 @@ class ASRSetupManagerTests(unittest.TestCase):
         self.requirements = self.root / "requirements.txt"
         self.requirements.write_text("example==1.0\n", encoding="utf-8")
         self.files = {"config.json": b"{}", "weights.npz": b"tiny-model"}
-        self.model_files = tuple(
-            (name, len(value), _sha256(value)) for name, value in self.files.items()
-        )
-
+        self.model_files = tuple((name, len(value), _sha256(value)) for name, value in self.files.items())
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
@@ -56,7 +51,6 @@ class ASRSetupManagerTests(unittest.TestCase):
         executable.parent.mkdir(parents=True)
         executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
         executable.chmod(0o700)
-
 
     def _download(
         self,
@@ -127,9 +121,7 @@ class ASRSetupManagerTests(unittest.TestCase):
         outside.write_bytes(b"never-delete")
         observed = []
         self.assertEqual(
-            changed_contract.remove(
-                lambda: observed.append(changed_contract.status().state)
-            ).state,
+            changed_contract.remove(lambda: observed.append(changed_contract.status().state)).state,
             ASRSetupState.SETUP_REQUIRED,
         )
         self.assertEqual(observed, [ASRSetupState.REMOVING])
@@ -139,9 +131,7 @@ class ASRSetupManagerTests(unittest.TestCase):
     def test_cancel_removes_only_private_staging(self) -> None:
         entered = threading.Event()
 
-        def blocked_installer(
-            _destination: Path, _requirements: Path, cancel: threading.Event
-        ) -> None:
+        def blocked_installer(_destination: Path, _requirements: Path, cancel: threading.Event) -> None:
             entered.set()
             while not cancel.wait(0.01):
                 pass
