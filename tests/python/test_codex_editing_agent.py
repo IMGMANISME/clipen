@@ -63,6 +63,9 @@ class CodexEditingAgentTests(unittest.TestCase):
         from clipen.providers.codex_editing import _PRODUCTION_PROMPT
 
         self.assertIn("intent.target_duration_seconds", _PRODUCTION_PROMPT)
+        # The instructions are English, so the reply language is stated in both prompts.
+        for prompt in (_PRODUCTION_PROMPT, _PROMPT):
+            self.assertIn("in Traditional Chinese, whatever language these instructions use", prompt)
         self.assertNotIn("Make a 30-75 second", _PRODUCTION_PROMPT)
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

@@ -124,7 +124,7 @@ def render_preview(tools):
     def worker():
         staging = final = None
 
-        def progress(value):
+        def check():
             state = tools.repository.get(tools.project_id, tools.run_id).state
             if (
                 state not in {"queued", "running"} and not getattr(tools, "_user_edit", False)
@@ -132,8 +132,24 @@ def render_preview(tools):
                 cancel.set()
             if store.get(tools.project_id, render["render_id"])["state"] == "cancelling":
                 cancel.set()
+
+        def progress(value):
+            check()
             store.update_progress(tools.project_id, render["render_id"], value)
 
+        # Some steps run for minutes between progress reports, so a cancel or the end of the run
+        # is also picked up here rather than only when the renderer next reports.
+        finished = threading.Event()
+
+        def watch():
+            while not finished.wait(1) and not cancel.is_set():
+                try:
+                    check()
+                except Exception:
+                    pass
+
+        watcher = threading.Thread(target=watch, name="clipen-agent-preview-watch", daemon=True)
+        watcher.start()
         try:
             staging = store.output_path(tools.project_id, render["render_id"], staging=True)
             final = store.output_path(tools.project_id, render["render_id"])
@@ -173,6 +189,7 @@ def render_preview(tools):
                 error_code=getattr(error, "code", "agent_render_failed"),
             )
         finally:
+            finished.set()
             if staging is not None:
                 staging.unlink(missing_ok=True)
             if staging is not None:

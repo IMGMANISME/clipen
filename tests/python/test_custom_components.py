@@ -1,7 +1,10 @@
 """Graphics an Agent designs as a web page, drawn frame by frame in a sealed headless Chrome."""
 
 import os
+import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -10,7 +13,9 @@ from unittest.mock import patch
 import test_skill_production as fixtures
 from PIL import Image, ImageDraw
 
+from clipen.domain import TrackKind
 from clipen.rendering import custom_components, program_components
+from clipen.rendering.titles import TitleRenderError, compose_dense_titles
 
 
 def _chrome_available():
@@ -40,6 +45,61 @@ SLIDE = """<style>
 
 def item(duration=30, start=0):
     return SimpleNamespace(start_frame=start, duration_frames=duration, text="x")
+
+
+class CancelTests(unittest.TestCase):
+    """Drawing every frame of many free designs takes minutes; a cancel must not wait for it."""
+
+    def test_a_cancelled_render_stops_the_chrome_run(self):
+        with tempfile.TemporaryDirectory() as folder:
+            slow = Path(folder) / "slow"
+            slow.write_text("#!/bin/sh\nsleep 30\n")
+            slow.chmod(0o755)
+            cancel = threading.Event()
+            threading.Timer(0.3, cancel.set).start()
+            started = time.monotonic()
+            with (
+                patch.object(sys, "executable", str(slow)),
+                self.assertRaises(custom_components.CustomRenderError) as caught,
+            ):
+                custom_components._run({"frames": []}, timeout=60, cancel=cancel)
+        self.assertEqual(caught.exception.code, "cancelled")
+        self.assertLess(time.monotonic() - started, 5)
+
+    def test_drawing_free_designs_reports_progress_and_stops_when_cancelled(self):
+        styles = {"look": {"kind": "program_component", "component_id": "custom", "html": "<div></div>"}}
+        items = [SimpleNamespace(style_id="look", start_frame=n * 30, duration_frames=30) for n in range(4)]
+        timeline = SimpleNamespace(
+            tracks=[SimpleNamespace(kind=TrackKind.TITLE, items=items)],
+            production_session_id="session",
+            duration_frames=120,
+            width=320,
+            height=180,
+            frame_rate=SimpleNamespace(numerator=30, denominator=1),
+        )
+        cancel, reports, drawn = threading.Event(), [], []
+
+        def draw(item, profile, timeline=None, cancel_=None):
+            drawn.append(item)
+            if len(drawn) == 2:
+                cancel.set()
+            return {item.start_frame}
+
+        with tempfile.TemporaryDirectory() as folder, patch.object(program_components, "animation_boundaries", draw):
+            with self.assertRaises(TitleRenderError) as caught:
+                compose_dense_titles(
+                    "ffmpeg",
+                    Path(folder) / "in.mp4",
+                    timeline,
+                    Path(folder),
+                    Path(folder) / "out.mp4",
+                    cancel,
+                    styles,
+                    progress=reports.append,
+                )
+        self.assertEqual(caught.exception.code, "cancelled")
+        self.assertEqual(len(drawn), 2)
+        self.assertEqual(reports, [0.0, 0.05])
 
 
 @unittest.skipUnless(CHROME, "needs Chrome and Playwright")
