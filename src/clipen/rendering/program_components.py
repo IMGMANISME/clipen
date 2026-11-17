@@ -10,11 +10,11 @@ from .program_styles import draw_styled_graphic, load_style_font, skin, style_fo
 from .titles import TitleRenderError
 
 
-def animation_boundaries(item, profile, timeline=None):
+def animation_boundaries(item, profile, timeline=None, cancel=None):
     if custom_components.is_custom(profile):
         # A free design can change on any frame; the frames themselves say where.
         return (
-            custom_components.changes(timeline, item, profile)
+            custom_components.changes(timeline, item, profile, cancel)
             if timeline is not None
             else set(range(item.start_frame, item.start_frame + item.duration_frames + 1))
         )

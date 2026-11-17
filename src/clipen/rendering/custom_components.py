@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from pathlib import Path
 
 from .titles import TitleRenderError
@@ -159,7 +160,7 @@ class CustomRenderError(TitleRenderError):
         self.detail = detail
 
 
-def frames(timeline, item, profile, wanted):
+def frames(timeline, item, profile, wanted, cancel=None):
     """Paths of the requested relative frames, drawing the missing ones in one Chrome run."""
     duration = item.duration_frames
     wanted = sorted({min(max(0, int(n)), duration - 1) for n in wanted})
@@ -182,7 +183,7 @@ def frames(timeline, item, profile, wanted):
                 "edits": _edits(profile),
                 "look": look_css(profile.get("look")),
             }
-            _run(job, timeout=30 + FRAME_TIMEOUT_SECONDS + len(missing) * 1.5)
+            _run(job, timeout=30 + FRAME_TIMEOUT_SECONDS + len(missing) * 1.5, cancel=cancel)
     return paths
 
 
@@ -230,30 +231,48 @@ def check_fonts(timeline, item, profile):
         raise CustomRenderError("custom_component_font_outside_look", "、".join(stray))
 
 
-def _run(job, timeout):
+def _run(job, timeout, cancel=None):
+    """Draws in a child Chrome run; a cancelled render stops it instead of waiting for every frame."""
     environment = {
         **os.environ,
         "PYTHONPATH": os.pathsep.join(
             filter(None, [str(Path(__file__).resolve().parents[2]), os.environ.get("PYTHONPATH")])
         ),
     }
-    try:
-        finished = subprocess.run(
+    with tempfile.TemporaryFile() as errors:
+        process = subprocess.Popen(
             [sys.executable, "-m", "clipen.rendering.custom_render"],
-            input=json.dumps(job),
-            capture_output=True,
-            text=True,
-            timeout=timeout,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=errors,
             env=environment,
             cwd=tempfile.gettempdir(),
         )
-    except subprocess.TimeoutExpired:
-        raise CustomRenderError("custom_component_frame_timeout") from None
-    if finished.returncode != 0:
         try:
-            problem = json.loads(finished.stderr.strip().splitlines()[-1])
+            process.stdin.write(json.dumps(job).encode())
+            process.stdin.close()
+            deadline = time.monotonic() + timeout
+            while process.poll() is None:
+                if cancel is not None and cancel.is_set():
+                    raise CustomRenderError("cancelled")
+                if time.monotonic() >= deadline:
+                    raise CustomRenderError("custom_component_frame_timeout")
+                time.sleep(0.1)
+        finally:
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+        errors.seek(0)
+        stderr = errors.read().decode("utf-8", "replace")
+    if process.returncode != 0:
+        try:
+            problem = json.loads(stderr.strip().splitlines()[-1])
         except (ValueError, IndexError):
-            problem = {"code": "custom_component_render_failed", "detail": finished.stderr[-400:]}
+            problem = {"code": "custom_component_render_failed", "detail": stderr[-400:]}
         raise CustomRenderError(problem.get("code", "custom_component_render_failed"), problem.get("detail", ""))
 
 
@@ -304,9 +323,9 @@ def draw(draw_, timeline, item, profile, relative_frame=None):
     return None if box is None else (box[0] + dx, box[1] + dy, box[2] + dx, box[3] + dy)
 
 
-def changes(timeline, item, profile):
+def changes(timeline, item, profile, cancel=None):
     """Absolute frames where the picture differs from the frame before, so still stretches cost one image."""
-    paths = frames(timeline, item, profile, range(item.duration_frames))
+    paths = frames(timeline, item, profile, range(item.duration_frames), cancel)
     marks, previous = {item.start_frame, item.start_frame + item.duration_frames}, None
     for n in range(item.duration_frames):
         digest = hashlib.sha256(_image(paths[n]).tobytes()).digest()

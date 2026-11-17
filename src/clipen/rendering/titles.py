@@ -314,8 +314,9 @@ def compose_dense_titles(
 ):
     """One event-based RGBA stream avoids opening dozens of full-HD inputs.
 
-    Reports progress while drawing (first 40%) and while FFmpeg overlays the
-    stream (the rest), so a long film never looks stuck at the same number.
+    Reports progress while free designs are drawn in Chrome (first 20%), while
+    the text events are drawn (to 40%) and while FFmpeg overlays the stream (the
+    rest), so a long film never looks stuck at the same number.
     """
     report = progress or (lambda _value: None)
     from PIL import Image, ImageDraw, ImageFont
@@ -351,22 +352,23 @@ def compose_dense_titles(
     )
     from .program_components import animation_boundaries as component_boundaries
 
-    boundaries = sorted(
-        set(boundaries)
-        | {
-            b
-            for i in items
-            if (custom_styles or {}).get(i.style_id, {}).get("kind") == "program_component"
-            for b in component_boundaries(i, custom_styles[i.style_id], timeline)
-        }
-    )
+    # Free designs are drawn frame by frame before anything else; after a look change that is
+    # every frame of every graphic, so it reports progress and stops when cancelled.
+    components = [i for i in items if (custom_styles or {}).get(i.style_id, {}).get("kind") == "program_component"]
+    boundaries = set(boundaries)
+    for count, item in enumerate(components):
+        if cancel.is_set():
+            raise TitleRenderError("cancelled")
+        report(0.2 * count / len(components))
+        boundaries |= component_boundaries(item, custom_styles[item.style_id], timeline, cancel)
+    boundaries = sorted(boundaries)
     lines = ["ffconcat version 1.0"]
     events = max(1, len(boundaries) - 1)
     for index, (start, end) in enumerate(zip(boundaries, boundaries[1:])):
         if cancel.is_set():
             raise TitleRenderError("cancelled")
         if index % 20 == 0:
-            report(0.4 * index / events)
+            report(0.2 + 0.2 * index / events)
         image = Image.new("RGBA", (timeline.width, timeline.height), (0, 0, 0, 0))
         draw = ImageDraw.Draw(image)
         for item in items:
