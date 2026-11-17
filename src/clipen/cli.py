@@ -9,7 +9,7 @@ from typing import Sequence
 
 from clipen.controller import LocalSessionAuthority
 from clipen.controller.server import ServerPaths, probe_claude, probe_codex, run_server
-from clipen.provider_registry import PROVIDERS, implemented_providers
+from clipen.provider_registry import PROVIDERS
 from clipen.workspace import (
     WorkspaceError,
     inspect_workspace_projects,
@@ -22,7 +22,7 @@ def _repo_root() -> Path:
     root = Path(configured) if configured else Path(__file__).resolve().parents[2]
     resolved = root.resolve(strict=True)
     if not (resolved / "apps" / "web" / "dist" / "index.html").is_file():
-        raise RuntimeError("找不到 Clipen 操作介面，請重新安裝（npx @clipen/clipen-cli 或 ./install）。")
+        raise RuntimeError("找不到 Clipen 操作介面，請重新安裝（npx @clipen/clipen-cli 或 ./clipen install）。")
     return resolved
 
 
@@ -35,15 +35,10 @@ def _data_root() -> Path:
 
 def main(arguments: Sequence[str] | None = None) -> int:
     selected = list(sys.argv[1:] if arguments is None else arguments)
-    available = implemented_providers()
-    usage = "用法：clipen " + "|".join(available)
     if len(selected) != 1 or selected[0] not in PROVIDERS:
-        print(usage, file=sys.stderr)
+        print("用法：clipen " + "|".join(PROVIDERS), file=sys.stderr)
         return 2
     descriptor = PROVIDERS[selected[0]]
-    if not descriptor.implemented:
-        print(f"Clipen 目前還不支援 {descriptor.display_name}（{descriptor.provider_id}）。{usage}", file=sys.stderr)
-        return 2
     # Resolved at call time so each probe stays a module attribute.
     probe = {"codex": probe_codex, "claude": probe_claude}[descriptor.provider_id]
     try:

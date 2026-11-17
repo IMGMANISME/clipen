@@ -46,6 +46,7 @@ _SETUPTOOLS_VERSION = "84.0.0"
 _WHEEL_VERSION = "0.48.0"
 _PROFILE_START = "# >>> Clipen managed PATH >>>"
 _PROFILE_END = "# <<< Clipen managed PATH <<<"
+# Installed commands carry this exact line and reinstalling checks for it, so it stays as first written.
 _COMMAND_MARKER = "# Managed by Clipen; rerun ./install or clipen install to update."
 _MANAGED_COMMAND_PREFIX = "# Managed by Clipen;"
 _REMOVABLE_DIRECTORIES = (
@@ -301,7 +302,7 @@ def ensure_web_build(repo_root: Path, stream: TextIO = sys.stdout) -> None:
 
 def _install_hint(repo_root: Path) -> str:
     """How this copy of Clipen is set up again: from npm (npx) or from a source checkout."""
-    return "npx @clipen/clipen-cli install" if (repo_root / ".clipen-npm").is_file() else "./install"
+    return "npx @clipen/clipen-cli install" if (repo_root / ".clipen-npm").is_file() else "./clipen install"
 
 
 def _chrome_ready(home: Path) -> bool:
@@ -915,21 +916,19 @@ def uninstall_installation(
 
 def _print_usage(stream: TextIO, repo_root: Path | None = None) -> None:
     npm = repo_root is not None and (repo_root / ".clipen-npm").is_file()
-    print(f"第一次安裝：{'npx @clipen/clipen-cli' if npm else './install'}", file=stream)
+    print(f"第一次安裝：{'npx @clipen/clipen-cli' if npm else './clipen install'}", file=stream)
     print("啟動 Clipen：clipen codex 或 clipen claude", file=stream)
-    print(f"移除 Clipen：{'clipen uninstall' if npm else './uninstall'}", file=stream)
+    print(f"移除 Clipen：{'clipen uninstall' if npm else './clipen uninstall'}", file=stream)
 
 
 def main(repo_root: Path, arguments: Sequence[str]) -> int:
     if list(arguments) in (["--help"], ["-h"]):
         _print_usage(sys.stdout, repo_root)
         return 0
-    from clipen.provider_registry import PROVIDERS, implemented_providers
+    from clipen.provider_registry import PROVIDERS
 
-    launch = len(arguments) == 1 and arguments[0] in implemented_providers()
+    launch = len(arguments) == 1 and arguments[0] in PROVIDERS
     if list(arguments) not in (["install"], ["uninstall"]) and not launch:
-        if len(arguments) == 1 and arguments[0] in PROVIDERS:
-            print(f"Clipen 目前還不支援 {PROVIDERS[arguments[0]].display_name}（{arguments[0]}）。", file=sys.stderr)
         _print_usage(sys.stderr, repo_root)
         return 2
     try:

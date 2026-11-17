@@ -73,7 +73,7 @@ clipen claude                   # 或 clipen codex
 ## 開發
 
 ```bash
-./install                                   # 從原始碼安裝
+./clipen install                            # 從原始碼安裝
 PYTHONPATH=src:tests/python .venv/bin/python -m unittest discover -s tests/python
 cd apps/web && npm run lint && npm test
 npm run release -- patch                    # 準備新版本

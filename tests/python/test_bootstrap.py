@@ -40,28 +40,6 @@ class BootstrapTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
-    def test_source_installer_help_does_not_start_setup(self) -> None:
-        installer = Path(__file__).resolve().parents[2] / "install"
-        completed = subprocess.run(
-            [str(installer), "--help"],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        self.assertEqual(completed.returncode, 0, completed.stderr)
-        self.assertEqual(completed.stdout.strip(), "用法：./install")
-
-    def test_source_uninstaller_help_does_not_remove_anything(self) -> None:
-        uninstaller = Path(__file__).resolve().parents[2] / "uninstall"
-        completed = subprocess.run(
-            [str(uninstaller), "--help"],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        self.assertEqual(completed.returncode, 0, completed.stderr)
-        self.assertEqual(completed.stdout.strip(), "用法：./uninstall")
-
     def test_fingerprint_changes_with_runtime_contract(self) -> None:
         first = bootstrap.runtime_fingerprint(self.repo)
         (self.repo / "requirements" / "runtime.txt").write_text("starlette==1.5.1\n", encoding="utf-8")
@@ -523,7 +501,7 @@ class BootstrapTests(unittest.TestCase):
         with (
             mock.patch(
                 "clipen.bootstrap.completed_runtime",
-                side_effect=bootstrap.BootstrapError("請先執行 ./install"),
+                side_effect=bootstrap.BootstrapError("請先執行 ./clipen install"),
             ),
             mock.patch("clipen.bootstrap.ensure_installation") as setup,
             mock.patch("clipen.bootstrap.os.execve") as execute,
@@ -532,7 +510,7 @@ class BootstrapTests(unittest.TestCase):
             result = bootstrap.main(self.repo, ["codex"])
 
         self.assertEqual(result, 1)
-        self.assertIn("./install", errors.getvalue())
+        self.assertIn("./clipen install", errors.getvalue())
         setup.assert_not_called()
         execute.assert_not_called()
 
@@ -729,7 +707,7 @@ class NpmInstallTests(unittest.TestCase):
             launcher.chmod(0o755)
             script = bootstrap._command_script(root)
             self.assertIn(str(Path(sys.executable).resolve()), script)
-            self.assertEqual(bootstrap._install_hint(root), "./install")
+            self.assertEqual(bootstrap._install_hint(root), "./clipen install")
             (root / ".clipen-npm").write_text("1.0.0\n")
             self.assertEqual(bootstrap._install_hint(root), "npx @clipen/clipen-cli install")
 

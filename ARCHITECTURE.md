@@ -21,7 +21,7 @@ DaVinci Resolve 可編輯工程。
 第一次從 source checkout 設定：
 
 ```sh
-./install
+./clipen install
 ```
 
 設定完成後：
@@ -32,7 +32,7 @@ clipen codex
 ```
 
 `codex` 表示本次選用的 AI provider；也可用 `clipen claude` 改用 Claude Code。
-`local`（本機模型）已保留名稱，尚未實作。Clipen 啟動 Controller 與本機 UI，但不開啟
+Clipen 啟動 Controller 與本機 UI，但不開啟
 provider 的互動式 TUI、不注入對話、不建立 MCP 輪詢，也不要求使用者手動架設服務。
 AI 只在 UI 明確授權一個分析、規劃或修改步驟後，以單次、有界的 Attempt 執行。
 目前目錄是本次工作區；Clipen 只在其中的 `.clipen/` 管理作品資料。切換目錄後再
@@ -442,12 +442,12 @@ clipen reset --project <project-id>
 
 ## 12. 安裝、建置與更新
 
-Source checkout 的 `./install` 是首次設定入口。執行後先顯示 runtime、
+Source checkout 的 `./clipen install` 是首次設定入口。執行後先顯示 runtime、
 全域 `clipen` 指令、PATH 設定檔、安裝位置與會／不會執行的操作，取得一次同意後
 才安裝。設定完成後，新 Terminal 的入口為 `clipen codex` 或 `clipen claude`；正式發行仍可改由
 Homebrew 或簽章 installer 提供該指令。
 
-Source checkout 的對稱移除入口是 `./uninstall`。它只移除 Clipen 管理的 runtime、
+Source checkout 的對稱移除入口是 `./clipen uninstall`。它只移除 Clipen 管理的 runtime、
 本機模型、全域指令與 PATH 區塊，保留各工作區 `.clipen/projects/`、provider Attempt
 紀錄、毛片、
 參考作品與匯出檔案。若 Controller 尚未停止、管理路徑不安全或同名指令不屬於

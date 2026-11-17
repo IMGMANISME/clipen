@@ -9,7 +9,7 @@ export function useProvider(): ProviderInfo {
   return useContext(ProviderContext)
 }
 
-const NAMES: Record<string, string> = { codex: 'Codex', claude: 'Claude', local: '本機模型' }
+const NAMES: Record<string, string> = { codex: 'Codex', claude: 'Claude' }
 
 /** A provider's display name from its id, for runs created with another AI. */
 export function providerName(id: string | null | undefined): string {

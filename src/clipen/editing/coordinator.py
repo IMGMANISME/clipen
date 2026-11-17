@@ -35,8 +35,6 @@ class EditAgentCoordinator:
         from clipen.provider_registry import get_provider
 
         self.provider = get_provider(provider_id)
-        if not self.provider.implemented:
-            raise ValueError(f"provider {provider_id} cannot edit yet")
         self.repository = repository
         self.local_runtime = local_runtime
         self.attempt_root = root

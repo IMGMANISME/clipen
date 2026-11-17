@@ -32,8 +32,6 @@
     "requirements/",
     "pyproject.toml",
     "clipen",
-    "install",
-    "uninstall",
     "README.md",
     "LICENSE"
   ],
