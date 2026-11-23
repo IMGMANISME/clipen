@@ -4,7 +4,7 @@ import type { EditAgentTimeline } from './api'
 import { lanes } from './componentEdit'
 import { clips, clock } from './reviewModel'
 
-type Span = { id: string; start: number; end: number; label: string; selectable?: boolean; tone?: string; kind?: string }
+type Span = { id: string; start: number; end: number; label: string; selectable?: boolean; tone?: string; kind?: string; unchecked?: boolean }
 type Place = { id: string; start: number; end: number; lane: number }
 type Note = { id: string; at: number | null; label: string; kind: string }
 type Props = { timeline: EditAgentTimeline; now: number; notes: Note[]; video: string | null; onSeek: (seconds: number) => void; selected?: string | null; onSelect?: (id: string) => void
@@ -13,7 +13,9 @@ type Props = { timeline: EditAgentTimeline; now: number; notes: Note[]; video: s
   /** Dragging a graphic, stretching its ends or moving it to another lane; absent when graphics cannot be moved. */
   onPlace?: (id: string, start: number, duration: number, lane: number) => void
   /** Each graphic's look, so graphics of one kind share a colour on the timeline. */
-  looks?: Record<string, { name: string; index: number }> }
+  looks?: Record<string, { name: string; index: number }>
+  /** Texts and graphics the AI never looked at in a rendered still of this version. */
+  unreviewed?: string[] }
 
 const HEAD = 72
 const EDGE = 7  // pixels at each end of a graphic that stretch it rather than move it
@@ -55,7 +57,8 @@ function useThumbnails(source: string | null, times: number[]) {
 }
 
 /** An editing-app timeline under the review player: ruler, tracks, clips, note markers and a playhead. */
-export function ReviewTimeline({ timeline, now, notes, video, onSeek, selected = null, onSelect, draft = null, onPlace, looks = {} }: Props) {
+export function ReviewTimeline({ timeline, now, notes, video, onSeek, selected = null, onSelect, draft = null, onPlace, looks = {}, unreviewed = [] }: Props) {
+  const unchecked = new Set(unreviewed)
   const fps = timeline.frame_rate.num / timeline.frame_rate.den
   const total = Math.max(1, timeline.duration_frames)
   const seconds = total / fps
@@ -80,10 +83,10 @@ export function ReviewTimeline({ timeline, now, notes, video, onSeek, selected =
   const label = (text?: string) => (text ?? '').replace(/\s+/g, ' ')
   const look = (id: string) => looks[id] ? { tone: TONES[looks[id].index % TONES.length], kind: looks[id].name } : {}
   const captions: Span[] = timeline.tracks.filter((track) => (track.kind === 'title' || track.kind === 'graphic') && track.track_id === 'agent-subtitles')
-    .flatMap((track) => track.items.map((item) => ({ id: item.item_id, start: item.start_frame, end: item.start_frame + item.duration_frames, label: label(item.text) })))
+    .flatMap((track) => track.items.map((item) => ({ id: item.item_id, start: item.start_frame, end: item.start_frame + item.duration_frames, label: label(item.text), unchecked: unchecked.has(item.item_id) })))
   // Graphics sit on lanes; a higher lane is drawn on top. The one being edited shows where it would go.
   const graphics: Span[][] = lanes(timeline).map((track) => track.items.filter((item) => item.item_id !== draft?.id)
-    .map((item) => ({ id: item.item_id, start: item.start_frame, end: item.start_frame + item.duration_frames, label: label(item.text), selectable: Boolean(onSelect), ...look(item.item_id) })))
+    .map((item) => ({ id: item.item_id, start: item.start_frame, end: item.start_frame + item.duration_frames, label: label(item.text), selectable: Boolean(onSelect), unchecked: unchecked.has(item.item_id), ...look(item.item_id) })))
   if (draft) {
     const item = lanes(timeline).flatMap((track) => track.items).find((entry) => entry.item_id === draft.id)
     while (graphics.length <= draft.lane) graphics.push([])
@@ -104,6 +107,12 @@ export function ReviewTimeline({ timeline, now, notes, video, onSeek, selected =
     { id: 'v1', name: 'V1', label: '畫面', spans: shots, kind: 'shot' },
     ...(music.length ? [{ id: 'a1', name: 'A1', label: '配樂', spans: music, kind: 'music' }] : []),
   ]
+  // Where the AI never looked, in film order, so a person can step through them.
+  const unseen = [...graphics.flat(), ...captions].filter((span) => span.unchecked).sort((a, b) => a.start - b.start)
+  function nextUnseen() {
+    const after = unseen.find((span) => span.start > Math.round(now * fps)) ?? unseen[0]
+    if (after) onSeek(after.start / fps)
+  }
   const thumbs = useThumbnails(video, shots.map((shot) => (shot.start + Math.min(fps, (shot.end - shot.start) / 2)) / fps))
 
   // Ruler ticks: the smallest step that leaves room for a label.
@@ -176,6 +185,9 @@ export function ReviewTimeline({ timeline, now, notes, video, onSeek, selected =
     <div className="nle-toolbar">
       <span className="nle-clock">{clock(now, true)}</span>
       <span className="nle-duration">/ {clock(seconds)}</span>
+      {unseen.length > 0 && <span className="nle-unseen" title="AI 這一版只看過部分畫面；虛線框的字幕與元件它沒有看過，建議先檢查。">
+        <span className="nle-unseen-key" aria-hidden="true" />AI 沒看過 {unseen.length} 處
+        <button type="button" className="button ghost" onClick={nextUnseen}>跳到下一處</button></span>}
       <label className="nle-zoom">縮放<input type="range" min={0} max={6} step={1} value={zoom} onChange={(event) => setZoom(Number(event.target.value))} aria-label="時間軸縮放" /></label>
       <button type="button" className="button ghost" onClick={() => setZoom(0)} disabled={zoom === 0}>整部片</button>
     </div>
@@ -200,8 +212,8 @@ export function ReviewTimeline({ timeline, now, notes, video, onSeek, selected =
         {tracks.map((track) => <div className={`nle-track is-${track.kind}`} key={track.id}>
           <div className="nle-heads"><strong>{track.name}</strong><span>{track.label}</span></div>
           <div className={`nle-lane${track.lane !== undefined && moving && !track.spans.length ? ' is-new' : ''}`} style={{ width }}>
-            {track.spans.map((span, index) => <div key={span.id} className={`nle-clip${span.selectable ? ' is-pickable' : ''}${span.selectable && onPlace ? ' is-movable' : ''}${span.id === selected ? ' is-selected' : ''}`} data-pick={span.selectable ? span.id : undefined} style={{ left: x(span.start), width: Math.max(2, x(span.end) - x(span.start)), ...(track.kind === 'shot' && thumbs[index] ? { backgroundImage: `url(${thumbs[index]})` } : {}), ...(span.tone ? { backgroundColor: span.tone } : {}) }}
-              title={`${clock(span.start / fps)}–${clock(span.end / fps)} ${span.kind ? `［${span.kind}］` : ''}${span.label}${span.selectable ? (onPlace ? '（點一下編輯，拖曳改時間或換軌，拉兩端改長度）' : '（點一下編輯）') : ''}`}>
+            {track.spans.map((span, index) => <div key={span.id} className={`nle-clip${span.selectable ? ' is-pickable' : ''}${span.selectable && onPlace ? ' is-movable' : ''}${span.id === selected ? ' is-selected' : ''}${span.unchecked ? ' is-unseen' : ''}`} data-pick={span.selectable ? span.id : undefined} style={{ left: x(span.start), width: Math.max(2, x(span.end) - x(span.start)), ...(track.kind === 'shot' && thumbs[index] ? { backgroundImage: `url(${thumbs[index]})` } : {}), ...(span.tone ? { backgroundColor: span.tone } : {}) }}
+              title={`${clock(span.start / fps)}–${clock(span.end / fps)} ${span.kind ? `［${span.kind}］` : ''}${span.label}${span.unchecked ? '（AI 沒看過）' : ''}${span.selectable ? (onPlace ? '（點一下編輯，拖曳改時間或換軌，拉兩端改長度）' : '（點一下編輯）') : ''}`}>
               {x(span.end) - x(span.start) > 44 && <span>{span.label}</span>}
             </div>)}
           </div>

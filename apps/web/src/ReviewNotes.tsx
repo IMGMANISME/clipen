@@ -20,10 +20,12 @@ type Props = {
   onRemoveComponent: (elementId: string) => Promise<boolean>
   /** Shown in place of the player, e.g. an older version being compared. */
   stage?: ReactNode
+  /** Texts and graphics the AI never looked at in this version, marked on the timeline. */
+  unreviewed?: string[]
 }
 
 /** Watch the film, note what to change, and edit its graphics: player, side panel and timeline. */
-export function ReviewNotes({ visible, projectId, csrf, runId, data, video, disabled, locked, onChanged, onDirty, onSaveComponent, onRemoveComponent, stage }: Props) {
+export function ReviewNotes({ visible, projectId, csrf, runId, data, video, disabled, locked, onChanged, onDirty, onSaveComponent, onRemoveComponent, stage, unreviewed = [] }: Props) {
   const timeline = data.revision.timeline
   const fps = timeline.frame_rate.num / timeline.frame_rate.den
   const state = data.references ?? { version: 0, items: [] }
@@ -211,7 +213,7 @@ export function ReviewNotes({ visible, projectId, csrf, runId, data, video, disa
       {error && <p role="alert" className="rv-error">{error}</p>}
       {panel}
     </aside>
-    <ReviewTimeline timeline={timeline} now={now} video={video?.media_url ?? null} selected={selection?.id ?? null} onSelect={form ? undefined : select}
+    <ReviewTimeline unreviewed={unreviewed} timeline={timeline} now={now} video={video?.media_url ?? null} selected={selection?.id ?? null} onSelect={form ? undefined : select}
       draft={selection ? { id: selection.id, start: selection.at, end: selection.at + selection.duration, lane: selection.lane } : null}
       onPlace={form || disabled || locked || busy ? undefined : place}
       looks={Object.fromEntries(Object.entries(editing?.components ?? {}).flatMap(([id, settings]) => {
