@@ -3,7 +3,9 @@ import type { EditAgentStatus } from './api'
 import { productionIssue, productionProblem } from './productionMessages'
 import { providerName, useProvider } from './providerContext'
 
-type Props = { status: EditAgentStatus; busy: boolean; onResume: () => void; onCancel: () => void; onRefresh: () => void; onEdit: () => void; onView?: () => void; onRefine?: () => void }
+type Props = { status: EditAgentStatus; busy: boolean; onResume: () => void; onCancel: () => void; onRefresh: () => void; onEdit: () => void; onView?: () => void; onRefine?: () => void
+  /** One line above the review workbench, so the film, notes and timeline keep the screen; details stay on 影片總覽. */
+  compact?: boolean }
 const STAGE_NAMES: Record<string, string> = { understand: '理解需求', sources: '選素材', edit: '剪輯', graphics: '字幕與畫面',
   music: '配樂', render: '輸出影片', review: '檢查' }
 // Narrow screens fit seven steps only with two-character names.
@@ -39,7 +41,7 @@ function timeLabel(value: string): string {
   return Number.isNaN(date.getTime()) ? '' : date.toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit' })
 }
 
-export function ProductionStatusPanel({ status, busy, onResume, onCancel, onRefresh, onEdit, onView, onRefine }: Props) {
+export function ProductionStatusPanel({ status, busy, onResume, onCancel, onRefresh, onEdit, onView, onRefine, compact = false }: Props) {
   const provider = useProvider()
   const [copied, setCopied] = useState(false)
   const [now, setNow] = useState(() => Date.now())
@@ -91,6 +93,18 @@ export function ProductionStatusPanel({ status, busy, onResume, onCancel, onRefr
     validation: production.validation, recent_tools: activity.filter((entry) => entry.tool).map((entry) => ({ tool: entry.tool, at: entry.created_at })) }, null, 2)
   async function copyDiagnostics() {
     try { await navigator.clipboard.writeText(diagnostics); setCopied(true) } catch { setCopied(false) }
+  }
+
+  if (compact) {
+    // The review page shows its own render progress, so while a film renders the line only says the AI is at work.
+    const line = failed ? problem.title : active && !previewRunning ? `${title}：${current}` : title
+    return <section className={`production-status-line ${failed ? 'has-problem' : ''} ${active ? 'is-active' : ''}`} aria-label="製作狀態">
+      <span className="production-status-dot" aria-hidden="true" />
+      <p role="status" aria-live="polite">{line}{active && elapsed ? <small>{elapsed}</small> : null}</p>
+      {canResume && <button className="button secondary" type="button" disabled={busy} onClick={onResume}>繼續這份草稿</button>}
+      {active && <button className="button ghost" type="button" disabled={busy} onClick={onCancel}>停止製作</button>}
+      {onView && <button className="button ghost" type="button" onClick={onView}>查看詳情</button>}
+    </section>
   }
 
   return <section className={`production-status-panel ${failed ? 'has-problem' : ''} ${active ? 'is-active' : ''}`} aria-labelledby="production-status-heading">

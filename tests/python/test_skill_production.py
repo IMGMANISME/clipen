@@ -255,6 +255,8 @@ class SkillProductionTests(unittest.TestCase):
         # Without a rendered film there is neither a finished film nor a draft to label.
         self.assertIsNone(status["production"]["finished_preview"])
         self.assertIsNone(status["production"]["draft_preview"])
+        # While the AI is still at work there is no version of its to mark as unchecked.
+        self.assertIsNone(status["production"]["ai_review"])
         # Stages only move forward to the furthest real step; no percentage is invented.
         from clipen.editing.production_progress import STAGES
 

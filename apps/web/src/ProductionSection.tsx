@@ -147,24 +147,29 @@ export function ProductionSection({ projectId, csrf, brief, sourceReady }: Props
       <p>以下保留上次讀取的資料；這不代表 AI 已停止。正在自動重新連線。</p>
       <button type="button" className="button secondary" onClick={() => setRefreshKey((value) => value + 1)}>立即重試連線</button>
     </div>}
-    {status?.production && (view === 'overview' || active || ['failed', 'interrupted'].includes(run?.state ?? '')) && <ProductionStatusPanel status={status} busy={busy}
+    {status?.production && (view === 'overview' || active || ['failed', 'interrupted'].includes(run?.state ?? '')) && <ProductionStatusPanel status={status} busy={busy} compact={view !== 'overview'}
       onView={() => setView('overview')} onRefine={timeline && timeline.duration_frames > 0 ? () => setView('edit') : undefined} onResume={() => void resume()} onCancel={() => void cancel()} onRefresh={() => setRefreshKey((value) => value + 1)}
       onEdit={() => {
         setConsent(false); setBriefOpen(true); setView('new')
         window.requestAnimationFrame(() => document.getElementById('production-intent')?.focus())
       }} />}
     {production && <div className="production-output studio-screen" id="production-output" tabIndex={-1} hidden={view !== 'overview'}>
-      <div className="screen-heading"><h3>你的影片</h3><span className="studio-version">{shownVersion ? `${when(shownVersion.created_at)} 的版本` : viewingDraft ? '未完成的草稿' : '目前草稿'} · {Math.floor(duration / 60)}:{String(Math.round(duration % 60)).padStart(2, '0')}</span></div>
+      <div className="screen-heading"><h3>你的影片</h3><span className="studio-version">{Math.floor(duration / 60)}:{String(Math.round(duration % 60)).padStart(2, '0')}</span></div>
       {preview?.state === 'succeeded' ? <>
-        {viewingDraft && <div className="film-draft-notice" role="status"><strong>未完成的草稿{draft?.version?.kind === 'ai_partial' ? `：${draft.version.label}` : ''}</strong>
-          <p>{active ? 'AI 還在製作，這是製作途中的畫面，還沒做完交付檢查。' : 'AI 還沒做完這一輪的交付檢查，畫面可能只改了一部分。'}</p>
-          {finished && <button type="button" className="button secondary" onClick={() => setShowDraft(false)}>回到完成的版本</button>}</div>}
-        {!viewingDraft && draft && <div className="film-draft-offer"><span>{active ? 'AI 製作中，有一份還沒完成的草稿。' : `有一份比這版新、但還沒完成的草稿${draft.version?.kind === 'ai_partial' ? `（${draft.version.label}）` : ''}。`}</span>
-          <button type="button" className="button ghost" onClick={() => setShowDraft(true)}>看未完成的草稿</button></div>}
-        {showingPreviousPreview && <p className="inline-message" role="status">{latestPreview && ['queued', 'running'].includes(latestPreview.state) ? '新預覽正在輸出，先保留上一份成功影片。' : '這次預覽未完成，上一份成功影片仍可播放與下載。'}</p>}
-        {preview.stale && <p className="inline-message">這是先前修訂的預覽，目前草稿尚有更新。</p>}
+        {/* One line says which film is playing, why it may not be the newest, and how to switch. */}
+        <div className={`film-version-bar ${viewingDraft ? 'is-draft' : ''}`} role="status">
+          <span className="film-version-now">正在看：<strong>{viewingDraft ? `未完成的草稿${draft?.version?.kind === 'ai_partial' ? `（${draft.version.label}）` : ''}`
+            : finished && preview === finished ? `完成的版本${finished.version ? `（${finished.version.label}）` : ''}` : preview.stale || showingPreviousPreview ? '先前的版本' : '目前的預覽'}</strong>
+            {shownVersion && <small>{when(shownVersion.created_at)}</small>}</span>
+          <span className="film-version-why">{viewingDraft ? (active ? 'AI 還在製作，畫面可能只改了一部分。' : 'AI 沒做完這一輪的檢查，畫面可能只改了一部分。')
+            : draft ? (active ? 'AI 製作中，有一份新的草稿。' : '有一份比這版新、但還沒做完的草稿。')
+            : showingPreviousPreview ? (latestPreview && ['queued', 'running'].includes(latestPreview.state) ? '新的影片正在輸出。' : '最新一次輸出沒有完成。')
+            : preview.stale ? '之後的修改還沒輸出成影片。' : ''}</span>
+          {viewingDraft && finished && <button type="button" className="button ghost" onClick={() => setShowDraft(false)}>回到完成的版本</button>}
+          {!viewingDraft && draft && <button type="button" className="button ghost" onClick={() => setShowDraft(true)}>看草稿</button>}
+        </div>
         <video ref={overviewPlayer} key={preview.render_id} controls preload="metadata" src={preview.media_url} aria-label="影片預覽" />
-        <div className="screen-actions"><span><span className="screen-ready-dot" />{viewingDraft ? '未完成的草稿' : preview.stale || showingPreviousPreview ? '先前版本' : finished ? `完成的版本${finished.version ? `：${finished.version.label}` : ''}` : '目前預覽'}</span><a className="button secondary" href={preview.media_url} download><StudioIcon name="download" />下載這版影片</a><button type="button" className="button primary" onClick={() => setView('edit')}><StudioIcon name="edit" />審片並記下修改</button></div>
+        <div className="screen-actions"><a className="button secondary" href={preview.media_url} download><StudioIcon name="download" />下載這版影片</a><button type="button" className="button primary" onClick={() => setView('edit')}><StudioIcon name="edit" />審片並記下修改</button></div>
       </> : <p>{preview && ['queued', 'running'].includes(preview.state) ? '正在合成預覽…' : preview?.state === 'failed' ? '這次預覽輸出失敗，草稿仍保留。' : 'AI 尚未產生可觀看預覽。'}</p>}
       <details className="production-film-info"><summary>影片資訊與配樂來源</summary>
         <p>{production.skill.name} · {production.skill.version}</p>
@@ -184,7 +189,7 @@ export function ProductionSection({ projectId, csrf, brief, sourceReady }: Props
       {run && !run.usage && <p>實際 AI 用量尚未取得，不代表零用量。</p>}
       </details>
     </div>}
-    {production && run && timeline && timeline.duration_frames > 0 && <div hidden={view !== 'edit'}><ProductionWorkbench key={run.run_id} visible={view === 'edit'} runProvider={run.provider} projectId={projectId} csrf={csrf} runId={run.run_id} revisionId={production.draft.revision_id} previews={[latestPreview, draft, finished, production.last_successful_preview]} active={active} onChanged={() => setRefreshKey((value) => value + 1)} musicId={musicId} onMusicChange={setMusicId} /></div>}
+    {production && run && timeline && timeline.duration_frames > 0 && <div hidden={view !== 'edit'}><ProductionWorkbench key={run.run_id} visible={view === 'edit'} runProvider={run.provider} projectId={projectId} csrf={csrf} runId={run.run_id} revisionId={production.draft.revision_id} previews={[latestPreview, draft, finished, production.last_successful_preview]} aiReview={production.ai_review ?? null} active={active} onChanged={() => setRefreshKey((value) => value + 1)} musicId={musicId} onMusicChange={setMusicId} /></div>}
     {!loading && <details className="production-editor" hidden={Boolean(production) && view !== 'new'} open={!production || briefOpen}
       onToggle={(event) => setBriefOpen(event.currentTarget.open)}>
       <summary>{production ? active ? '本次製作需求' : '製作下一支影片' : '設定你的影片'}</summary>

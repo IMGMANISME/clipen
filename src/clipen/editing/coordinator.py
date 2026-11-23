@@ -204,6 +204,16 @@ class EditAgentCoordinator:
                     finished_preview["version"] = by_revision.get(finished_preview["revision_id"])
                 if draft_preview:
                     draft_preview["version"] = by_revision.get(draft_preview["revision_id"])
+                # Only an AI's version is the AI's to have looked at; a person's own edit or a run in
+                # progress has nothing to mark yet.
+                ai_review = None
+                if latest.state not in {"queued", "running"} and (
+                    by_revision.get(draft.revision_id, {}).get("kind", "").startswith("ai_")
+                ):
+                    from .review_coverage import ai_review_coverage
+
+                    with self.repository.projects.connect(project_id) as db:
+                        ai_review = ai_review_coverage(db, latest.run_id, draft.timeline, draft.revision_id)
                 production = {
                     "intent": session["intent"],
                     "skill": {
@@ -225,6 +235,7 @@ class EditAgentCoordinator:
                     "finished_preview": finished_preview,
                     "draft_preview": draft_preview,
                     "validation": validation,
+                    "ai_review": ai_review,
                     "local_jobs": local_jobs,
                     "production_contents": production_contents(self.repository.projects, project_id, draft.timeline),
                     "export_url": self._export_url(project_id, latest.run_id, draft.revision_id),

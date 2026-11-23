@@ -11,10 +11,11 @@ import { ChangeReportView } from './ChangeReportView'
 import { clock, composePrompt, usageText, versionTitle, when } from './reviewModel'
 import { providerName, useProvider } from './providerContext'
 
-type Props = { visible: boolean; runProvider?: string; projectId: string; csrf: string; runId: string; revisionId: string; active: boolean; onChanged: () => void; musicId: string; previews: Array<FilmPreview | null | undefined>; onMusicChange: (id: string) => void }
+type Props = { visible: boolean; runProvider?: string; projectId: string; csrf: string; runId: string; revisionId: string; active: boolean; onChanged: () => void; musicId: string; previews: Array<FilmPreview | null | undefined>; onMusicChange: (id: string) => void
+  aiReview?: { revision_id: string; total: number; unreviewed_item_ids: string[] } | null }
 const MAX_INSTRUCTION = 8000
 /** Review the film: watch, note, reword graphics, and hand the notes to the AI. Everything else waits in menus. */
-export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionId, active, onChanged, musicId, onMusicChange, previews, runProvider }: Props) {
+export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionId, active, onChanged, musicId, onMusicChange, previews, runProvider, aiReview = null }: Props) {
   const provider = useProvider()
   // A revision may hand the draft to the AI Clipen was started with.
   const switching = Boolean(runProvider && provider.id && runProvider !== provider.id)
@@ -166,7 +167,7 @@ export function ProductionWorkbench({ visible, projectId, csrf, runId, revisionI
     {data && !video && !rendering && playable && <p className="rv-stale">現在播的是{earlierVersion ? `${when(earlierVersion.created_at)} ` : '上一版'}的影片，還看不到剛改的地方。按「輸出這一版」更新。</p>}
     {error && <p className="rv-alert" role="alert">{error}<button type="button" className="rv-icon" aria-label="關閉" onClick={() => setError('')}>×</button></p>}
     {message && <p className="rv-toast" role="status">{message}</p>}
-    {data && <ReviewNotes visible={visible} projectId={projectId} csrf={csrf} runId={runId} data={data} video={playable} disabled={busy || active} locked={rendering ? '新影片輸出中，完成後才能再修改元件。' : undefined} stage={comparing}
+    {data && <ReviewNotes unreviewed={aiReview && aiReview.revision_id === revision ? aiReview.unreviewed_item_ids : []} visible={visible} projectId={projectId} csrf={csrf} runId={runId} data={data} video={playable} disabled={busy || active} locked={rendering ? '新影片輸出中，完成後才能再修改元件。' : undefined} stage={comparing}
       onChanged={(references) => setData((value) => value ? { ...value, references } : value)} onDirty={setNoteOpen}
       onSaveComponent={(draft) => action(() => renderAfter(editComponent(csrf, projectId, runId, data.revision.revision_id, draft)), '存好了，正在輸出新影片。')}
       onRemoveComponent={(elementId) => action(() => renderAfter(removeComponent(csrf, projectId, runId, data.revision.revision_id, elementId)), '元件刪掉了，正在輸出新影片。可以從「版本」還原。')} />}

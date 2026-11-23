@@ -438,6 +438,8 @@ export type EditAgentStatus = {
     finished_preview?: FilmPreview | null
     draft_preview?: FilmPreview | null
     validation: { revision_id: string; valid: boolean; issues: Array<{ code: string; message?: string }> } | null
+    /** Texts and graphics of an AI's version that it never looked at in a rendered still. */
+    ai_review?: { revision_id: string; total: number; unreviewed_item_ids: string[] } | null
     progress?: { updated_at: string | null; slept_seconds?: number; ai_message?: string | null; request?: string | null; started_at?: string | null; stages?: string[]; reached?: number; activity: Array<{ sequence: number; kind: string; label: string; tool: string | null; created_at: string; count?: number }> }
     local_jobs: Array<{ job_id: string; kind: string; state: string; error_code: string | null; phase?: string; completed_bytes?: number; total_bytes?: number }>
     production_contents: EditAgentResult['production_contents']
