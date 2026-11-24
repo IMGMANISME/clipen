@@ -240,7 +240,7 @@ function RenderStatus({ job, playing }: { job: FilmPreview; playing: string | nu
   return <div className="rv-render" role="status" aria-live="polite">
     <div className="rv-render-head"><span className="rv-spinner" aria-hidden="true" />
       <strong>{job.state === 'queued' ? '準備輸出新影片…' : '正在輸出新影片'}</strong>
-      {job.state === 'running' && <span>{Math.round(progress * 100)}% · {remaining}</span>}</div>
+      {job.state === 'running' && <span>{job.stage ? `${job.stage} · ` : ''}{Math.round(progress * 100)}% · {remaining}</span>}</div>
     <div className="rv-render-bar" aria-hidden="true"><i style={{ width: `${Math.max(3, progress * 100)}%` }} /></div>
     <p>{playing ? `先播${playing}的影片，` : ''}完成後會自動換成新影片。輸出期間先不能修改影片，可以繼續看片、記注記。</p>
   </div>

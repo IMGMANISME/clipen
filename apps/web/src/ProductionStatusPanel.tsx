@@ -112,7 +112,7 @@ export function ProductionStatusPanel({ status, busy, onResume, onCancel, onRefr
       {active && elapsed && <span className="production-elapsed">{elapsed}</span>}</div>
     {(active || failed) && !mismatch && progress?.stages && <StageBar stages={progress.stages} reached={progress.reached ?? -1} active={active} />}
     <p>{failed ? problem.next : active ? current : run.state === 'cancelled' ? '草稿已保留，可以先看看目前的結果。' : '播放下方影片，看看是否符合你的期待。'}</p>
-    {active && previewRunning && <div className="production-job"><progress aria-label="輸出影片進度" value={production.preview?.progress ?? 0} max={1} /><span>輸出影片 {Math.round((production.preview?.progress ?? 0) * 100)}%</span></div>}
+    {active && previewRunning && <div className="production-job"><progress aria-label="輸出影片進度" value={production.preview?.progress ?? 0} max={1} /><span>輸出影片 {Math.round((production.preview?.progress ?? 0) * 100)}%{production.preview?.stage ? ` · ${production.preview.stage}` : ''}</span></div>}
     {slept >= 60 && <p className="production-slept" role="note">這次製作期間 Mac 睡眠了約 {sleptLabel}，製作在這段時間暫停{failed ? '，這可能是沒有完成的原因' : ''}。製作時請接上電源，或不要闔上螢幕。</p>}
     {active && /Mac/.test(navigator.platform) && <p className="production-status-note">製作期間 Mac 不會自動睡眠；只用電池時闔上螢幕仍會睡著，製作也會跟著暫停。</p>}
     {active && download !== null && <div className="production-job"><progress aria-label="準備語音功能" value={download} max={100} /><span>語音功能準備進度 {download}%</span></div>}

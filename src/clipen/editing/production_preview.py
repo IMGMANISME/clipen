@@ -15,6 +15,7 @@ from clipen.media import MediaPreviewRepository
 from clipen.projects import ProjectError
 from clipen.projects.storage import utc_now
 from clipen.rendering import FfmpegPreviewRenderer, PreviewRenderRepository
+from clipen.rendering.stage import current_stage, set_stage, stage_path
 
 from .agent_models import ToolResult
 
@@ -133,9 +134,24 @@ def render_preview(tools):
             if store.get(tools.project_id, render["render_id"])["state"] == "cancelling":
                 cancel.set()
 
+        stage_file = None
+        said = [None]
+
+        def say(stage):
+            # The step under way goes to a small file beside the film, for the status to show.
+            if stage != said[0] and stage_file is not None:
+                said[0] = stage
+                try:
+                    stage_file.write_text(stage or "", encoding="utf-8")
+                except OSError:
+                    pass
+
         def progress(value):
             check()
             store.update_progress(tools.project_id, render["render_id"], value)
+            # FFmpeg's progress can arrive on a reader thread that does not know the step; keep the last one.
+            if current_stage() is not None:
+                say(current_stage())
 
         # Some steps run for minutes between progress reports, so a cancel or the end of the run
         # is also picked up here rather than only when the renderer next reports.
@@ -153,10 +169,14 @@ def render_preview(tools):
         try:
             staging = store.output_path(tools.project_id, render["render_id"], staging=True)
             final = store.output_path(tools.project_id, render["render_id"])
+            stage_file = stage_path(final)
+            set_stage(None)
             store.mark_running(tools.project_id, render["render_id"])
             renderer.render(tools.project_id, revision.timeline, staging, cancel, progress)
             if cancel.is_set():
                 raise ProjectError("user_cancelled", "已取消預覽。", status_code=409)
+            set_stage("檢查輸出的影片")
+            say("檢查輸出的影片")
             verify_output(staging, revision.timeline, cancel)
             os.replace(staging, final)
             final.chmod(0o600)
@@ -190,6 +210,9 @@ def render_preview(tools):
             )
         finally:
             finished.set()
+            set_stage(None)
+            if stage_file is not None:
+                stage_file.unlink(missing_ok=True)
             if staging is not None:
                 staging.unlink(missing_ok=True)
             if staging is not None:

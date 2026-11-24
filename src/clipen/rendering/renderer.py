@@ -52,6 +52,8 @@ class FfmpegPreviewRenderer:
             if isinstance(i, MediaClip)
             for e in i.effects
         )
+        from .stage import set_stage
+
         if not layers:
             return self._render_base(project_id, timeline, output, cancel, progress)
         from clipen.editing.production_media import mix_audio_layers
@@ -60,6 +62,7 @@ class FfmpegPreviewRenderer:
         with tempfile.TemporaryDirectory(prefix=".agent-mix-", dir=output.parent) as temp:
             base = Path(temp) / "camera.mp4"
             self._render_base(project_id, timeline, base, cancel, lambda p: progress(p * 0.85))
+            set_stage("混合配樂與原音")
             mix_audio_layers(self.media, project_id, timeline, base, output, cancel)
             progress(1.0)
 
@@ -167,6 +170,9 @@ class FfmpegPreviewRenderer:
         return output
 
     def _render_media(self, project_id, timeline, output, cancel, progress, *, preserve_audio_gain=False):
+        from .stage import set_stage
+
+        set_stage("剪接畫面與聲音")
         try:
             return self._render_media_once(
                 project_id, timeline, output, cancel, progress, preserve_audio_gain=preserve_audio_gain

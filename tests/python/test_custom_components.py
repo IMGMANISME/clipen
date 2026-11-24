@@ -15,6 +15,7 @@ from PIL import Image, ImageDraw
 
 from clipen.domain import TrackKind
 from clipen.rendering import custom_components, program_components
+from clipen.rendering.stage import current_stage, read_stage, stage_path
 from clipen.rendering.titles import TitleRenderError, compose_dense_titles
 
 
@@ -80,7 +81,7 @@ class CancelTests(unittest.TestCase):
         cancel, reports, drawn = threading.Event(), [], []
 
         def draw(item, profile, timeline=None, cancel_=None):
-            drawn.append(item)
+            drawn.append(current_stage())
             if len(drawn) == 2:
                 cancel.set()
             return {item.start_frame}
@@ -98,8 +99,17 @@ class CancelTests(unittest.TestCase):
                     progress=reports.append,
                 )
         self.assertEqual(caught.exception.code, "cancelled")
-        self.assertEqual(len(drawn), 2)
+        # The status names the graphic being drawn, out of how many.
+        self.assertEqual(drawn, ["畫自由設計元件 1/4", "畫自由設計元件 2/4"])
         self.assertEqual(reports, [0.0, 0.05])
+
+    def test_the_step_file_sits_beside_the_film_and_reads_back(self):
+        with tempfile.TemporaryDirectory() as folder:
+            film = Path(folder) / "render_1.mp4"
+            self.assertIsNone(read_stage(film))
+            stage_path(film).write_text("畫自由設計元件 3/9", encoding="utf-8")
+            self.assertEqual(stage_path(film).name, ".render_1.stage")
+            self.assertEqual(read_stage(film), "畫自由設計元件 3/9")
 
 
 @unittest.skipUnless(CHROME, "needs Chrome and Playwright")

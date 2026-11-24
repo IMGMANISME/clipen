@@ -356,12 +356,16 @@ def compose_dense_titles(
     # every frame of every graphic, so it reports progress and stops when cancelled.
     components = [i for i in items if (custom_styles or {}).get(i.style_id, {}).get("kind") == "program_component"]
     boundaries = set(boundaries)
+    from .stage import set_stage
+
     for count, item in enumerate(components):
         if cancel.is_set():
             raise TitleRenderError("cancelled")
+        set_stage(f"畫自由設計元件 {count + 1}/{len(components)}")
         report(0.2 * count / len(components))
         boundaries |= component_boundaries(item, custom_styles[item.style_id], timeline, cancel)
     boundaries = sorted(boundaries)
+    set_stage("繪製字幕與元件")
     lines = ["ffconcat version 1.0"]
     events = max(1, len(boundaries) - 1)
     for index, (start, end) in enumerate(zip(boundaries, boundaries[1:])):
@@ -391,6 +395,7 @@ def compose_dense_titles(
     )
     manifest = directory / "text-events.ffconcat"
     manifest.write_text("\n".join(lines) + "\n")
+    set_stage("把字幕與元件疊上影片")
     report(0.4)
     seconds = timeline.duration_frames / fps
     progress_file = directory / "overlay-progress.txt"
