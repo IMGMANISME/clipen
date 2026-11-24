@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "clipen"
-version = "1.0.4"
+version = "1.0.5"
 description = "Let AI cut your video with Claude Code or Codex, and review it with notes on the timeline"
 readme = "README.md"
 requires-python = ">=3.10"
