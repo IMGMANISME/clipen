@@ -325,7 +325,9 @@ export type ReportLeft = { what: string; reason: 'needs_you' | 'cannot' | null; 
 /** What the AI said it did in one change. */
 export type ChangeReport = { summary: string; changes: Array<{ what: string; why: string }>; notes: ReportNote[]; not_done: ReportLeft[] }
 export type FilmVersion = { report?: ChangeReport; revision_id: string; number: number; kind: 'ai_complete' | 'ai_partial' | 'manual' | 'restore'; label: string; detail: string | null; created_at: string; changes?: string | null; restored_from?: string; usage?: TokenUsage | null; duration_seconds?: number; preview_url?: string | null }
-export type FilmPreview = PreviewRender & { stale: boolean; revision_id: string; media_url: string; version?: FilmVersion | null }
+export type FilmPreview = PreviewRender & { stale: boolean; revision_id: string; media_url: string; version?: FilmVersion | null
+  /** The step a running render is on, such as 畫自由設計元件 33/99. */
+  stage?: string | null }
 
 
 type EditAgentState =
@@ -433,7 +435,7 @@ export type EditAgentStatus = {
     intent: { authority: string; brief: string; target_duration_seconds?: number; music_choice?: { mode: string; asset_id: string; name: string } | null }
     skill: ProductionSkill & { limitations: string[] }
     draft: { revision_id: string; ordinal: number; summary: string; timeline: EditAgentTimeline }
-    preview: (PreviewRender & { stale: boolean; revision_id: string; media_url: string }) | null
+    preview: (PreviewRender & { stale: boolean; revision_id: string; media_url: string; stage?: string | null }) | null
     last_successful_preview?: (PreviewRender & { stale: boolean; revision_id: string; media_url: string }) | null
     finished_preview?: FilmPreview | null
     draft_preview?: FilmPreview | null

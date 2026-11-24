@@ -188,8 +188,14 @@ class EditAgentCoordinator:
                     if row is None:
                         return None
                     entry = json.loads(row["payload_json"])
+                    store = PreviewRenderRepository(self.repository.projects)
+                    render = store.get(project_id, entry["render_id"])
+                    if render["state"] == "running":
+                        from clipen.rendering.stage import read_stage
+
+                        render["stage"] = read_stage(store.output_path(project_id, entry["render_id"], prepare=False))
                     return {
-                        **PreviewRenderRepository(self.repository.projects).get(project_id, entry["render_id"]),
+                        **render,
                         "revision_id": entry["revision_id"],
                         "stale": entry["revision_id"] != draft.revision_id or entry.get("recipe_id") != recipe_id,
                         "media_url": f"/api/projects/{project_id}/preview/{entry['render_id']}/media",

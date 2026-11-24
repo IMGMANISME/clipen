@@ -1,5 +1,5 @@
 import { ProviderBadge } from './ProviderBadge'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { EvidenceSection } from './EvidenceSection'
 import { TranscriptResults } from './TranscriptResults'
 import { ProductionSection } from './ProductionSection'
@@ -44,6 +44,7 @@ import { StudioIcon } from './StudioIcon'
 import './index.css'
 import { ProviderContext } from './providerContext'
 import { SkillLibrary } from './SkillLibrary'
+import { BuiltInTemplates } from './BuiltInTemplates'
 
 type ApplicationState =
   | { kind: 'connecting' }
@@ -306,6 +307,7 @@ function ProjectHome({
         </section>
       )}
 
+      {!creating && <BuiltInTemplates />}
       {!creating && <SkillLibrary csrf={csrf} />}
     </main>
   )
@@ -767,6 +769,13 @@ function MaterialsWorkspace({
   const [selectedStage, setSelectedStage] = useState<WorkspaceStage | null>(null)
 
   function selectStage(stage: WorkspaceStage) {
+    // A step that is not open yet says what opens it instead of silently doing nothing.
+    if (!stageAvailable(stage)) {
+      setSelectedStage('materials'); setError(null)
+      setNotice(source?.availability === 'available' ? '先按下方的「檢查素材」，完成後就能使用這一步。' : '先選擇毛片資料夾並按「檢查素材」，完成後就能使用這一步。')
+      document.getElementById('inventory-title')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      return
+    }
     setSelectedStage(stage)
     window.scrollTo(0, 0)
   }
@@ -908,23 +917,30 @@ function MaterialsWorkspace({
     setError(errorMessage(caught))
   }
 
-  async function saveDetails(event: FormEvent) {
-    event.preventDefault()
-    if (!dirty || !name.trim() || saving) return
+  // Name and brief save themselves a moment after typing stops; the badge at the top says when.
+  const edits = useRef(0)
+  useEffect(() => { if (dirty) edits.current += 1 }, [dirty, name, brief])
+  async function saveDetails() {
+    const edit = edits.current
     setSaving(true)
     setError(null)
-    setNotice(null)
     try {
       const updated = await updateProjectDetails(csrf, project, name, brief)
-      setDirty(false)
+      // Typing during the save leaves the newer text to save next.
+      setDirty(edits.current !== edit)
       onProject(updated)
-      setNotice('作品已保存')
     } catch (caught) {
       await recoverConflict(caught)
     } finally {
       setSaving(false)
     }
   }
+
+  useEffect(() => {
+    if (!dirty || !name.trim() || saving) return
+    const timer = window.setTimeout(() => void saveDetails(), 900)
+    return () => window.clearTimeout(timer)
+  }, [dirty, name, brief, saving]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function inspectMedia() {
     if (inventoryActionBusy || !source || source.availability !== 'available') return
@@ -1108,13 +1124,13 @@ function MaterialsWorkspace({
           {stages.map((stage) => {
             const available = stageAvailable(stage.id)
             return <li key={stage.id}>
-              <button type="button" disabled={!available} className={activeStage === stage.id ? 'is-active' : ''} aria-current={activeStage === stage.id ? 'step' : undefined} onClick={() => selectStage(stage.id)}>
+              <button type="button" aria-disabled={!available} title={available ? undefined : '先選擇毛片資料夾並檢查素材'} className={activeStage === stage.id ? 'is-active' : ''} aria-current={activeStage === stage.id ? 'step' : undefined} onClick={() => selectStage(stage.id)}>
                 {stage.label}{stage.id === 'materials' && currentInventoryId && <StudioIcon name="check" size={14} />}
               </button>
             </li>
           })}
         </ol>
-        {toolStages.map((stage) => <button key={stage.id} type="button" className={`workspace-tool ${activeStage === stage.id ? 'is-active' : ''}`} disabled={!stageAvailable(stage.id)} onClick={() => selectStage(stage.id)}>{stage.label}</button>)}
+        {toolStages.map((stage) => <button key={stage.id} type="button" className={`workspace-tool ${activeStage === stage.id ? 'is-active' : ''}`} aria-disabled={!stageAvailable(stage.id)} title={stageAvailable(stage.id) ? undefined : '先選擇毛片資料夾並檢查素材'} onClick={() => selectStage(stage.id)}>{stage.label}</button>)}
       </nav>
       <div className="workspace-layout">
         <section className="materials-panel" aria-label="作品工作區">
@@ -1122,7 +1138,7 @@ function MaterialsWorkspace({
             <div>
               <p className="eyebrow">01 · 素材</p>
               <h1 id="materials-title">準備這次剪輯</h1>
-              <p>先告訴 Clipen 素材在哪裡、希望剪成什麼樣子。檢查素材後，可分別啟動本機分析；只有明確同意傳送縮圖，才會呼叫 AI。</p>
+              <p>先告訴 Clipen 毛片在哪裡並檢查素材，就能開始 AI 節目製作。檢查與本機分析都不會呼叫 AI；只有明確同意後才會用到 AI 額度。</p>
             </div>
             <div className={`save-state ${dirty ? 'unsaved' : ''}`} aria-live="polite">
               <span aria-hidden="true" />{saving ? '保存中' : dirty ? '尚未保存' : '已保存'}
@@ -1135,30 +1151,7 @@ function MaterialsWorkspace({
             </div>
           )}
 
-          {activeStage === 'materials' && <div className="stage-view"><form className="project-form" onSubmit={saveDetails}>
-            <label htmlFor="workspace-name">作品名稱</label>
-            <input
-              id="workspace-name"
-              maxLength={120}
-              value={name}
-              onChange={(event) => { setName(event.target.value); setDirty(true); setNotice(null) }}
-            />
-            <label htmlFor="workspace-brief">剪輯需求</label>
-            <textarea
-              id="workspace-brief"
-              maxLength={8000}
-              rows={5}
-              placeholder="例如：剪成 30 秒的手沖教學，步驟清楚、節奏俐落，保留沖水聲。"
-              value={brief}
-              onChange={(event) => { setBrief(event.target.value); setDirty(true); setNotice(null) }}
-            />
-            <div className="form-footer">
-              <span>{brief.length.toLocaleString()} / 8,000</span>
-              <button className="button primary" type="submit" disabled={!dirty || !name.trim() || saving}>
-                {saving ? '正在保存…' : '保存作品資料'}
-              </button>
-            </div>
-          </form>
+          {activeStage === 'materials' && <div className="stage-view">
 
           <div className="directory-section">
             <div className="section-title-row">
@@ -1198,6 +1191,30 @@ function MaterialsWorkspace({
             loadMoreError={inventoryMoreError}
           />
           {currentInventoryId && <div className="stage-next"><span>素材已經整理完成</span><button className="button primary" type="button" onClick={() => selectStage('production')}>開始 AI 節目製作</button></div>}
+          <form className="project-form" aria-labelledby="project-details-title" onSubmit={(event) => event.preventDefault()}>
+            <h2 id="project-details-title">作品資料</h2>
+            <label htmlFor="workspace-name">作品名稱</label>
+            <input
+              id="workspace-name"
+              maxLength={120}
+              value={name}
+              onChange={(event) => { setName(event.target.value); setDirty(true); setNotice(null) }}
+            />
+            <label htmlFor="workspace-brief">剪輯需求<small>選填，開始製作時還能再改</small></label>
+            <textarea
+              id="workspace-brief"
+              maxLength={8000}
+              rows={5}
+              placeholder="例如：剪成 30 秒的手沖教學，步驟清楚、節奏俐落，保留沖水聲。"
+              value={brief}
+              onChange={(event) => { setBrief(event.target.value); setDirty(true); setNotice(null) }}
+            />
+            <div className="form-footer">
+              <span>{brief.length.toLocaleString()} / 8,000</span>
+              <span>{!name.trim() ? '作品名稱不能空白' : '修改會自動保存'}</span>
+            </div>
+          </form>
+
           <section className="danger-zone" aria-labelledby="delete-project-title">
             <div>
               <h2 id="delete-project-title">刪除作品</h2>
