@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from clipen.providers.account import claude_account, codex_account, record_claude_account
+from clipen.providers.account import _claude_name, claude_account, codex_account, record_claude_account
 
 
 class ProviderAccountTests(unittest.TestCase):
@@ -177,6 +177,17 @@ class PowerStatusTests(unittest.TestCase):
             self.assertEqual(power.power_status()["on_battery"], False)
         with patch.object(power.sys, "platform", "linux"):
             self.assertEqual(power.power_status(), {"on_battery": None, "percent": None})
+
+
+class ModelNameTests(unittest.TestCase):
+    def test_version_parts_read_as_one_number_and_dates_drop(self):
+        for model, name in [
+            ("claude-sonnet-5-5", "Claude Sonnet 5.5"),
+            ("claude-sonnet-5-20261001", "Claude Sonnet 5"),
+            ("claude-opus-4-1-20250805", "Claude Opus 4.1"),
+            ("claude-3-5-sonnet-20241022", "Claude 3.5 Sonnet"),
+        ]:
+            self.assertEqual(_claude_name(model), name)
 
 
 if __name__ == "__main__":

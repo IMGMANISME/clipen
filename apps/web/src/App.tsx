@@ -257,7 +257,8 @@ function ProjectHome({
         <div>
           <h1>你的作品</h1>
         </div>
-        {!creating && (
+        {/* With no projects yet, the empty state below holds the one way to start. */}
+        {!creating && projects.length > 0 && (
           <button className="button primary create-button" onClick={() => setCreating(true)}>
             <span aria-hidden="true">＋</span> 建立作品
           </button>

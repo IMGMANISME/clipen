@@ -197,9 +197,16 @@ def record_claude_account(attempt_root: Path, events: list[dict], requested: str
 
 
 def _claude_name(model: str) -> str:
-    """claude-sonnet-5-20261001 reads as Claude Sonnet 5."""
-    words = [w for w in model.split("-") if not (w.isdigit() and len(w) == 8)]
-    return " ".join(w.capitalize() for w in words) or model
+    """claude-sonnet-5-20261001 reads as Claude Sonnet 5, and claude-sonnet-5-5 as Claude Sonnet 5.5."""
+    words: list[str] = []
+    for word in model.split("-"):
+        if word.isdigit() and len(word) == 8:
+            continue  # a release date
+        if word.isdigit() and words and words[-1].replace(".", "").isdigit():
+            words[-1] += "." + word  # the parts of one version number
+        else:
+            words.append(word.capitalize())
+    return " ".join(words) or model
 
 
 def claude_account(attempt_root: Path, environment: Mapping[str, str] | None = None) -> dict:
