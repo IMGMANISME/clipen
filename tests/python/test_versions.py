@@ -59,6 +59,27 @@ class VersionTests(unittest.TestCase):
         # A stop that changed nothing (the last refinement) adds no version.
         self.assertNotIn("超過時間", " ".join(v["label"] for v in listed))
 
+    def test_a_continued_request_that_finishes_unchanged_makes_its_version_complete(self):
+        db = database(
+            [
+                ("run_created", {}),
+                ("revision_created", {"revision_id": "r0"}),
+                ("run_finished", {}),
+                ("refinement_requested", {"instruction": "改字型", "base_revision_id": "r0"}),
+                ("revision_created", {"revision_id": "r1"}),
+                ("provider_failed", {"error_code": "provider_usage_limit"}),
+                # 繼續這份草稿: the AI finishes its checks without changing anything more.
+                ("run_resumed", {}),
+                ("run_finished", {"summary": "完成字型修改"}),
+            ]
+        )
+        listed = versions(db, "run", "claude")
+        self.assertEqual(
+            [(v["revision_id"], v["kind"], v["label"]) for v in listed],
+            [("r1", "ai_complete", "Claude 打磨完成"), ("r0", "ai_complete", "Claude 製作完成")],
+        )
+        self.assertEqual(listed[0]["detail"], "改字型")
+
     def test_each_ai_version_carries_the_tokens_it_used(self):
         use = lambda n: {"input_tokens": n * 10, "cached_input_tokens": n * 8, "output_tokens": n}
         db = database(

@@ -113,8 +113,13 @@ def versions(database, run_id, provider, styles=None, current=None):
         elif kind == "provider_switched":
             current_ai = payload.get("to", current_ai)
         elif kind == "run_finished":
-            add("ai_complete", f"{_name(current_ai)} {'打磨' if request else '製作'}完成", row["created_at"], request)
+            label = f"{_name(current_ai)} {'打磨' if request else '製作'}完成"
+            add("ai_complete", label, row["created_at"], request)
             if result and result[-1]["revision_id"] == latest:
+                # A stopped request that was continued and then finished without further changes ends
+                # on the version it stopped at: that version is the finished film now, not a draft.
+                if result[-1]["kind"] == "ai_partial":
+                    result[-1].update(kind="ai_complete", label=label, created_at=row["created_at"])
                 result[-1]["report"] = _report(payload, sent)
             start = latest
         elif kind in _STOPS:
