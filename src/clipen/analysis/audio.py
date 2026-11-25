@@ -379,6 +379,9 @@ def _terminate(process: subprocess.Popen[bytes]) -> None:
         except ProcessLookupError:
             process.wait(timeout=2)
             return
+        except PermissionError:
+            # macOS refuses to signal a group whose members have all exited; end the leader itself.
+            process.terminate()
     else:
         process.terminate()
     try:
@@ -389,6 +392,8 @@ def _terminate(process: subprocess.Popen[bytes]) -> None:
                 os.killpg(process.pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
+            except PermissionError:
+                process.kill()
         else:
             process.kill()
         process.wait(timeout=2)

@@ -904,6 +904,9 @@ class ASRSetupManager:
                 os.killpg(process.pid, signal.SIGTERM)
             except ProcessLookupError:
                 return
+            except PermissionError:
+                # macOS refuses to signal a group whose members have all exited; end the leader itself.
+                process.terminate()
         else:
             process.terminate()
         try:
