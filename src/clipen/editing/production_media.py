@@ -53,6 +53,24 @@ class AgentAudioStore:
             raise ProjectError("agent_audio_limit", "這個作品已達 48 個音訊候選上限。", status_code=409)
         atomic_json(self.manifest, records)
 
+    def measure_whole(self, asset_id, cancel):
+        """Measure again a track stored when only its first 90 seconds were analysed."""
+        from clipen.finishing.audio import ANALYZED_SECONDS_LIMIT, measure_audio
+
+        records = self.records()
+        record = next((r for r in records if r["asset"]["asset_id"] == asset_id), None)
+        if record is None:
+            return
+        asset = record["asset"]
+        if asset.get("analyzed_seconds", 0) >= min(asset["duration_seconds"], ANALYZED_SECONDS_LIMIT) - 1:
+            return
+        fd, _ = open_asset(self.context(asset_id), asset_id)
+        try:
+            asset.update(measure_audio(fd, asset["stream_index"], cancel))
+        finally:
+            os.close(fd)
+        atomic_json(self.manifest, records)
+
     def public_assets(self):
         return [
             {k: v for k, v in r["asset"].items() if k not in {"relative_path", "fingerprint", "mtime_ns", "size_bytes"}}

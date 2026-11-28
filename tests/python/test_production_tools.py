@@ -694,6 +694,14 @@ class ProductionToolsTests(unittest.TestCase):
         inspected = self.call("inspect_audio", asset_id=asset["asset_id"])
         self.assertFalse(inspected.payload["heard_by_model"])
         self.assertNotIn(str(root), json.dumps(inspected.payload))
+        # A track stored when only the start of it was analysed is measured again in full.
+        store = self.tools._asset_store()
+        records = store.records()
+        records[0]["asset"].update(analyzed_seconds=0.5, beats_seconds=[])
+        store.manifest.write_text(json.dumps(records))
+        remeasured = self.call("inspect_audio", asset_id=asset["asset_id"]).payload["asset"]
+        self.assertAlmostEqual(remeasured["analyzed_seconds"], 2, delta=0.1)
+        self.assertAlmostEqual(store.records()[0]["asset"]["analyzed_seconds"], 2, delta=0.1)
         self.call(
             "set_mosaic",
             item_id="agent-video-0001",

@@ -634,7 +634,9 @@ class ProductionTools:
         )
 
     def _production_inspect_audio(self, args):
-        value = next((a for a in self._asset_store().public_assets() if a["asset_id"] == args["asset_id"]), None)
+        store = self._asset_store()
+        store.measure_whole(args["asset_id"], self._cancel_event())
+        value = next((a for a in store.public_assets() if a["asset_id"] == args["asset_id"]), None)
         if value is None:
             raise problem("找不到已取得的音訊。")
         return ToolResult({"asset": value, "heard_by_model": False})
