@@ -135,6 +135,21 @@ class FinishingAudioTests(unittest.TestCase):
         self.assertEqual(beats, [])
         self.assertIsNone(bpm)
 
+    def test_beats_follow_a_whole_song_without_drifting(self):
+        # 0.4537 s is no whole number of 20 ms hops, so a fixed grid drifts off within a minute.
+        period, length = 0.4537, 200
+        samples = array("h", [0] * (length * 8000))
+        clicks = [index * period + 0.25 for index in range(int((length - 0.5) / period))]
+        for start in clicks:
+            first = int(start * 8000)
+            for offset in range(80):
+                samples[first + offset] = 12000
+        beats, bpm = detect_beats(samples)
+        self.assertAlmostEqual(bpm, 60 / period, delta=3)
+        self.assertGreater(beats[-1], length - 2)
+        self.assertGreater(len(beats), len(clicks) * 0.95)
+        self.assertLess(max(min(abs(beat - click) for click in clicks) for beat in beats), 0.03)
+
     def test_subprocess_can_cancel_without_waiting_for_stdout(self):
         import sys
 
